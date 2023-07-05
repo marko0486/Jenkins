@@ -1,10 +1,9 @@
-// serverList.groovy
 def call() {
-    def serverList = [
+    def agentList = [
         'Server 1',
         'Server 2',
         'Server 3'
     ]
     
-    return serverList
+    return agentList
 }
