@@ -1,3 +1,4 @@
+nuevo
 pipeline {
 
     agent {
@@ -5,32 +6,26 @@ pipeline {
     }
 
     parameters {
-
         string(
             name: 'JOB_NAME',
             defaultValue: ''
         )
-
         string(
             name: 'SRC_PATH',
             defaultValue: ''
         )
-
         string(
             name: 'SITE_URL',
             defaultValue: ''
         )
-
         string(
             name: 'LIBRARY',
             defaultValue: 'Shared Documents'
         )
-
         string(
             name: 'FILE_MASK',
             defaultValue: '*.*'
         )
-
         choice(
             name: 'OPERATION',
             choices: [
@@ -38,7 +33,6 @@ pipeline {
                 'MOVE'
             ]
         )
-
         booleanParam(
             name: 'OVERWRITE',
             defaultValue: true
@@ -46,7 +40,6 @@ pipeline {
     }
 
     options {
-
         buildDiscarder(
             logRotator(
                 numToKeepStr: '50'
@@ -54,11 +47,16 @@ pipeline {
         )
     }
 
-environment {
-
-    START_TIME =
-        "${System.currentTimeMillis()}"
-}
+    environment {
+        START_TIME = "${System.currentTimeMillis()}"
+        // Parámetros como variables de entorno para PowerShell
+        SITE_URL   = "${params.SITE_URL}"
+        SRC_PATH   = "${params.SRC_PATH}"
+        FILE_MASK  = "${params.FILE_MASK}"
+        LIBRARY    = "${params.LIBRARY}"
+        OPERATION  = "${params.OPERATION}"
+        OVERWRITE  = "${params.OVERWRITE}"
+    }
 
     stages {
 
@@ -73,202 +71,155 @@ environment {
 
                     script {
 
-                        currentBuild.displayName =
-                            "#${env.BUILD_NUMBER} - ${params.JOB_NAME}"
+                        currentBuild.displayName = "#${env.BUILD_NUMBER} - ${params.JOB_NAME}"
+                        currentBuild.description = "${params.FILE_MASK}"
 
-                        currentBuild.description =
-    "${params.FILE_MASK}"
+                        // Carpeta fija solicitada
+                        def tmpDir = "C:\\Jenkins\\Jobs\\Tmp"
 
-def tmpDir =
-    "C:\\Jenkins\\Jobs\\Tmp\\${env.BUILD_NUMBER}"
+                        // Archivos con BUILD_NUMBER
+                        def uploadedFile = "${tmpDir}\\uploaded_files_${env.BUILD_NUMBER}.txt"
+                        def skippedFile  = "${tmpDir}\\skipped_files_${env.BUILD_NUMBER}.txt"
+                        def errorFile    = "${tmpDir}\\sharepoint_error_${env.BUILD_NUMBER}.txt"
+                        def psFile       = "${tmpDir}\\sharepoint-transfer_${env.BUILD_NUMBER}.ps1"
 
-def uploadedFile =
-    "${tmpDir}\\uploaded_files_${env.BUILD_NUMBER}.txt"
-
-def skippedFile =
-    "${tmpDir}\\skipped_files_${env.BUILD_NUMBER}.txt"
-
-def errorFile =
-    "${tmpDir}\\sharepoint_error_${env.BUILD_NUMBER}.txt"
-
-def psFile =
-    "${tmpDir}\\sharepoint-transfer_${env.BUILD_NUMBER}.ps1"
-
-bat """
+                        // Crear carpeta y limpiar archivos anteriores del mismo build (si existen)
+                        bat """
 @echo off
-
 if not exist "${tmpDir}" mkdir "${tmpDir}"
-
-if exist "${uploadedFile}" del "${uploadedFile}"
-if exist "${skippedFile}" del "${skippedFile}"
-if exist "${errorFile}" del "${errorFile}"
-if exist "${psFile}" del "${psFile}"
+if exist "${uploadedFile}" del /f /q "${uploadedFile}"
+if exist "${skippedFile}"  del /f /q "${skippedFile}"
+if exist "${errorFile}"    del /f /q "${errorFile}"
+if exist "${psFile}"       del /f /q "${psFile}"
 """
 
- writeFile(
-    file: psFile,
-    text: '''
-$clientId   = "c9864df8-7369-42e5-bec4-2a7fd1e6cf7a"
-$tenantId   = "eb70b763-b6d7-4486-8555-8831709a784e"
-$thumbPrint = "30da72f8c36269bdcc7e8aefcc577c0ef51eef90"
+                        // Generar el .ps1 con las rutas ya interpoladas
+                        writeFile(
+                            file: psFile,
+                            text: """
+\$clientId   = "c9864df8-7369-42e5-bec4-2a7fd1e6cf7a"
+\$tenantId   = "eb70b763-b6d7-4486-8555-8831709a784e"
+\$thumbPrint = "30da72f8c36269bdcc7e8aefcc577c0ef51eef90"
 
-$ErrorActionPreference = "Stop"
+\$ErrorActionPreference = "Stop"
 
-$siteUrl   = $env:SITE_URL
-$source    = $env:SRC_PATH
-$mask      = $env:FILE_MASK
-$library   = $env:LIBRARY
-$operation = $env:OPERATION
-$overwrite = $env:OVERWRITE
+\$siteUrl   = \$env:SITE_URL
+\$source    = \$env:SRC_PATH
+\$mask      = \$env:FILE_MASK
+\$library   = \$env:LIBRARY
+\$operation = \$env:OPERATION
+\$overwrite = \$env:OVERWRITE
 
-$connected = $false
-$uploaded  = @()
-$skipped = @()
+\$connected = \$false
+\$uploaded  = @()
+\$skipped   = @()
 
-$uploadedFile = "${uploadedFile}"
-$skippedFile  = "${skippedFile}"
-$errorFile    = "${errorFile}"
+\$uploadedFile = "${uploadedFile}"
+\$skippedFile  = "${skippedFile}"
+\$errorFile    = "${errorFile}"
 
-if (Test-Path $uploadedFile) {
-    Remove-Item $uploadedFile -Force
-}
-
-if (Test-Path $skippedFile) {
-    Remove-Item $skippedFile -Force
-}
-
-if (Test-Path $errorFile) {
-    Remove-Item $errorFile -Force
-}
+if (Test-Path \$uploadedFile) { Remove-Item \$uploadedFile -Force }
+if (Test-Path \$skippedFile)  { Remove-Item \$skippedFile  -Force }
+if (Test-Path \$errorFile)    { Remove-Item \$errorFile    -Force }
 
 try {
 
-    if (-not (Test-Path $source)) {
-        throw "Source path does not exist: $source"
+    if (-not (Test-Path \$source)) {
+        throw "Source path does not exist: \$source"
     }
-
 
     Connect-PnPOnline `
-    -Url $siteUrl `
-    -ClientId $clientId `
-    -Tenant $tenantId `
-    -Thumbprint $thumbPrint `
-    -ErrorAction Stop
-
-$connected = $true
-
-        Get-PnPWeb `
-            -ErrorAction Stop |
-            Out-Null
-
-    $files = Get-ChildItem `
-        -Path $source `
-        -Filter $mask `
-        -File
-
-    if ($files.Count -eq 0) {
-    throw "No files found matching: $mask"
-    }
-
-    $sharePointFiles =
-    Get-PnPFolderItem `
-        -FolderSiteRelativeUrl $library `
+        -Url \$siteUrl `
+        -ClientId \$clientId `
+        -Tenant \$tenantId `
+        -Thumbprint \$thumbPrint `
         -ErrorAction Stop
 
-    foreach ($file in $files) {
+    \$connected = \$true
+
+    Get-PnPWeb -ErrorAction Stop | Out-Null
+
+    \$files = Get-ChildItem -Path \$source -Filter \$mask -File
+
+    if (\$files.Count -eq 0) {
+        throw "No files found matching: \$mask"
+    }
+
+    \$sharePointFiles = Get-PnPFolderItem `
+        -FolderSiteRelativeUrl \$library `
+        -ErrorAction Stop
+
+    foreach (\$file in \$files) {
+
         Write-Host ""
-        Write-Host "Uploading: $($file.Name)"
-        Write-Host "Operation: $operation"
+        Write-Host "Uploading: \$(\$file.Name)"
+        Write-Host "Operation: \$operation"
 
-    if (
-        ($overwrite -eq "True") -or
-        ($overwrite -eq $true)
-    ) {
+        if ((\$overwrite -eq "True") -or (\$overwrite -eq \$true)) {
 
-        Add-PnPFile `
-            -Path $file.FullName `
-            -Folder $library `
-            -ErrorAction Stop
-    }
-    else {
-
-        $existingFile =
-        $sharePointFiles |
-        Where-Object {
-            $_.Name -eq $file.Name
-        }
-
-        if ($existingFile) {
-
-            $skipped += $file.Name
-
-            continue
-        }
-
-        Add-PnPFile `
-            -Path $file.FullName `
-            -Folder $library `
-            -ErrorAction Stop
-    }
-
-    $uploaded += $file.Name
-
-        if ($operation -eq 'MOVE') {
-
-            Remove-Item `
-                -Path $file.FullName `
-                -Force `
+            Add-PnPFile `
+                -Path \$file.FullName `
+                -Folder \$library `
                 -ErrorAction Stop
         }
+        else {
+
+            \$existingFile = \$sharePointFiles | Where-Object { \$_.Name -eq \$file.Name }
+
+            if (\$existingFile) {
+                \$skipped += \$file.Name
+                continue
+            }
+
+            Add-PnPFile `
+                -Path \$file.FullName `
+                -Folder \$library `
+                -ErrorAction Stop
+        }
+
+        \$uploaded += \$file.Name
+
+        if (\$operation -eq 'MOVE') {
+            Remove-Item -Path \$file.FullName -Force -ErrorAction Stop
+        }
     }
 
-    $uploaded |
-        Set-Content $uploadedFile
-
-    $skipped |
-        Set-Content $skippedFile
+    \$uploaded | Set-Content -Path \$uploadedFile -Encoding UTF8
+    \$skipped  | Set-Content -Path \$skippedFile  -Encoding UTF8
 }
 catch {
 
-    $_.Exception.Message |
-        Set-Content $errorFile
-
+    \$_.Exception.Message | Set-Content -Path \$errorFile -Encoding UTF8
     exit 1
 }
 finally {
 
-    if ($connected) {
-
-        Disconnect-PnPOnline `
-            -ErrorAction SilentlyContinue
+    if (\$connected) {
+        Disconnect-PnPOnline -ErrorAction SilentlyContinue
     }
 }
 
 exit 0
-'''
-)
+"""
+                        )
 
-def rc = bat(
-    returnStatus: true,
-    script: """
+                        // Ejecutar el script PowerShell
+                        def rc = bat(
+                            returnStatus: true,
+                            script: """
 @echo off
-
 "C:\\Program Files\\PowerShell\\7\\pwsh.exe" ^
--NoLogo ^
--NoProfile ^
--NonInteractive ^
--ExecutionPolicy Bypass ^
--File "${psFile}"
-
+    -NoLogo ^
+    -NoProfile ^
+    -NonInteractive ^
+    -ExecutionPolicy Bypass ^
+    -File "${psFile}"
 exit /b %ERRORLEVEL%
 """
-)
+                        )
 
                         if (rc != 0) {
-
-                            error(
-                                "SharePoint transfer failed. RC=${rc}"
-                            )
+                            error("SharePoint transfer failed. RC=${rc}")
                         }
 
                     } // script
@@ -287,112 +238,53 @@ exit /b %ERRORLEVEL%
 
             script {
 
-                long elapsed =
-                    (
-                        System.currentTimeMillis()
-                        -
-                        env.START_TIME.toLong()
-                    ) / 1000
+                long elapsed = (System.currentTimeMillis() - env.START_TIME.toLong()) / 1000
 
-def tmpDir =
-    "C:\\Jenkins\\Jobs\\Tmp\\${env.BUILD_NUMBER}"
+                def tmpDir = "C:\\Jenkins\\Jobs\\Tmp"
 
-def uploadedFile =
-    "${tmpDir}\\uploaded_files_${env.BUILD_NUMBER}.txt"
+                def uploadedFile = "${tmpDir}\\uploaded_files_${env.BUILD_NUMBER}.txt"
+                def skippedFile  = "${tmpDir}\\skipped_files_${env.BUILD_NUMBER}.txt"
+                def errorFile    = "${tmpDir}\\sharepoint_error_${env.BUILD_NUMBER}.txt"
 
-def skippedFile =
-    "${tmpDir}\\skipped_files_${env.BUILD_NUMBER}.txt"
+                def uploadedFiles = ''
+                def skippedFiles  = ''
+                def errorMsg      = ''
+                def finalStatus   = ''
 
-def errorFile =
-    "${tmpDir}\\sharepoint_error_${env.BUILD_NUMBER}.txt"
-def uploadedFiles = ''
-def skippedFiles = ''
-def finalStatus = ''
-
-
-                if (
-                    fileExists(
-                        uploadedFile
-                    )
-                ) {
-
-                    uploadedFiles =
-                        readFile(
-                            uploadedFile
-                        ).trim()
+                if (fileExists(uploadedFile)) {
+                    uploadedFiles = readFile(uploadedFile).trim()
                 }
 
-                if (
-                    fileExists(
-                        skippedFile
-                    )
-            ) {
-                    skippedFiles =
-                        readFile(
-                            skippedFile
-                    ).trim()
-            }          
+                if (fileExists(skippedFile)) {
+                    skippedFiles = readFile(skippedFile).trim()
+                }
 
-def errorMsg = ''
+                if (fileExists(errorFile)) {
+                    errorMsg = readFile(errorFile).trim()
+                }
 
-if (
-    fileExists(
-        errorFile
-    )
-) {
-
-    errorMsg =
-        readFile(
-            errorFile
-        ).trim()
-}
-
-
-
-if (errorMsg?.trim()) {
-
-    finalStatus = errorMsg
-
-}
-else if (
-    !uploadedFiles?.trim() &&
-    skippedFiles?.trim()
-) {
-
-    finalStatus = 'NO FILES PROCESSED'
-
-}
-else if (
-    !uploadedFiles?.trim() &&
-    !skippedFiles?.trim()
-) {
-
-    finalStatus = 'NO FILES PROCESSED'
-
-}
-else {
-
-    finalStatus =
-        "SUCCESS (${params.OPERATION})"
-}
-
+                if (errorMsg?.trim()) {
+                    finalStatus = errorMsg
+                }
+                else if (!uploadedFiles?.trim() && skippedFiles?.trim()) {
+                    finalStatus = 'NO FILES PROCESSED'
+                }
+                else if (!uploadedFiles?.trim() && !skippedFiles?.trim()) {
+                    finalStatus = 'NO FILES PROCESSED'
+                }
+                else {
+                    finalStatus = "SUCCESS (${params.OPERATION})"
+                }
 
                 def summary = """SUMMARY
 
 ========================================
-
 Job Name  : ${params.JOB_NAME}
-
 Site URL  : ${params.SITE_URL}
-
 Library   : ${params.LIBRARY}
-
 Operation : ${params.OPERATION}
-
 File Mask : ${params.FILE_MASK}
-
 Status    : ${finalStatus}
-
 Duration  : ${elapsed} seconds
 
 Uploaded Files
