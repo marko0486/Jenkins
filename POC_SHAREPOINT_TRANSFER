@@ -309,18 +309,46 @@ exit /b 0
                 def timestamp = new Date().format('yyyy-MM-dd HH:mm:ss')
 
                 // --------------------------------------------------------
-                // Build Parent (Upstream job) - FIXED for serialization
+                // Build Parent - Robust version (handles both classic and Pipeline causes)
                 // --------------------------------------------------------
                 def buildParent = "N/A"
                 try {
+                    // 1. Classic UpstreamCause
                     def upstreamCause = currentBuild.rawBuild.getCause(hudson.model.Cause.UpstreamCause)
                     if (upstreamCause != null) {
-                        // Extract values immediately into simple Strings
-                        def parentJob   = upstreamCause.upstreamProject
-                        def parentBuild = upstreamCause.upstreamBuild
-                        buildParent = "${parentJob} #${parentBuild}"
+                        buildParent = "${upstreamCause.upstreamProject} #${upstreamCause.upstreamBuild}"
+                    }
+
+                    // 2. Pipeline BuildUpstreamCause
+                    if (buildParent == "N/A") {
+                        def causes = currentBuild.rawBuild.getCauses()
+                        for (cause in causes) {
+                            def causeClass = cause.getClass().getName()
+                            if (causeClass.contains("UpstreamCause") || causeClass.contains("BuildUpstreamCause")) {
+                                try {
+                                    def project = cause.hasProperty('upstreamProject') ? cause.upstreamProject :
+                                                  (cause.metaClass.respondsTo(cause, 'getUpstreamProject') ? cause.getUpstreamProject() : null)
+                                    def buildNum = cause.hasProperty('upstreamBuild') ? cause.upstreamBuild :
+                                                   (cause.metaClass.respondsTo(cause, 'getUpstreamBuild') ? cause.getUpstreamBuild() : null)
+
+                                    if (project && buildNum != null) {
+                                        buildParent = "${project} #${buildNum}"
+                                        break
+                                    }
+                                } catch (Exception ignored) {}
+                            }
+                        }
+                    }
+
+                    // 3. Fallback using upstreamBuilds (very reliable)
+                    if (buildParent == "N/A" && currentBuild.upstreamBuilds) {
+                        def upstream = currentBuild.upstreamBuilds[0]
+                        if (upstream) {
+                            buildParent = "${upstream.getFullProjectName()} #${upstream.getNumber()}"
+                        }
                     }
                 } catch (Exception e) {
+                    echo "Warning: Could not determine Build Parent: ${e.message}"
                     buildParent = "N/A"
                 }
 
