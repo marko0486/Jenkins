@@ -1,3 +1,5 @@
+Mejorar con grok
+
 import groovy.json.JsonSlurperClassic
 //
 // ============================================================================
@@ -81,7 +83,7 @@ pipeline {
                     // ====================================================================
                     //
                     def jsonText = new File(
-                        'C:/Jenkins/Jobs/tmp.json'
+                        'C:/Jenkins/Jobs/file-transfers_05m.json'
                     ).text
                     def transfers =
                         new JsonSlurperClassic().parseText(jsonText)
@@ -537,3 +539,28 @@ REASON : ${f.reason}
         }
     }
 }
+
+FT SUMMARY
+========================================
+FILE TRANSFER SUMMARY
+========================================
+Total    : 8
+Disabled : 2
+Checked  : 5
+Executed : 1
+Skipped  : 5
+Failed   : 0
+========================================
+
+Pero en el log C:\Jenkins\Jobs\Log\<JenkinsJobname>_DATE_BuildID.txt
+Quiero ver el resumen completo de que jobs fueron ejecutados, fallados y desabilitados.
+
+
+
+
+
+
+
+
+
+
