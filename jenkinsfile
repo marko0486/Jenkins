@@ -1,5 +1,4 @@
-Version 2
-
+VERSION 3
 pipeline {
 
     agent {
@@ -50,7 +49,6 @@ pipeline {
 
     environment {
         START_TIME = "${System.currentTimeMillis()}"
-        // Parámetros como variables de entorno para PowerShell
         SITE_URL   = "${params.SITE_URL}"
         SRC_PATH   = "${params.SRC_PATH}"
         FILE_MASK  = "${params.FILE_MASK}"
@@ -75,26 +73,23 @@ pipeline {
                         currentBuild.displayName = "#${env.BUILD_NUMBER} - ${params.JOB_NAME}"
                         currentBuild.description = "${params.FILE_MASK}"
 
-                        // Carpeta fija solicitada
                         def tmpDir = "C:\\Jenkins\\Jobs\\Tmp"
 
-                        // Archivos con BUILD_NUMBER
-                        def uploadedFile = "${tmpDir}\\uploaded_files_${env.BUILD_NUMBER}.txt"
-                        def skippedFile  = "${tmpDir}\\skipped_files_${env.BUILD_NUMBER}.txt"
-                        def errorFile    = "${tmpDir}\\sharepoint_error_${env.BUILD_NUMBER}.txt"
-                        def psFile       = "${tmpDir}\\sharepoint-transfer_${env.BUILD_NUMBER}.ps1"
+                        // .ps1 fijo (sin BUILD_NUMBER)
+                        def psFile = "${tmpDir}\\sharepoint-transfer.ps1"
 
-                        // Crear carpeta y limpiar archivos anteriores del mismo build (si existen)
+                        // .txt con formato *_buildID_<BUILD_NUMBER>
+                        def uploadedFile = "${tmpDir}\\uploaded_files_buildID_${env.BUILD_NUMBER}.txt"
+                        def skippedFile  = "${tmpDir}\\skipped_files_buildID_${env.BUILD_NUMBER}.txt"
+                        def errorFile    = "${tmpDir}\\sharepoint_error_buildID_${env.BUILD_NUMBER}.txt"
+
+                        // Solo crear la carpeta si no existe
                         bat """
 @echo off
 if not exist "${tmpDir}" mkdir "${tmpDir}"
-if exist "${uploadedFile}" del /f /q "${uploadedFile}"
-if exist "${skippedFile}"  del /f /q "${skippedFile}"
-if exist "${errorFile}"    del /f /q "${errorFile}"
-if exist "${psFile}"       del /f /q "${psFile}"
 """
 
-                        // Generar el .ps1 con las rutas ya interpoladas
+                        // Generar el .ps1 (siempre el mismo archivo)
                         writeFile(
                             file: psFile,
                             text: """
@@ -118,10 +113,6 @@ if exist "${psFile}"       del /f /q "${psFile}"
 \$uploadedFile = "${uploadedFile}"
 \$skippedFile  = "${skippedFile}"
 \$errorFile    = "${errorFile}"
-
-if (Test-Path \$uploadedFile) { Remove-Item \$uploadedFile -Force }
-if (Test-Path \$skippedFile)  { Remove-Item \$skippedFile  -Force }
-if (Test-Path \$errorFile)    { Remove-Item \$errorFile    -Force }
 
 try {
 
@@ -243,9 +234,9 @@ exit /b %ERRORLEVEL%
 
                 def tmpDir = "C:\\Jenkins\\Jobs\\Tmp"
 
-                def uploadedFile = "${tmpDir}\\uploaded_files_${env.BUILD_NUMBER}.txt"
-                def skippedFile  = "${tmpDir}\\skipped_files_${env.BUILD_NUMBER}.txt"
-                def errorFile    = "${tmpDir}\\sharepoint_error_${env.BUILD_NUMBER}.txt"
+                def uploadedFile = "${tmpDir}\\uploaded_files_buildID_${env.BUILD_NUMBER}.txt"
+                def skippedFile  = "${tmpDir}\\skipped_files_buildID_${env.BUILD_NUMBER}.txt"
+                def errorFile    = "${tmpDir}\\sharepoint_error_buildID_${env.BUILD_NUMBER}.txt"
 
                 def uploadedFiles = ''
                 def skippedFiles  = ''
