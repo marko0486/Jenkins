@@ -3,34 +3,6 @@ import groovy.json.JsonSlurperClassic
 // ============================================================================
 // GLOBAL EXECUTION COUNTERS AND LISTS
 // ============================================================================
-//
-// These counters and lists are used to build the final execution
-// summary and the detailed log file.
-//
-// TOTAL
-//     Total number of transfer definitions loaded from JSON.
-//
-// DISABLED
-//     Transfers explicitly disabled using:
-//         "enabled": false
-//
-// CHECKED
-//     Transfers that went through Pre-Check validation.
-//
-// EXECUTED
-//     Transfers that actually launched the child pipeline.
-//
-// SKIPPED
-//     Transfers skipped because the source directory was
-//     accessible but no files matched the configured mask.
-//
-// FAILURES
-//     Collection of failed transfers (with details).
-//
-// DISABLED_JOBS / SKIPPED_JOBS / SUCCESS_JOBS
-//     Lists of job names for the detailed log file.
-//
-// ============================================================================
 def TOTAL          = 0
 def DISABLED       = 0
 def CHECKED        = 0
@@ -46,70 +18,16 @@ pipeline {
         label 'built-in'
     }
     options {
-        //
-        // Prevent overlapping executions.
-        //
-        // If an execution is still running when the next trigger
-        // arrives, Jenkins queues the new build instead of running
-        // both in parallel.
-        //
         disableConcurrentBuilds()
     }
     stages {
         stage('File Transfers') {
             steps {
                 script {
-                    //
-                    // ====================================================================
-                    // LOAD TRANSFER INVENTORY
-                    // ====================================================================
-                    //
-                    // The JSON file contains all migrated File Transfer
-                    // definitions from Automic.
-                    //
-                    // Example:
-                    //
-                    // {
-                    //   "job":"ZF.HR#FTA.SUCCESS_FACTOR_TO_ADP_T3.EV",
-                    //   "credentialId":"WIN.SVC.UC4.BATCHUSER",
-                    //   "source":"\\\\server\\share\\folder",
-                    //   "destination":"\\\\server\\share\\folder",
-                    //   "fileMask":"*.zip"
-                    // }
-                    //
-                    // This inventory allows the Orchestrator to drive
-                    // hundreds of transfers without hardcoding paths.
-                    //
-                    // ====================================================================
-                    //
-                    def jsonText = new File(
-                        'C:/Jenkins/Jobs/file-transfers_05m.json'
-                    ).text
-                    def transfers =
-                        new JsonSlurperClassic().parseText(jsonText)
+                    def jsonText = new File('C:/Jenkins/Jobs/file-transfers_05m.json').text
+                    def transfers = new JsonSlurperClassic().parseText(jsonText)
                     TOTAL = transfers.size()
 
-                    //
-                    // ====================================================================
-                    // SINGLE SMB AUTHENTICATION
-                    // ====================================================================
-                    //
-                    // More than 500 migrated File Transfers use:
-                    //
-                    //     WIN.SVC.UC4.BATCHUSER
-                    //
-                    // Instead of opening an SMB session for every
-                    // transfer, we authenticate once and reuse the
-                    // same session throughout the entire Orchestrator.
-                    //
-                    // Benefits:
-                    //
-                    // - Less SMB overhead
-                    // - Faster execution
-                    // - Fewer network authentications
-                    //
-                    // ====================================================================
-                    //
                     withCredentials([
                         usernamePassword(
                             credentialsId: 'WIN.SVC.UC4.BATCHUSER',
@@ -123,122 +41,31 @@ net use "\\\\emea.zf-world.com\\frd" %FT_PASS% /user:%FT_USER% >nul 2>&1
 exit /b 0
 '''
                         try {
-                            //
-                            // ====================================================================
-                            // PROCESS EACH TRANSFER DEFINITION
-                            // ====================================================================
-                            //
-                            // Every entry in the JSON represents one
-                            // migrated Automic File Transfer object.
-                            //
-                            // For each transfer we determine:
-                            //
-                            // 1. Disabled
-                            // 2. Failed
-                            // 3. Skipped
-                            // 4. Executed
-                            //
-                            // ====================================================================
-                            //
                             transfers.each { transfer ->
-                                //
-                                // ====================================================================
-                                // DISABLED TRANSFER
-                                // ====================================================================
-                                //
-                                // Transfers marked:
-                                //
-                                //     "enabled": false
-                                //
-                                // remain in the inventory for documentation
-                                // purposes but are never executed.
-                                //
-                                // Mirrors the behavior of disabled objects
-                                // in Automic.
-                                //
-                                // ====================================================================
-                                //
-                                if (
-                                    transfer.containsKey('enabled') &&
-                                    !transfer.enabled
-                                ) {
+
+                                if (transfer.containsKey('enabled') && !transfer.enabled) {
                                     DISABLED++
                                     DISABLED_JOBS << transfer.job?.toString()
                                     echo "[DISABLED] ${transfer.job}"
                                     return
                                 }
 
-                                //
-                                // ====================================================================
-                                // TRANSFER DEFINITION
-                                // ====================================================================
-                                //
-                                // Read the transfer parameters from JSON.
-                                //
-                                // ====================================================================
-                                //
-                                String jobName =
-                                    transfer.job?.toString()
-                                String credentialId =
-                                    transfer.credentialId?.toString()
-                                String source =
-                                    transfer.source?.toString()
-                                String destination =
-                                    transfer.destination?.toString()
-                                String fileMask =
-                                    transfer.fileMask?.toString() ?: '*.*'
-                                String transferType =
-                                    transfer.transferType?.toString()?.trim()?.toUpperCase() ?: 'ROBOCOPY'
-                                String roboFlags = ''
-                                if (
-                                    transfer.flags instanceof List
-                                ) {
-                                    roboFlags =
-                                        transfer.flags.collect {
-                                            it.toString()
-                                        }.join(' ')
+                                String jobName       = transfer.job?.toString()
+                                String credentialId  = transfer.credentialId?.toString()
+                                String source        = transfer.source?.toString()
+                                String destination   = transfer.destination?.toString()
+                                String fileMask      = transfer.fileMask?.toString() ?: '*.*'
+                                String transferType  = transfer.transferType?.toString()?.trim()?.toUpperCase() ?: 'ROBOCOPY'
+                                String roboFlags     = ''
+
+                                if (transfer.flags instanceof List) {
+                                    roboFlags = transfer.flags.collect { it.toString() }.join(' ')
                                 } else {
-                                    roboFlags =
-                                        transfer.flags?.toString() ?: ''
+                                    roboFlags = transfer.flags?.toString() ?: ''
                                 }
 
-                                //
-                                // ====================================================================
-                                // PRE-CHECK
-                                // ====================================================================
-                                //
-                                // This is the key optimization of the
-                                // orchestration process.
-                                //
-                                // Before launching a child pipeline,
-                                // verify that:
-                                //
-                                // - Source folder exists
-                                // - Source folder is accessible
-                                // - At least one file matches the mask
-                                //
-                                // Without this check:
-                                //
-                                //     300 transfers
-                                //     290 empty folders
-                                //
-                                // would generate:
-                                //
-                                //     300 child builds
-                                //
-                                // With this check:
-                                //
-                                //     290 skipped
-                                //     10 executed
-                                //
-                                // which drastically reduces Jenkins load.
-                                //
-                                // ====================================================================
-                                //
-                                if (
-                                    transferType == 'ROBOCOPY' &&
-                                    credentialId == 'WIN.SVC.UC4.BATCHUSER'
-                                ) {
+                                // PRE-CHECK only for ROBOCOPY
+                                if (transferType == 'ROBOCOPY' && credentialId == 'WIN.SVC.UC4.BATCHUSER') {
                                     CHECKED++
                                     int checkResult = bat(
                                         returnStatus: true,
@@ -255,27 +82,6 @@ exit /b %RC%
 """
                                     )
 
-                                    //
-                                    // ====================================================================
-                                    // PRECHECK FAILURE
-                                    // ====================================================================
-                                    //
-                                    // Return Code 100
-                                    //
-                                    // Source directory cannot be accessed.
-                                    //
-                                    // Possible causes:
-                                    //
-                                    // - Folder does not exist
-                                    // - Access denied
-                                    // - Network share unavailable
-                                    //
-                                    // Treated as FAILED because it
-                                    // represents a configuration or
-                                    // infrastructure problem.
-                                    //
-                                    // ====================================================================
-                                    //
                                     if (checkResult == 100) {
                                         FAILURES << [
                                             job    : jobName,
@@ -283,93 +89,36 @@ exit /b %RC%
                                             reason : 'Source path not found or access denied'
                                         ]
                                         echo "[FAIL] ${jobName}"
-                                        echo "Source path not found or access denied."
                                         return
                                     }
 
-                                    //
-                                    // ====================================================================
-                                    // SKIPPED
-                                    // ====================================================================
-                                    //
-                                    // Source path exists and is accessible,
-                                    // but no file matched the configured
-                                    // File Mask.
-                                    //
-                                    // Business condition:
-                                    //
-                                    //     Nothing to transfer.
-                                    //
-                                    // Not an error.
-                                    //
-                                    // ====================================================================
-                                    //
                                     if (checkResult != 0) {
                                         SKIPPED++
                                         SKIPPED_JOBS << jobName
                                         echo "[SKIP] ${jobName}"
-                                        echo "No files found."
                                         return
                                     }
                                 }
 
-                                //
-                                // ====================================================================
-                                // EXECUTE FILE TRANSFER
-                                // ====================================================================
-                                //
-                                // If execution reaches this point:
-                                //
-                                // - Source path exists
-                                // - User has access
-                                // - Matching files exist
-                                //
-                                // Therefore every child build launched
-                                // here has real work to perform.
-                                //
-                                // ====================================================================
-                                //
                                 echo "[EXEC] ${jobName} (${transferType})"
                                 def result
+
                                 if (transferType == 'SHAREPOINT') {
                                     result = build(
                                         job: 'POC_SHAREPOINT_TRANSFER',
                                         wait: true,
                                         propagate: false,
                                         parameters: [
-                                            string(
-                                                name: 'JOB_NAME',
-                                                value: jobName
-                                            ),
-                                            string(
-                                                name: 'SRC_PATH',
-                                                value: source
-                                            ),
-                                            string(
-                                                name: 'SITE_URL',
-                                                value: destination
-                                            ),
-                                            string(
-                                                name: 'LIBRARY',
-                                                value: transfer.library?.toString() ?: 'Shared Documents'
-                                            ),
-                                            string(
-                                                name: 'FILE_MASK',
-                                                value: fileMask
-                                            ),
-                                            string(
-                                                name: 'OPERATION',
-                                                value: transfer.operation?.toString()?.toUpperCase() ?: 'COPY'
-                                            ),
-                                            booleanParam(
-                                                name: 'OVERWRITE',
-                                                value: transfer.overwrite != false
-                                            ),
-                                            // Pass the credentialId so the child job can authenticate to the UNC path
-                                            string(
-                                                name: 'SRC_CRED',
-                                                value: credentialId ?: 'WIN.SVC.UC4.BATCHUSER'
-                                            )
+                                            string(name: 'JOB_NAME',     value: jobName),
+                                            string(name: 'SRC_PATH',     value: source),
+                                            string(name: 'SITE_URL',     value: destination),
+                                            string(name: 'LIBRARY',      value: transfer.library?.toString() ?: 'Shared Documents'),
+                                            string(name: 'FILE_MASK',    value: fileMask),
+                                            string(name: 'OPERATION',    value: transfer.operation?.toString()?.toUpperCase() ?: 'COPY'),
+                                            booleanParam(name: 'OVERWRITE', value: transfer.overwrite != false),
+                                            string(name: 'SRC_CRED',     value: credentialId ?: 'WIN.SVC.UC4.BATCHUSER'),
+                                            // NEW: Pass the Orchestrator Build Number
+                                            string(name: 'PARENT_BUILD', value: "${env.BUILD_NUMBER}")
                                         ]
                                     )
                                 } else {
@@ -378,51 +127,18 @@ exit /b %RC%
                                         wait: true,
                                         propagate: false,
                                         parameters: [
-                                            string(
-                                                name: 'JOB_NAME',
-                                                value: jobName
-                                            ),
-                                            string(
-                                                name: 'SRC_CRED',
-                                                value: credentialId
-                                            ),
-                                            string(
-                                                name: 'SRC_PATH',
-                                                value: source
-                                            ),
-                                            string(
-                                                name: 'DST_PATH',
-                                                value: destination
-                                            ),
-                                            string(
-                                                name: 'FILE_MASK',
-                                                value: fileMask
-                                            ),
-                                            string(
-                                                name: 'ROBOCOPY_FLAGS',
-                                                value: roboFlags
-                                            )
+                                            string(name: 'JOB_NAME',        value: jobName),
+                                            string(name: 'SRC_CRED',        value: credentialId),
+                                            string(name: 'SRC_PATH',        value: source),
+                                            string(name: 'DST_PATH',        value: destination),
+                                            string(name: 'FILE_MASK',       value: fileMask),
+                                            string(name: 'ROBOCOPY_FLAGS',  value: roboFlags)
                                         ]
                                     )
                                 }
+
                                 EXECUTED++
 
-                                //
-                                // ====================================================================
-                                // CHILD PIPELINE FAILED
-                                // ====================================================================
-                                //
-                                // The transfer was launched but did not
-                                // finish successfully.
-                                //
-                                // Examples:
-                                //
-                                // - SMB errors
-                                // - Permission errors
-                                // - Robocopy failures
-                                //
-                                // ====================================================================
-                                //
                                 if (result.result != 'SUCCESS') {
                                     FAILURES << [
                                         job    : jobName,
@@ -438,19 +154,6 @@ exit /b %RC%
                                 }
                             }
                         } finally {
-                            //
-                            // ====================================================================
-                            // DISCONNECT SMB SESSION
-                            // ====================================================================
-                            //
-                            // Always executed, regardless of success
-                            // or failure.
-                            //
-                            // Prevents stale network mappings from
-                            // remaining attached to the Jenkins host.
-                            //
-                            // ====================================================================
-                            //
                             bat '''
 @echo off
 net use "\\\\emea.zf-world.com\\frd" /delete /y >nul 2>&1
@@ -459,61 +162,17 @@ exit /b 0
                         }
                     }
 
-                    //
-                    // ====================================================================
-                    // BUILD HISTORY DASHBOARD
-                    // ====================================================================
-                    //
-                    // Example:
-                    //
-                    // D:1  -> Disabled
-                    // X:10 -> Executed
-                    // S:289 -> Skipped
-                    // F:2 -> Failed
-                    //
-                    // Quickly shows the outcome directly from
-                    // Jenkins Build History.
-                    //
-                    // ====================================================================
-                    //
-                    currentBuild.displayName =
-                        "#${env.BUILD_NUMBER} D:${DISABLED} X:${EXECUTED} S:${SKIPPED} F:${FAILURES.size()}"
-                    currentBuild.description =
-                        "Total=${TOTAL} | Disabled=${DISABLED} | Checked=${CHECKED} | Executed=${EXECUTED} | Skipped=${SKIPPED} | Failed=${FAILURES.size()}"
-
-                    //
-                    // ====================================================================
-                    // ORCHESTRATOR ALWAYS SUCCESS
-                    // ====================================================================
-                    //
-                    // Failed transfers are reported in the summary
-                    // but do not fail the Orchestrator itself.
-                    //
-                    // This allows one problematic transfer to be
-                    // reported without blocking all remaining work.
-                    //
-                    // ====================================================================
-                    //
+                    currentBuild.displayName = "#${env.BUILD_NUMBER} D:${DISABLED} X:${EXECUTED} S:${SKIPPED} F:${FAILURES.size()}"
+                    currentBuild.description = "Total=${TOTAL} | Disabled=${DISABLED} | Checked=${CHECKED} | Executed=${EXECUTED} | Skipped=${SKIPPED} | Failed=${FAILURES.size()}"
                     currentBuild.result = 'SUCCESS'
                 }
             }
         }
     }
+
     post {
         always {
             script {
-                //
-                // ====================================================================
-                // FINAL CONSOLIDATED REPORT (Stage View)
-                // ====================================================================
-                //
-                // A single echo is intentionally used.
-                //
-                // This avoids creating hundreds of Print Message
-                // entries in Jenkins Stage View.
-                //
-                // ====================================================================
-                //
                 def summary = """
 FT SUMMARY
 ========================================
@@ -540,34 +199,16 @@ REASON : ${f.reason}
 ----------------------------------------
 """
                     }
-                    summary += """
-========================================
-"""
+                    summary += "========================================\n"
                 }
                 echo(summary)
 
-                //
-                // ====================================================================
-                // DETAILED LOG FILE
-                // ====================================================================
-                //
-                // Location:
-                //   C:\Jenkins\Jobs\Log\<JOB_NAME>_yyyyMMdd_BuildID_<BUILD_NUMBER>.txt
-                //
-                // Contains the complete list of:
-                //   - Disabled jobs
-                //   - Skipped jobs
-                //   - Successfully executed jobs
-                //   - Failed jobs (with details)
-                //
-                // ====================================================================
-                //
+                // Detailed log file
                 def logDir = 'C:\\Jenkins\\Jobs\\Log'
                 def dateStr = new Date().format('yyyyMMdd')
                 def logFileName = "${env.JOB_NAME}_${dateStr}_BuildID_${env.BUILD_NUMBER}.txt"
                 def logFilePath = "${logDir}\\${logFileName}"
 
-                // Ensure log directory exists
                 bat """
 @echo off
 if not exist "${logDir}" mkdir "${logDir}"
@@ -582,7 +223,6 @@ Build Number  : ${env.BUILD_NUMBER}
 Build URL     : ${env.BUILD_URL}
 Timestamp     : ${new Date().format('yyyy-MM-dd HH:mm:ss')}
 ================================================================================
-
 SUMMARY
 --------------------------------------------------------------------------------
 Total     : ${TOTAL}
@@ -592,16 +232,13 @@ Executed  : ${EXECUTED}
 Skipped   : ${SKIPPED}
 Failed    : ${FAILURES.size()}
 --------------------------------------------------------------------------------
-
 DISABLED JOBS (${DISABLED})
 --------------------------------------------------------------------------------
 """
                 if (DISABLED_JOBS.isEmpty()) {
                     logContent += "  (none)\n"
                 } else {
-                    DISABLED_JOBS.each { job ->
-                        logContent += "  - ${job}\n"
-                    }
+                    DISABLED_JOBS.each { job -> logContent += "  - ${job}\n" }
                 }
 
                 logContent += """
@@ -611,9 +248,7 @@ SKIPPED JOBS (${SKIPPED})
                 if (SKIPPED_JOBS.isEmpty()) {
                     logContent += "  (none)\n"
                 } else {
-                    SKIPPED_JOBS.each { job ->
-                        logContent += "  - ${job}\n"
-                    }
+                    SKIPPED_JOBS.each { job -> logContent += "  - ${job}\n" }
                 }
 
                 logContent += """
@@ -623,9 +258,7 @@ SUCCESSFULLY EXECUTED JOBS (${SUCCESS_JOBS.size()})
                 if (SUCCESS_JOBS.isEmpty()) {
                     logContent += "  (none)\n"
                 } else {
-                    SUCCESS_JOBS.each { job ->
-                        logContent += "  - ${job}\n"
-                    }
+                    SUCCESS_JOBS.each { job -> logContent += "  - ${job}\n" }
                 }
 
                 logContent += """
@@ -641,12 +274,8 @@ FAILED JOBS (${FAILURES.size()})
   RESULT  : ${f.result}
   REASON  : ${f.reason}
 """
-                        if (f.build) {
-                            logContent += "  BUILD   : #${f.build}\n"
-                        }
-                        if (f.url) {
-                            logContent += "  URL     : ${f.url}\n"
-                        }
+                        if (f.build) logContent += "  BUILD   : #${f.build}\n"
+                        if (f.url)   logContent += "  URL     : ${f.url}\n"
                         logContent += "  ----------------------------------------\n"
                     }
                 }
@@ -656,10 +285,7 @@ FAILED JOBS (${FAILURES.size()})
 END OF LOG
 ================================================================================
 """
-
-                // Write the log file
                 writeFile file: logFilePath, text: logContent
-
                 echo "Detailed log written to: ${logFilePath}"
             }
         }
