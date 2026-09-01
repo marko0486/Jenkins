@@ -1,3 +1,4 @@
+actuaizado
 pipeline {
     agent {
         label 'Windows'
@@ -42,21 +43,16 @@ pipeline {
                         // ============================================================
                         // LOG DIRECTORY AND FILE NAMES
                         // ============================================================
-                        // All temporary files and logs are stored under:
-                        //   C:\Jenkins\Jobs\Log\
-                        //
-                        // Naming convention uses the Jenkins Job name (env.JOB_NAME):
-                        //   <JenkinsJobName>_uploaded_files_BuildID_<BUILD_NUMBER>.txt
-                        //   <JenkinsJobName>_skipped_files_BuildID_<BUILD_NUMBER>.txt
-                        //   <JenkinsJobName>_error_BuildID_<BUILD_NUMBER>.txt
-                        //   <JenkinsJobName>_sharepoint-transfer_BuildID_<BUILD_NUMBER>.ps1
+                        // Use the REAL Jenkins job name (not the parameter JOB_NAME)
+                        // because the parameter overrides env.JOB_NAME.
                         // ============================================================
                         def logDir = "C:\\Jenkins\\Jobs\\Log"
+                        def jenkinsJobName = currentBuild.rawBuild.getParent().getName()
 
-                        def psFile       = "${logDir}\\${env.JOB_NAME}_sharepoint-transfer_BuildID_${env.BUILD_NUMBER}.ps1"
-                        def uploadedFile = "${logDir}\\${env.JOB_NAME}_uploaded_files_BuildID_${env.BUILD_NUMBER}.txt"
-                        def skippedFile  = "${logDir}\\${env.JOB_NAME}_skipped_files_BuildID_${env.BUILD_NUMBER}.txt"
-                        def errorFile    = "${logDir}\\${env.JOB_NAME}_error_BuildID_${env.BUILD_NUMBER}.txt"
+                        def psFile       = "${logDir}\\${jenkinsJobName}_sharepoint-transfer_BuildID_${env.BUILD_NUMBER}.ps1"
+                        def uploadedFile = "${logDir}\\${jenkinsJobName}_uploaded_files_BuildID_${env.BUILD_NUMBER}.txt"
+                        def skippedFile  = "${logDir}\\${jenkinsJobName}_skipped_files_BuildID_${env.BUILD_NUMBER}.txt"
+                        def errorFile    = "${logDir}\\${jenkinsJobName}_error_BuildID_${env.BUILD_NUMBER}.txt"
 
                         env.PS_FILE = psFile
 
@@ -238,10 +234,11 @@ exit /b 0
                 long elapsed = (System.currentTimeMillis() - env.START_TIME.toLong()) / 1000
 
                 def logDir = "C:\\Jenkins\\Jobs\\Log"
+                def jenkinsJobName = currentBuild.rawBuild.getParent().getName()
 
-                def uploadedFile = "${logDir}\\${env.JOB_NAME}_uploaded_files_BuildID_${env.BUILD_NUMBER}.txt"
-                def skippedFile  = "${logDir}\\${env.JOB_NAME}_skipped_files_BuildID_${env.BUILD_NUMBER}.txt"
-                def errorFile    = "${logDir}\\${env.JOB_NAME}_error_BuildID_${env.BUILD_NUMBER}.txt"
+                def uploadedFile = "${logDir}\\${jenkinsJobName}_uploaded_files_BuildID_${env.BUILD_NUMBER}.txt"
+                def skippedFile  = "${logDir}\\${jenkinsJobName}_skipped_files_BuildID_${env.BUILD_NUMBER}.txt"
+                def errorFile    = "${logDir}\\${jenkinsJobName}_error_BuildID_${env.BUILD_NUMBER}.txt"
 
                 def uploadedFiles = ''
                 def skippedFiles  = ''
@@ -274,8 +271,6 @@ exit /b 0
                 // ============================================================
                 // STAGE SUMMARY
                 // ============================================================
-                // Titles are placed directly above their corresponding lists.
-                // ============================================================
                 def summary = """SUMMARY
 ========================================
 Job Name  : ${params.JOB_NAME}
@@ -295,17 +290,6 @@ ${skippedFiles?.trim() ? skippedFiles : 'No files skipped'}
 ========================================
 """
                 echo(summary)
-
-                // Optional: keep the .ps1 file in the Log folder (already written there)
-                // If you prefer to delete it after execution, uncomment the block below:
-                /*
-                if (env.PS_FILE) {
-                    bat """
-@echo off
-if exist "${env.PS_FILE}" del /f /q "${env.PS_FILE}"
-"""
-                }
-                */
             }
         }
     }
