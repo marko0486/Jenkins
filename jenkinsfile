@@ -1,4 +1,5 @@
-nuevo
+Version 2
+
 pipeline {
 
     agent {
