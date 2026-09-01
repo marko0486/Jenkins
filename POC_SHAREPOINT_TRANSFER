@@ -1,49 +1,3 @@
-En el job: POC_SHAREPOINT_TRANSFER en lugar de Generar un log por cada status:
-def uploadedFile = "${logDir}\\${jenkinsJobName}_uploaded_files_BuildID_${env.BUILD_NUMBER}.txt"
-def skippedFile  = "${logDir}\\${jenkinsJobName}_skipped_files_BuildID_${env.BUILD_NUMBER}.txt"
-def errorFile    = "${logDir}\\${jenkinsJobName}_error_BuildID_${env.BUILD_NUMBER}.txt"
-
-Ya no quiero eso, solo quiero un archivo log llamado: 
-NOMBRE_DEL_JENKINS_JOB_BuildID_##.txt
-
-Ese archivo debe de contener lo siguiente:
-
-
-SUMMARY
-========================================
-Job Name  : Extraido del JSON File
-Site URL  : Extraido del JSON File
-Library   : Extraido del JSON File
-Operation : Extraido del JSON File
-File Mask : Extraido del JSON File
-SRC_CRED  : Extraido del JSON File
-Status    : Status del Job 
-Duration  : ##
-
-Uploaded Files
-1. Myfile.csv
-2. MyotherFile.csv.
-3. etc....
-----------------------------------------
-
-Skipped Files
-1. YYY.csv
-2. ZZZ.csv
-----------------------------------------
-No files skipped
-========================================
-
-No olvides agregar un contador de archivos en cada seccion, ya sea Uploaded, Skipped.
-Incluye al final si hubo errores o no.
-Elimina la logica vieja de lo siguiente pues ya no es necesaria. :
-_uploaded_files_BuildID_${env.BUILD_NUMBER}.txt"
-_skipped_files_BuildID_${env.BUILD_NUMBER}.txt"
-_error_BuildID_${env.BUILD_NUMBER}.txt"   
-
-
-
-Te adjunto el codigo que tienes que modificar:
-
 pipeline {
     agent {
         label 'Windows'
@@ -94,12 +48,13 @@ pipeline {
                         def logDir = "C:\\Jenkins\\Jobs\\Log"
                         def jenkinsJobName = currentBuild.rawBuild.getParent().getName()
 
-                        def psFile       = "${logDir}\\${jenkinsJobName}_sharepoint-transfer_BuildID_${env.BUILD_NUMBER}.ps1"
-                        def uploadedFile = "${logDir}\\${jenkinsJobName}_uploaded_files_BuildID_${env.BUILD_NUMBER}.txt"
-                        def skippedFile  = "${logDir}\\${jenkinsJobName}_skipped_files_BuildID_${env.BUILD_NUMBER}.txt"
-                        def errorFile    = "${logDir}\\${jenkinsJobName}_error_BuildID_${env.BUILD_NUMBER}.txt"
+                        def psFile        = "${logDir}\\${jenkinsJobName}_sharepoint-transfer_BuildID_${env.BUILD_NUMBER}.ps1"
+                        def resultFile    = "${logDir}\\${jenkinsJobName}_result_BuildID_${env.BUILD_NUMBER}.txt"   // temporary internal result
+                        def finalLogFile  = "${logDir}\\${jenkinsJobName}_BuildID_${env.BUILD_NUMBER}.txt"         // final single log
 
-                        env.PS_FILE = psFile
+                        env.PS_FILE     = psFile
+                        env.RESULT_FILE = resultFile
+                        env.FINAL_LOG   = finalLogFile
 
                         // Ensure log directory exists
                         bat """
@@ -109,9 +64,6 @@ if not exist "${logDir}" mkdir "${logDir}"
 
                         // ============================================================
                         // UNC AUTHENTICATION
-                        // ============================================================
-                        // Authenticate to the source UNC path using the same
-                        // credentials provided by the Orchestrator (SRC_CRED).
                         // ============================================================
                         withCredentials([
                             usernamePassword(
@@ -137,6 +89,9 @@ exit /b 0
                                 // ============================================================
                                 // GENERATE POWERSHELL SCRIPT
                                 // ============================================================
+                                // The script now writes a single temporary result file
+                                // with three sections: UPLOADED, SKIPPED, ERROR
+                                // ============================================================
                                 writeFile(
                                     file: psFile,
                                     text: """
@@ -159,10 +114,9 @@ exit /b 0
 \$connected = \$false
 \$uploaded  = @()
 \$skipped   = @()
+\$errorMsg  = ""
 
-\$uploadedFile = "${uploadedFile}"
-\$skippedFile  = "${skippedFile}"
-\$errorFile    = "${errorFile}"
+\$resultFile = "${resultFile}"
 
 try {
     if (-not (Test-Path \$source)) {
@@ -209,18 +163,28 @@ try {
             Remove-Item -Path \$file.FullName -Force -ErrorAction Stop
         }
     }
-
-    \$uploaded | Set-Content -Path \$uploadedFile -Encoding UTF8
-    \$skipped  | Set-Content -Path \$skippedFile  -Encoding UTF8
 }
 catch {
-    \$_.Exception.Message | Set-Content -Path \$errorFile -Encoding UTF8
+    \$errorMsg = \$_.Exception.Message
     exit 1
 }
 finally {
     if (\$connected) {
         Disconnect-PnPOnline -ErrorAction SilentlyContinue
     }
+
+    # Write a simple structured result file
+    \$content = @"
+UPLOADED
+\$(\$uploaded -join "`n")
+---
+SKIPPED
+\$(\$skipped -join "`n")
+---
+ERROR
+\$errorMsg
+"@
+    \$content | Set-Content -Path \$resultFile -Encoding UTF8
 }
 exit 0
 """
@@ -278,45 +242,78 @@ exit /b 0
             script {
                 long elapsed = (System.currentTimeMillis() - env.START_TIME.toLong()) / 1000
 
-                def logDir = "C:\\Jenkins\\Jobs\\Log"
+                def logDir         = "C:\\Jenkins\\Jobs\\Log"
                 def jenkinsJobName = currentBuild.rawBuild.getParent().getName()
+                def resultFile     = "${logDir}\\${jenkinsJobName}_result_BuildID_${env.BUILD_NUMBER}.txt"
+                def finalLogFile   = "${logDir}\\${jenkinsJobName}_BuildID_${env.BUILD_NUMBER}.txt"
 
-                def uploadedFile = "${logDir}\\${jenkinsJobName}_uploaded_files_BuildID_${env.BUILD_NUMBER}.txt"
-                def skippedFile  = "${logDir}\\${jenkinsJobName}_skipped_files_BuildID_${env.BUILD_NUMBER}.txt"
-                def errorFile    = "${logDir}\\${jenkinsJobName}_error_BuildID_${env.BUILD_NUMBER}.txt"
+                def uploadedList = []
+                def skippedList  = []
+                def errorMsg     = ''
 
-                def uploadedFiles = ''
-                def skippedFiles  = ''
-                def errorMsg      = ''
-                def finalStatus   = ''
+                // --------------------------------------------------------
+                // Parse the temporary result file
+                // --------------------------------------------------------
+                if (fileExists(resultFile)) {
+                    def content = readFile(resultFile)
+                    def parts = content.split('---')
 
-                if (fileExists(uploadedFile)) {
-                    uploadedFiles = readFile(uploadedFile).trim()
+                    if (parts.size() >= 1) {
+                        def uploadedSection = parts[0].replace('UPLOADED', '').trim()
+                        if (uploadedSection) {
+                            uploadedList = uploadedSection.split('\n').findAll { it.trim() }
+                        }
+                    }
+                    if (parts.size() >= 2) {
+                        def skippedSection = parts[1].replace('SKIPPED', '').trim()
+                        if (skippedSection) {
+                            skippedList = skippedSection.split('\n').findAll { it.trim() }
+                        }
+                    }
+                    if (parts.size() >= 3) {
+                        errorMsg = parts[2].replace('ERROR', '').trim()
+                    }
                 }
-                if (fileExists(skippedFile)) {
-                    skippedFiles = readFile(skippedFile).trim()
-                }
-                if (fileExists(errorFile)) {
-                    errorMsg = readFile(errorFile).trim()
-                }
 
-                if (errorMsg?.trim()) {
+                // --------------------------------------------------------
+                // Determine final status
+                // --------------------------------------------------------
+                def finalStatus = ''
+                if (errorMsg) {
                     finalStatus = errorMsg
-                }
-                else if (!uploadedFiles?.trim() && skippedFiles?.trim()) {
+                } else if (uploadedList.isEmpty() && skippedList.isEmpty()) {
                     finalStatus = 'NO FILES PROCESSED'
-                }
-                else if (!uploadedFiles?.trim() && !skippedFiles?.trim()) {
-                    finalStatus = 'NO FILES PROCESSED'
-                }
-                else {
+                } else if (uploadedList.isEmpty() && !skippedList.isEmpty()) {
+                    finalStatus = 'NO FILES PROCESSED (all skipped)'
+                } else {
                     finalStatus = "SUCCESS (${params.OPERATION})"
                 }
 
-                // ============================================================
-                // STAGE SUMMARY
-                // ============================================================
-                def summary = """SUMMARY
+                // --------------------------------------------------------
+                // Build numbered lists
+                // --------------------------------------------------------
+                def uploadedSection = ""
+                if (uploadedList) {
+                    uploadedList.eachWithIndex { file, idx ->
+                        uploadedSection += "${idx + 1}. ${file}\n"
+                    }
+                } else {
+                    uploadedSection = "No files uploaded\n"
+                }
+
+                def skippedSection = ""
+                if (skippedList) {
+                    skippedList.eachWithIndex { file, idx ->
+                        skippedSection += "${idx + 1}. ${file}\n"
+                    }
+                } else {
+                    skippedSection = "No files skipped\n"
+                }
+
+                // --------------------------------------------------------
+                // Build the single final log content
+                // --------------------------------------------------------
+                def logContent = """SUMMARY
 ========================================
 Job Name  : ${params.JOB_NAME}
 Site URL  : ${params.SITE_URL}
@@ -326,25 +323,34 @@ File Mask : ${params.FILE_MASK}
 SRC_CRED  : ${params.SRC_CRED}
 Status    : ${finalStatus}
 Duration  : ${elapsed} seconds
-Uploaded Files
+
+Uploaded Files (${uploadedList.size()})
 ----------------------------------------
-${uploadedFiles?.trim() ? uploadedFiles : 'No files uploaded'}
-Skipped Files
+${uploadedSection}
+Skipped Files (${skippedList.size()})
 ----------------------------------------
-${skippedFiles?.trim() ? skippedFiles : 'No files skipped'}
+${skippedSection}
+Errors
+----------------------------------------
+${errorMsg ? errorMsg : 'None'}
 ========================================
 """
-                echo(summary)
 
-                // ============================================================
-                // CLEANUP: Delete the temporary PowerShell script
-                // ============================================================
-                if (env.PS_FILE) {
-                    bat """
+                // Write the single final log file
+                writeFile file: finalLogFile, text: logContent
+
+                // Also show the summary in the Jenkins console
+                echo(logContent)
+
+                // --------------------------------------------------------
+                // CLEANUP
+                // --------------------------------------------------------
+                // Delete temporary files (.ps1 and internal result file)
+                bat """
 @echo off
 if exist "${env.PS_FILE}" del /f /q "${env.PS_FILE}"
+if exist "${resultFile}" del /f /q "${resultFile}"
 """
-                }
             }
         }
     }
