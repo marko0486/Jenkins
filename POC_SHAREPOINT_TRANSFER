@@ -309,42 +309,31 @@ exit /b 0
                 def timestamp = new Date().format('yyyy-MM-dd HH:mm:ss')
 
                 // --------------------------------------------------------
-                // Build Parent - Robust version (handles both classic and Pipeline causes)
+                // Build Parent - Robust & Clean Version
                 // --------------------------------------------------------
                 def buildParent = "N/A"
                 try {
-                    // 1. Classic UpstreamCause
-                    def upstreamCause = currentBuild.rawBuild.getCause(hudson.model.Cause.UpstreamCause)
+                    // 1. Check Upstream Cause directly using Jenkins API
+                    def upstreamCause = currentBuild.rawBuild.getCause(hudson.model.Cause$UpstreamCause)
                     if (upstreamCause != null) {
-                        buildParent = "${upstreamCause.upstreamProject} #${upstreamCause.upstreamBuild}"
-                    }
-
-                    // 2. Pipeline BuildUpstreamCause
-                    if (buildParent == "N/A") {
-                        def causes = currentBuild.rawBuild.getCauses()
-                        for (cause in causes) {
-                            def causeClass = cause.getClass().getName()
-                            if (causeClass.contains("UpstreamCause") || causeClass.contains("BuildUpstreamCause")) {
-                                try {
-                                    def project = cause.hasProperty('upstreamProject') ? cause.upstreamProject :
-                                                  (cause.metaClass.respondsTo(cause, 'getUpstreamProject') ? cause.getUpstreamProject() : null)
-                                    def buildNum = cause.hasProperty('upstreamBuild') ? cause.upstreamBuild :
-                                                   (cause.metaClass.respondsTo(cause, 'getUpstreamBuild') ? cause.getUpstreamBuild() : null)
-
-                                    if (project && buildNum != null) {
-                                        buildParent = "${project} #${buildNum}"
-                                        break
-                                    }
-                                } catch (Exception ignored) {}
+                        buildParent = "${upstreamCause.getUpstreamProject()} #${upstreamCause.getUpstreamBuild()}"
+                    } 
+                    
+                    // 2. Search upstream in buildCauses structure
+                    if (buildParent == "N/A" && currentBuild.buildCauses) {
+                        for (cause in currentBuild.buildCauses) {
+                            if (cause._class?.contains("UpstreamCause") && cause.upstreamProject) {
+                                buildParent = "${cause.upstreamProject} #${cause.upstreamBuild}"
+                                break
                             }
                         }
                     }
 
-                    // 3. Fallback using upstreamBuilds (very reliable)
-                    if (buildParent == "N/A" && currentBuild.upstreamBuilds) {
-                        def upstream = currentBuild.upstreamBuilds[0]
-                        if (upstream) {
-                            buildParent = "${upstream.getFullProjectName()} #${upstream.getNumber()}"
+                    // 3. Check for User/Manual trigger if not triggered by Upstream
+                    if (buildParent == "N/A") {
+                        def userCause = currentBuild.rawBuild.getCause(hudson.model.Cause$UserIdCause)
+                        if (userCause != null) {
+                            buildParent = "Manual execution by ${userCause.getUserName()}"
                         }
                     }
                 } catch (Exception e) {
