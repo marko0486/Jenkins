@@ -1,5 +1,3 @@
-Jobname: POC_SHAREPOINT_TRANSFER
-
 pipeline {
     agent {
         label 'Windows'
@@ -19,7 +17,7 @@ pipeline {
             name: 'OVERWRITE',
             defaultValue: true
         )
-        // NUEVO: credencial para autenticar el UNC
+        // Credential used to authenticate against the UNC source path
         string(
             name: 'SRC_CRED',
             defaultValue: 'WIN.SVC.UC4.BATCHUSER'
@@ -41,20 +39,38 @@ pipeline {
                         currentBuild.displayName = "#${env.BUILD_NUMBER} - ${params.JOB_NAME}"
                         currentBuild.description = "${params.FILE_MASK}"
 
-                        def tmpDir = "C:\\Jenkins\\Jobs\\Tmp"
-                        def psFile = "${tmpDir}\\sharepoint-transfer_buildID_${env.BUILD_NUMBER}.ps1"
-                        def uploadedFile = "${tmpDir}\\uploaded_files_buildID_${env.BUILD_NUMBER}.txt"
-                        def skippedFile  = "${tmpDir}\\skipped_files_buildID_${env.BUILD_NUMBER}.txt"
-                        def errorFile    = "${tmpDir}\\sharepoint_error_buildID_${env.BUILD_NUMBER}.txt"
+                        // ============================================================
+                        // LOG DIRECTORY AND FILE NAMES
+                        // ============================================================
+                        // All temporary files and logs are stored under:
+                        //   C:\Jenkins\Jobs\Log\
+                        //
+                        // Naming convention uses the Jenkins Job name (env.JOB_NAME):
+                        //   <JenkinsJobName>_uploaded_files_BuildID_<BUILD_NUMBER>.txt
+                        //   <JenkinsJobName>_skipped_files_BuildID_<BUILD_NUMBER>.txt
+                        //   <JenkinsJobName>_error_BuildID_<BUILD_NUMBER>.txt
+                        //   <JenkinsJobName>_sharepoint-transfer_BuildID_<BUILD_NUMBER>.ps1
+                        // ============================================================
+                        def logDir = "C:\\Jenkins\\Jobs\\Log"
+
+                        def psFile       = "${logDir}\\${env.JOB_NAME}_sharepoint-transfer_BuildID_${env.BUILD_NUMBER}.ps1"
+                        def uploadedFile = "${logDir}\\${env.JOB_NAME}_uploaded_files_BuildID_${env.BUILD_NUMBER}.txt"
+                        def skippedFile  = "${logDir}\\${env.JOB_NAME}_skipped_files_BuildID_${env.BUILD_NUMBER}.txt"
+                        def errorFile    = "${logDir}\\${env.JOB_NAME}_error_BuildID_${env.BUILD_NUMBER}.txt"
+
                         env.PS_FILE = psFile
 
+                        // Ensure log directory exists
                         bat """
 @echo off
-if not exist "${tmpDir}" mkdir "${tmpDir}"
+if not exist "${logDir}" mkdir "${logDir}"
 """
 
                         // ============================================================
-                        // AUTENTICACIÓN AL UNC CON LAS MISMAS CREDENCIALES DEL ORQUESTADOR
+                        // UNC AUTHENTICATION
+                        // ============================================================
+                        // Authenticate to the source UNC path using the same
+                        // credentials provided by the Orchestrator (SRC_CRED).
                         // ============================================================
                         withCredentials([
                             usernamePassword(
@@ -63,7 +79,6 @@ if not exist "${tmpDir}" mkdir "${tmpDir}"
                                 passwordVariable: 'FT_PASS'
                             )
                         ]) {
-                            // Mapeamos el path UNC
                             bat """
 @echo off
 echo Authenticating to UNC path using credential: ${params.SRC_CRED}
@@ -78,7 +93,9 @@ exit /b 0
 """
 
                             try {
-                                // Generamos el script PowerShell
+                                // ============================================================
+                                // GENERATE POWERSHELL SCRIPT
+                                // ============================================================
                                 writeFile(
                                     file: psFile,
                                     text: """
@@ -168,6 +185,9 @@ exit 0
 """
                                 )
 
+                                // ============================================================
+                                // EXECUTE POWERSHELL SCRIPT
+                                // ============================================================
                                 withEnv([
                                     "SITE_URL=${params.SITE_URL}",
                                     "SRC_PATH=${params.SRC_PATH}",
@@ -195,7 +215,7 @@ exit /b %ERRORLEVEL%
                                 }
                             }
                             finally {
-                                // Siempre desconectamos el mapeo UNC
+                                // Always disconnect the UNC mapping
                                 bat """
 @echo off
 net use "${params.SRC_PATH}" /delete /y >nul 2>&1
@@ -216,10 +236,12 @@ exit /b 0
         always {
             script {
                 long elapsed = (System.currentTimeMillis() - env.START_TIME.toLong()) / 1000
-                def tmpDir = "C:\\Jenkins\\Jobs\\Tmp"
-                def uploadedFile = "${tmpDir}\\uploaded_files_buildID_${env.BUILD_NUMBER}.txt"
-                def skippedFile  = "${tmpDir}\\skipped_files_buildID_${env.BUILD_NUMBER}.txt"
-                def errorFile    = "${tmpDir}\\sharepoint_error_buildID_${env.BUILD_NUMBER}.txt"
+
+                def logDir = "C:\\Jenkins\\Jobs\\Log"
+
+                def uploadedFile = "${logDir}\\${env.JOB_NAME}_uploaded_files_BuildID_${env.BUILD_NUMBER}.txt"
+                def skippedFile  = "${logDir}\\${env.JOB_NAME}_skipped_files_BuildID_${env.BUILD_NUMBER}.txt"
+                def errorFile    = "${logDir}\\${env.JOB_NAME}_error_BuildID_${env.BUILD_NUMBER}.txt"
 
                 def uploadedFiles = ''
                 def skippedFiles  = ''
@@ -249,6 +271,11 @@ exit /b 0
                     finalStatus = "SUCCESS (${params.OPERATION})"
                 }
 
+                // ============================================================
+                // STAGE SUMMARY
+                // ============================================================
+                // Titles are placed directly above their corresponding lists.
+                // ============================================================
                 def summary = """SUMMARY
 ========================================
 Job Name  : ${params.JOB_NAME}
@@ -269,46 +296,17 @@ ${skippedFiles?.trim() ? skippedFiles : 'No files skipped'}
 """
                 echo(summary)
 
+                // Optional: keep the .ps1 file in the Log folder (already written there)
+                // If you prefer to delete it after execution, uncomment the block below:
+                /*
                 if (env.PS_FILE) {
                     bat """
 @echo off
 if exist "${env.PS_FILE}" del /f /q "${env.PS_FILE}"
 """
                 }
+                */
             }
         }
     }
 }
-
-El sumamary del Stage quiero un cambio, el titulo del "Skipped Files" tiene que estar arriba de los jobs, dejalo tal cual esta a continuacion:
-
-SUMMARY
-========================================
-Job Name  : BR.SD.#WFL.TP1.005_EOO_DELIVERIES.EV
-Site URL  : https://trw1.sharepoint.com/sites/RelatrioDailyPerformance-PowerBI
-Library   : Shared Documents/General/EOO
-Operation : COPY
-File Mask : testfile.csv
-SRC_CRED  : WIN.SVC.UC4.BATCHUSER
-Status    : SUCCESS (COPY)
-Duration  : 35 seconds
-Uploaded Files
-----------------------------------------
-Skipped Files
-testfile.csv
-----------------------------------------
-No files skipped
-========================================
-
-Cambio 2:
-
-Quiero que los logs se guarden en: C:\Jenkins\Jobs\Log\<JenkinsJobName>_Skipped_Files_BuildID_##.txt
-o segun sea el .txt a guardar, si es skipped_files_BuildID_##.txt..etc
-El .ps1 tambien se puede guardar en C:\Jenkins\Jobs\Log\
-
-
-
-
-
-
-
