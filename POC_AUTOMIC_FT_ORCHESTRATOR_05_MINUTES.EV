@@ -1,12 +1,11 @@
-Mejorar con grok
-
 import groovy.json.JsonSlurperClassic
-//
+
 // ============================================================================
-// GLOBAL EXECUTION COUNTERS
+// GLOBAL EXECUTION COUNTERS AND LISTS
 // ============================================================================
 //
-// These counters are used to build the final execution summary.
+// These counters and lists are used to build the final execution
+// summary and the detailed log file.
 //
 // TOTAL
 //     Total number of transfer definitions loaded from JSON.
@@ -19,28 +18,29 @@ import groovy.json.JsonSlurperClassic
 //     Transfers that went through Pre-Check validation.
 //
 // EXECUTED
-//     Transfers that actually launched the child pipeline:
-//         POC_AUTOMIC_FILE_TRANSFER
+//     Transfers that actually launched the child pipeline.
 //
 // SKIPPED
 //     Transfers skipped because the source directory was
 //     accessible but no files matched the configured mask.
 //
 // FAILURES
-//     Collection of failed transfers.
-//     Includes:
+//     Collection of failed transfers (with details).
 //
-//     - Missing source path
-//     - Access denied
-//     - Child pipeline failures
+// DISABLED_JOBS / SKIPPED_JOBS / SUCCESS_JOBS
+//     Lists of job names for the detailed log file.
 //
 // ============================================================================
-def TOTAL     = 0
-def DISABLED  = 0
-def CHECKED   = 0
-def EXECUTED  = 0
-def SKIPPED   = 0
-def FAILURES  = []
+def TOTAL          = 0
+def DISABLED       = 0
+def CHECKED        = 0
+def EXECUTED       = 0
+def SKIPPED        = 0
+def FAILURES       = []
+def DISABLED_JOBS  = []
+def SKIPPED_JOBS   = []
+def SUCCESS_JOBS   = []
+
 pipeline {
     agent {
         label 'built-in'
@@ -88,6 +88,7 @@ pipeline {
                     def transfers =
                         new JsonSlurperClassic().parseText(jsonText)
                     TOTAL = transfers.size()
+
                     //
                     // ====================================================================
                     // SINGLE SMB AUTHENTICATION
@@ -162,9 +163,11 @@ exit /b 0
                                     !transfer.enabled
                                 ) {
                                     DISABLED++
+                                    DISABLED_JOBS << transfer.job?.toString()
                                     echo "[DISABLED] ${transfer.job}"
                                     return
                                 }
+
                                 //
                                 // ====================================================================
                                 // TRANSFER DEFINITION
@@ -198,6 +201,7 @@ exit /b 0
                                     roboFlags =
                                         transfer.flags?.toString() ?: ''
                                 }
+
                                 //
                                 // ====================================================================
                                 // PRE-CHECK
@@ -250,6 +254,7 @@ popd >nul 2>&1
 exit /b %RC%
 """
                                     )
+
                                     //
                                     // ====================================================================
                                     // PRECHECK FAILURE
@@ -281,6 +286,7 @@ exit /b %RC%
                                         echo "Source path not found or access denied."
                                         return
                                     }
+
                                     //
                                     // ====================================================================
                                     // SKIPPED
@@ -300,11 +306,13 @@ exit /b %RC%
                                     //
                                     if (checkResult != 0) {
                                         SKIPPED++
+                                        SKIPPED_JOBS << jobName
                                         echo "[SKIP] ${jobName}"
                                         echo "No files found."
                                         return
                                     }
                                 }
+
                                 //
                                 // ====================================================================
                                 // EXECUTE FILE TRANSFER
@@ -357,7 +365,7 @@ exit /b %RC%
                                                 name: 'OVERWRITE',
                                                 value: transfer.overwrite != false
                                             ),
-                                            // NUEVO: pasamos el credentialId para autenticar el UNC
+                                            // Pass the credentialId so the child job can authenticate to the UNC path
                                             string(
                                                 name: 'SRC_CRED',
                                                 value: credentialId ?: 'WIN.SVC.UC4.BATCHUSER'
@@ -398,6 +406,7 @@ exit /b %RC%
                                     )
                                 }
                                 EXECUTED++
+
                                 //
                                 // ====================================================================
                                 // CHILD PIPELINE FAILED
@@ -414,9 +423,7 @@ exit /b %RC%
                                 //
                                 // ====================================================================
                                 //
-                                if (
-                                    result.result != 'SUCCESS'
-                                ) {
+                                if (result.result != 'SUCCESS') {
                                     FAILURES << [
                                         job    : jobName,
                                         result : result.result,
@@ -426,6 +433,7 @@ exit /b %RC%
                                     ]
                                     echo "[FAIL] ${jobName}"
                                 } else {
+                                    SUCCESS_JOBS << jobName
                                     echo "[SUCCESS] ${jobName}"
                                 }
                             }
@@ -450,6 +458,7 @@ exit /b 0
 '''
                         }
                     }
+
                     //
                     // ====================================================================
                     // BUILD HISTORY DASHBOARD
@@ -471,6 +480,7 @@ exit /b 0
                         "#${env.BUILD_NUMBER} D:${DISABLED} X:${EXECUTED} S:${SKIPPED} F:${FAILURES.size()}"
                     currentBuild.description =
                         "Total=${TOTAL} | Disabled=${DISABLED} | Checked=${CHECKED} | Executed=${EXECUTED} | Skipped=${SKIPPED} | Failed=${FAILURES.size()}"
+
                     //
                     // ====================================================================
                     // ORCHESTRATOR ALWAYS SUCCESS
@@ -494,7 +504,7 @@ exit /b 0
             script {
                 //
                 // ====================================================================
-                // FINAL CONSOLIDATED REPORT
+                // FINAL CONSOLIDATED REPORT (Stage View)
                 // ====================================================================
                 //
                 // A single echo is intentionally used.
@@ -535,32 +545,123 @@ REASON : ${f.reason}
 """
                 }
                 echo(summary)
+
+                //
+                // ====================================================================
+                // DETAILED LOG FILE
+                // ====================================================================
+                //
+                // Location:
+                //   C:\Jenkins\Jobs\Log\<JOB_NAME>_yyyyMMdd_<BUILD_NUMBER>.txt
+                //
+                // Contains the complete list of:
+                //   - Disabled jobs
+                //   - Skipped jobs
+                //   - Successfully executed jobs
+                //   - Failed jobs (with details)
+                //
+                // ====================================================================
+                //
+                def logDir = 'C:\\Jenkins\\Jobs\\Log'
+                def dateStr = new Date().format('yyyyMMdd')
+                def logFileName = "${env.JOB_NAME}_${dateStr}_${env.BUILD_NUMBER}.txt"
+                def logFilePath = "${logDir}\\${logFileName}"
+
+                // Ensure log directory exists
+                bat """
+@echo off
+if not exist "${logDir}" mkdir "${logDir}"
+"""
+
+                def logContent = """
+================================================================================
+FILE TRANSFER ORCHESTRATOR - DETAILED EXECUTION LOG
+================================================================================
+Job Name      : ${env.JOB_NAME}
+Build Number  : ${env.BUILD_NUMBER}
+Build URL     : ${env.BUILD_URL}
+Timestamp     : ${new Date().format('yyyy-MM-dd HH:mm:ss')}
+================================================================================
+
+SUMMARY
+--------------------------------------------------------------------------------
+Total     : ${TOTAL}
+Disabled  : ${DISABLED}
+Checked   : ${CHECKED}
+Executed  : ${EXECUTED}
+Skipped   : ${SKIPPED}
+Failed    : ${FAILURES.size()}
+--------------------------------------------------------------------------------
+
+DISABLED JOBS (${DISABLED})
+--------------------------------------------------------------------------------
+"""
+                if (DISABLED_JOBS.isEmpty()) {
+                    logContent += "  (none)\n"
+                } else {
+                    DISABLED_JOBS.each { job ->
+                        logContent += "  - ${job}\n"
+                    }
+                }
+
+                logContent += """
+SKIPPED JOBS (${SKIPPED})
+--------------------------------------------------------------------------------
+"""
+                if (SKIPPED_JOBS.isEmpty()) {
+                    logContent += "  (none)\n"
+                } else {
+                    SKIPPED_JOBS.each { job ->
+                        logContent += "  - ${job}\n"
+                    }
+                }
+
+                logContent += """
+SUCCESSFULLY EXECUTED JOBS (${SUCCESS_JOBS.size()})
+--------------------------------------------------------------------------------
+"""
+                if (SUCCESS_JOBS.isEmpty()) {
+                    logContent += "  (none)\n"
+                } else {
+                    SUCCESS_JOBS.each { job ->
+                        logContent += "  - ${job}\n"
+                    }
+                }
+
+                logContent += """
+FAILED JOBS (${FAILURES.size()})
+--------------------------------------------------------------------------------
+"""
+                if (FAILURES.isEmpty()) {
+                    logContent += "  (none)\n"
+                } else {
+                    FAILURES.each { f ->
+                        logContent += """
+  JOB     : ${f.job}
+  RESULT  : ${f.result}
+  REASON  : ${f.reason}
+"""
+                        if (f.build) {
+                            logContent += "  BUILD   : #${f.build}\n"
+                        }
+                        if (f.url) {
+                            logContent += "  URL     : ${f.url}\n"
+                        }
+                        logContent += "  ----------------------------------------\n"
+                    }
+                }
+
+                logContent += """
+================================================================================
+END OF LOG
+================================================================================
+"""
+
+                // Write the log file
+                writeFile file: logFilePath, text: logContent
+
+                echo "Detailed log written to: ${logFilePath}"
             }
         }
     }
 }
-
-FT SUMMARY
-========================================
-FILE TRANSFER SUMMARY
-========================================
-Total    : 8
-Disabled : 2
-Checked  : 5
-Executed : 1
-Skipped  : 5
-Failed   : 0
-========================================
-
-Pero en el log C:\Jenkins\Jobs\Log\<JenkinsJobname>_DATE_BuildID.txt
-Quiero ver el resumen completo de que jobs fueron ejecutados, fallados y desabilitados.
-
-
-
-
-
-
-
-
-
-
