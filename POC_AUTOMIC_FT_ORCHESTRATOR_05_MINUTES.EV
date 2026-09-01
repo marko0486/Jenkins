@@ -552,7 +552,7 @@ REASON : ${f.reason}
                 // ====================================================================
                 //
                 // Location:
-                //   C:\Jenkins\Jobs\Log\<JOB_NAME>_yyyyMMdd_<BUILD_NUMBER>.txt
+                //   C:\Jenkins\Jobs\Log\<JOB_NAME>_yyyyMMdd_BuildID_<BUILD_NUMBER>.txt
                 //
                 // Contains the complete list of:
                 //   - Disabled jobs
@@ -564,7 +564,7 @@ REASON : ${f.reason}
                 //
                 def logDir = 'C:\\Jenkins\\Jobs\\Log'
                 def dateStr = new Date().format('yyyyMMdd')
-                def logFileName = "${env.JOB_NAME}_${dateStr}_${env.BUILD_NUMBER}.txt"
+                def logFileName = "${env.JOB_NAME}_${dateStr}_BuildID_${env.BUILD_NUMBER}.txt"
                 def logFilePath = "${logDir}\\${logFileName}"
 
                 // Ensure log directory exists
