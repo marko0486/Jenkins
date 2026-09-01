@@ -1,4 +1,48 @@
-agreado eliminar el .ps1 al final
+En el job: POC_SHAREPOINT_TRANSFER en lugar de Generar un log por cada status:
+def uploadedFile = "${logDir}\\${jenkinsJobName}_uploaded_files_BuildID_${env.BUILD_NUMBER}.txt"
+def skippedFile  = "${logDir}\\${jenkinsJobName}_skipped_files_BuildID_${env.BUILD_NUMBER}.txt"
+def errorFile    = "${logDir}\\${jenkinsJobName}_error_BuildID_${env.BUILD_NUMBER}.txt"
+
+Ya no quiero eso, solo quiero un archivo log llamado: 
+NOMBRE_DEL_JENKINS_JOB_BuildID_##.txt
+
+Ese archivo debe de contener lo siguiente:
+
+
+SUMMARY
+========================================
+Job Name  : Extraido del JSON File
+Site URL  : Extraido del JSON File
+Library   : Extraido del JSON File
+Operation : Extraido del JSON File
+File Mask : Extraido del JSON File
+SRC_CRED  : Extraido del JSON File
+Status    : Status del Job 
+Duration  : ##
+
+Uploaded Files
+1. Myfile.csv
+2. MyotherFile.csv.
+3. etc....
+----------------------------------------
+
+Skipped Files
+1. YYY.csv
+2. ZZZ.csv
+----------------------------------------
+No files skipped
+========================================
+
+No olvides agregar un contador de archivos en cada seccion, ya sea Uploaded, Skipped.
+Incluye al final si hubo errores o no.
+Elimina la logica vieja de lo siguiente pues ya no es necesaria. :
+_uploaded_files_BuildID_${env.BUILD_NUMBER}.txt"
+_skipped_files_BuildID_${env.BUILD_NUMBER}.txt"
+_error_BuildID_${env.BUILD_NUMBER}.txt"   
+
+
+
+Te adjunto el codigo que tienes que modificar:
 
 pipeline {
     agent {
