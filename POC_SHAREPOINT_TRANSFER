@@ -42,15 +42,12 @@ pipeline {
                         // ============================================================
                         // LOG DIRECTORY AND FILE NAMES
                         // ============================================================
-                        // Use the REAL Jenkins job name (not the parameter JOB_NAME)
-                        // because the parameter overrides env.JOB_NAME.
-                        // ============================================================
                         def logDir = "C:\\Jenkins\\Jobs\\Log"
                         def jenkinsJobName = currentBuild.rawBuild.getParent().getName()
 
                         def psFile        = "${logDir}\\${jenkinsJobName}_sharepoint-transfer_BuildID_${env.BUILD_NUMBER}.ps1"
-                        def resultFile    = "${logDir}\\${jenkinsJobName}_result_BuildID_${env.BUILD_NUMBER}.txt"   // temporary internal result
-                        def finalLogFile  = "${logDir}\\${jenkinsJobName}_BuildID_${env.BUILD_NUMBER}.txt"         // final single log
+                        def resultFile    = "${logDir}\\${jenkinsJobName}_result_BuildID_${env.BUILD_NUMBER}.txt"
+                        def finalLogFile  = "${logDir}\\${jenkinsJobName}_BuildID_${env.BUILD_NUMBER}.txt"
 
                         env.PS_FILE     = psFile
                         env.RESULT_FILE = resultFile
@@ -88,9 +85,6 @@ exit /b 0
                             try {
                                 // ============================================================
                                 // GENERATE POWERSHELL SCRIPT
-                                // ============================================================
-                                // The script now writes a single temporary result file
-                                // with three sections: UPLOADED, SKIPPED, ERROR
                                 // ============================================================
                                 writeFile(
                                     file: psFile,
@@ -173,7 +167,6 @@ finally {
         Disconnect-PnPOnline -ErrorAction SilentlyContinue
     }
 
-    # Write a simple structured result file
     \$content = @"
 UPLOADED
 \$(\$uploaded -join "`n")
@@ -311,18 +304,36 @@ exit /b 0
                 }
 
                 // --------------------------------------------------------
+                // Timestamp
+                // --------------------------------------------------------
+                def timestamp = new Date().format('yyyy-MM-dd HH:mm:ss')
+
+                // --------------------------------------------------------
+                // Build Parent (Upstream job that triggered this build)
+                // --------------------------------------------------------
+                def buildParent = "N/A"
+                def causes = currentBuild.rawBuild.getCauses()
+                causes.each { cause ->
+                    if (cause instanceof hudson.model.Cause.UpstreamCause) {
+                        buildParent = "${cause.upstreamProject} #${cause.upstreamBuild}"
+                    }
+                }
+
+                // --------------------------------------------------------
                 // Build the single final log content
                 // --------------------------------------------------------
                 def logContent = """SUMMARY
 ========================================
-Job Name  : ${params.JOB_NAME}
-Site URL  : ${params.SITE_URL}
-Library   : ${params.LIBRARY}
-Operation : ${params.OPERATION}
-File Mask : ${params.FILE_MASK}
-SRC_CRED  : ${params.SRC_CRED}
-Status    : ${finalStatus}
-Duration  : ${elapsed} seconds
+Job Name     : ${params.JOB_NAME}
+Site URL     : ${params.SITE_URL}
+Library      : ${params.LIBRARY}
+Operation    : ${params.OPERATION}
+File Mask    : ${params.FILE_MASK}
+SRC_CRED     : ${params.SRC_CRED}
+Status       : ${finalStatus}
+Duration     : ${elapsed} seconds
+Timestamp    : ${timestamp}
+Build Parent : ${buildParent}
 
 Uploaded Files (${uploadedList.size()})
 ----------------------------------------
@@ -345,7 +356,6 @@ ${errorMsg ? errorMsg : 'None'}
                 // --------------------------------------------------------
                 // CLEANUP
                 // --------------------------------------------------------
-                // Delete temporary files (.ps1 and internal result file)
                 bat """
 @echo off
 if exist "${env.PS_FILE}" del /f /q "${env.PS_FILE}"
