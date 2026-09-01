@@ -1,3 +1,5 @@
+Jobname: POC_SHAREPOINT_TRANSFER
+
 pipeline {
     agent {
         label 'Windows'
@@ -277,3 +279,36 @@ if exist "${env.PS_FILE}" del /f /q "${env.PS_FILE}"
         }
     }
 }
+
+El sumamary del Stage quiero un cambio, el titulo del "Skipped Files" tiene que estar arriba de los jobs, dejalo tal cual esta a continuacion:
+
+SUMMARY
+========================================
+Job Name  : BR.SD.#WFL.TP1.005_EOO_DELIVERIES.EV
+Site URL  : https://trw1.sharepoint.com/sites/RelatrioDailyPerformance-PowerBI
+Library   : Shared Documents/General/EOO
+Operation : COPY
+File Mask : testfile.csv
+SRC_CRED  : WIN.SVC.UC4.BATCHUSER
+Status    : SUCCESS (COPY)
+Duration  : 35 seconds
+Uploaded Files
+----------------------------------------
+Skipped Files
+testfile.csv
+----------------------------------------
+No files skipped
+========================================
+
+Cambio 2:
+
+Quiero que los logs se guarden en: C:\Jenkins\Jobs\Log\<JenkinsJobName>_Skipped_Files_BuildID_##.txt
+o segun sea el .txt a guardar, si es skipped_files_BuildID_##.txt..etc
+El .ps1 tambien se puede guardar en C:\Jenkins\Jobs\Log\
+
+
+
+
+
+
+
