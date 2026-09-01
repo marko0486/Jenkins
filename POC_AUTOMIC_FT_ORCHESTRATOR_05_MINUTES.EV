@@ -1,5 +1,4 @@
 import groovy.json.JsonSlurperClassic
-
 //
 // ============================================================================
 // GLOBAL EXECUTION COUNTERS
@@ -40,15 +39,11 @@ def CHECKED   = 0
 def EXECUTED  = 0
 def SKIPPED   = 0
 def FAILURES  = []
-
 pipeline {
-
     agent {
         label 'built-in'
     }
-
     options {
-
         //
         // Prevent overlapping executions.
         //
@@ -58,15 +53,10 @@ pipeline {
         //
         disableConcurrentBuilds()
     }
-
     stages {
-
         stage('File Transfers') {
-
             steps {
-
                 script {
-
                     //
                     // ====================================================================
                     // LOAD TRANSFER INVENTORY
@@ -93,12 +83,9 @@ pipeline {
                     def jsonText = new File(
                         'C:/Jenkins/Jobs/tmp.json'
                     ).text
-
                     def transfers =
                         new JsonSlurperClassic().parseText(jsonText)
-
                     TOTAL = transfers.size()
-
                     //
                     // ====================================================================
                     // SINGLE SMB AUTHENTICATION
@@ -127,15 +114,12 @@ pipeline {
                             passwordVariable: 'FT_PASS'
                         )
                     ]) {
-
                         bat '''
 @echo off
 net use "\\\\emea.zf-world.com\\frd" %FT_PASS% /user:%FT_USER% >nul 2>&1
 exit /b 0
 '''
-
                         try {
-
                             //
                             // ====================================================================
                             // PROCESS EACH TRANSFER DEFINITION
@@ -154,7 +138,6 @@ exit /b 0
                             // ====================================================================
                             //
                             transfers.each { transfer ->
-
                                 //
                                 // ====================================================================
                                 // DISABLED TRANSFER
@@ -176,14 +159,10 @@ exit /b 0
                                     transfer.containsKey('enabled') &&
                                     !transfer.enabled
                                 ) {
-
                                     DISABLED++
-
                                     echo "[DISABLED] ${transfer.job}"
-
                                     return
                                 }
-
                                 //
                                 // ====================================================================
                                 // TRANSFER DEFINITION
@@ -195,39 +174,28 @@ exit /b 0
                                 //
                                 String jobName =
                                     transfer.job?.toString()
-
                                 String credentialId =
                                     transfer.credentialId?.toString()
-
                                 String source =
                                     transfer.source?.toString()
-
                                 String destination =
                                     transfer.destination?.toString()
-
                                 String fileMask =
                                     transfer.fileMask?.toString() ?: '*.*'
-
                                 String transferType =
                                     transfer.transferType?.toString()?.trim()?.toUpperCase() ?: 'ROBOCOPY'
-
                                 String roboFlags = ''
-
                                 if (
                                     transfer.flags instanceof List
                                 ) {
-
                                     roboFlags =
                                         transfer.flags.collect {
                                             it.toString()
                                         }.join(' ')
-
                                 } else {
-
                                     roboFlags =
                                         transfer.flags?.toString() ?: ''
                                 }
-
                                 //
                                 // ====================================================================
                                 // PRE-CHECK
@@ -265,30 +233,21 @@ exit /b 0
                                     transferType == 'ROBOCOPY' &&
                                     credentialId == 'WIN.SVC.UC4.BATCHUSER'
                                 ) {
-
                                     CHECKED++
-
                                     int checkResult = bat(
                                         returnStatus: true,
                                         script: """
 @echo off
-
 pushd "${source}" >nul 2>&1
-
 if errorlevel 1 (
     exit /b 100
 )
-
 dir "${fileMask}" /b | findstr . >nul
-
 set RC=%ERRORLEVEL%
-
 popd >nul 2>&1
-
 exit /b %RC%
 """
                                     )
-
                                     //
                                     // ====================================================================
                                     // PRECHECK FAILURE
@@ -311,19 +270,15 @@ exit /b %RC%
                                     // ====================================================================
                                     //
                                     if (checkResult == 100) {
-
                                         FAILURES << [
                                             job    : jobName,
                                             result : 'PRECHECK_FAILED',
                                             reason : 'Source path not found or access denied'
                                         ]
-
                                         echo "[FAIL] ${jobName}"
                                         echo "Source path not found or access denied."
-
                                         return
                                     }
-
                                     //
                                     // ====================================================================
                                     // SKIPPED
@@ -342,16 +297,12 @@ exit /b %RC%
                                     // ====================================================================
                                     //
                                     if (checkResult != 0) {
-
                                         SKIPPED++
-
                                         echo "[SKIP] ${jobName}"
                                         echo "No files found."
-
                                         return
                                     }
                                 }
-
                                 //
                                 // ====================================================================
                                 // EXECUTE FILE TRANSFER
@@ -369,99 +320,82 @@ exit /b %RC%
                                 // ====================================================================
                                 //
                                 echo "[EXEC] ${jobName} (${transferType})"
-
-def result
-
-if (transferType == 'SHAREPOINT') {
-
-result = build(
-    job: 'POC_SHAREPOINT_TRANSFER',
-    wait: true,
-    propagate: false,
-
-    parameters: [
-
-        string(
-            name: 'JOB_NAME',
-            value: jobName
-        ),
-
-        string(
-            name: 'SRC_PATH',
-            value: source
-        ),
-
-        string(
-            name: 'SITE_URL',
-            value: destination
-        ),
-
-        string(
-            name: 'LIBRARY',
-            value: transfer.library?.toString() ?: 'Shared Documents'
-        ),
-
-        string(
-            name: 'FILE_MASK',
-            value: fileMask
-        ),
-
-        string(
-            name: 'OPERATION',
-            value: transfer.operation?.toString()?.toUpperCase() ?: 'COPY'
-        ),
-
-        booleanParam(
-            name: 'OVERWRITE',
-            value: transfer.overwrite != false
-        )
-    ]
-)
-
-} else {
-
-    result = build(
-        job: 'POC_AUTOMIC_FILE_TRANSFER_IMPROVED_PEFORMANCE',
-        wait: true,
-        propagate: false,
-
-        parameters: [
-
-            string(
-                name: 'JOB_NAME',
-                value: jobName
-            ),
-
-            string(
-                name: 'SRC_CRED',
-                value: credentialId
-            ),
-
-            string(
-                name: 'SRC_PATH',
-                value: source
-            ),
-
-            string(
-                name: 'DST_PATH',
-                value: destination
-            ),
-
-            string(
-                name: 'FILE_MASK',
-                value: fileMask
-            ),
-
-            string(
-                name: 'ROBOCOPY_FLAGS',
-                value: roboFlags
-            )
-        ]
-    )
-}
-
+                                def result
+                                if (transferType == 'SHAREPOINT') {
+                                    result = build(
+                                        job: 'POC_SHAREPOINT_TRANSFER',
+                                        wait: true,
+                                        propagate: false,
+                                        parameters: [
+                                            string(
+                                                name: 'JOB_NAME',
+                                                value: jobName
+                                            ),
+                                            string(
+                                                name: 'SRC_PATH',
+                                                value: source
+                                            ),
+                                            string(
+                                                name: 'SITE_URL',
+                                                value: destination
+                                            ),
+                                            string(
+                                                name: 'LIBRARY',
+                                                value: transfer.library?.toString() ?: 'Shared Documents'
+                                            ),
+                                            string(
+                                                name: 'FILE_MASK',
+                                                value: fileMask
+                                            ),
+                                            string(
+                                                name: 'OPERATION',
+                                                value: transfer.operation?.toString()?.toUpperCase() ?: 'COPY'
+                                            ),
+                                            booleanParam(
+                                                name: 'OVERWRITE',
+                                                value: transfer.overwrite != false
+                                            ),
+                                            // NUEVO: pasamos el credentialId para autenticar el UNC
+                                            string(
+                                                name: 'SRC_CRED',
+                                                value: credentialId ?: 'WIN.SVC.UC4.BATCHUSER'
+                                            )
+                                        ]
+                                    )
+                                } else {
+                                    result = build(
+                                        job: 'POC_AUTOMIC_FILE_TRANSFER_IMPROVED_PEFORMANCE',
+                                        wait: true,
+                                        propagate: false,
+                                        parameters: [
+                                            string(
+                                                name: 'JOB_NAME',
+                                                value: jobName
+                                            ),
+                                            string(
+                                                name: 'SRC_CRED',
+                                                value: credentialId
+                                            ),
+                                            string(
+                                                name: 'SRC_PATH',
+                                                value: source
+                                            ),
+                                            string(
+                                                name: 'DST_PATH',
+                                                value: destination
+                                            ),
+                                            string(
+                                                name: 'FILE_MASK',
+                                                value: fileMask
+                                            ),
+                                            string(
+                                                name: 'ROBOCOPY_FLAGS',
+                                                value: roboFlags
+                                            )
+                                        ]
+                                    )
+                                }
                                 EXECUTED++
-
                                 //
                                 // ====================================================================
                                 // CHILD PIPELINE FAILED
@@ -481,7 +415,6 @@ result = build(
                                 if (
                                     result.result != 'SUCCESS'
                                 ) {
-
                                     FAILURES << [
                                         job    : jobName,
                                         result : result.result,
@@ -489,17 +422,12 @@ result = build(
                                         url    : result.absoluteUrl,
                                         reason : "Transfer returned ${result.result}"
                                     ]
-
                                     echo "[FAIL] ${jobName}"
-
                                 } else {
-
                                     echo "[SUCCESS] ${jobName}"
                                 }
                             }
-
                         } finally {
-
                             //
                             // ====================================================================
                             // DISCONNECT SMB SESSION
@@ -520,7 +448,6 @@ exit /b 0
 '''
                         }
                     }
-
                     //
                     // ====================================================================
                     // BUILD HISTORY DASHBOARD
@@ -540,10 +467,8 @@ exit /b 0
                     //
                     currentBuild.displayName =
                         "#${env.BUILD_NUMBER} D:${DISABLED} X:${EXECUTED} S:${SKIPPED} F:${FAILURES.size()}"
-
                     currentBuild.description =
                         "Total=${TOTAL} | Disabled=${DISABLED} | Checked=${CHECKED} | Executed=${EXECUTED} | Skipped=${SKIPPED} | Failed=${FAILURES.size()}"
-
                     //
                     // ====================================================================
                     // ORCHESTRATOR ALWAYS SUCCESS
@@ -562,13 +487,9 @@ exit /b 0
             }
         }
     }
-
     post {
-
         always {
-
             script {
-
                 //
                 // ====================================================================
                 // FINAL CONSOLIDATED REPORT
@@ -583,32 +504,23 @@ exit /b 0
                 //
                 def summary = """
 FT SUMMARY
-
 ========================================
 FILE TRANSFER SUMMARY
 ========================================
-
 Total    : ${TOTAL}
 Disabled : ${DISABLED}
 Checked  : ${CHECKED}
 Executed : ${EXECUTED}
 Skipped  : ${SKIPPED}
 Failed   : ${FAILURES.size()}
-
 ========================================
 """
-
                 if (!FAILURES.isEmpty()) {
-
                     summary += """
-
 FAILED JOBS
 ========================================
-
 """
-
                     FAILURES.each { f ->
-
                         summary += """
 JOB    : ${f.job}
 RESULT : ${f.result}
@@ -616,12 +528,10 @@ REASON : ${f.reason}
 ----------------------------------------
 """
                     }
-
                     summary += """
 ========================================
 """
                 }
-
                 echo(summary)
             }
         }
