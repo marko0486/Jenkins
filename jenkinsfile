@@ -1,0 +1,414 @@
+pipeline {
+
+    agent {
+        label 'Windows'
+    }
+
+    parameters {
+
+        string(
+            name: 'JOB_NAME',
+            defaultValue: ''
+        )
+
+        string(
+            name: 'SRC_PATH',
+            defaultValue: ''
+        )
+
+        string(
+            name: 'SITE_URL',
+            defaultValue: ''
+        )
+
+        string(
+            name: 'LIBRARY',
+            defaultValue: 'Shared Documents'
+        )
+
+        string(
+            name: 'FILE_MASK',
+            defaultValue: '*.*'
+        )
+
+        choice(
+            name: 'OPERATION',
+            choices: [
+                'COPY',
+                'MOVE'
+            ]
+        )
+
+        booleanParam(
+            name: 'OVERWRITE',
+            defaultValue: true
+        )
+    }
+
+    options {
+
+        buildDiscarder(
+            logRotator(
+                numToKeepStr: '50'
+            )
+        )
+    }
+
+environment {
+
+    START_TIME =
+        "${System.currentTimeMillis()}"
+}
+
+    stages {
+
+        stage('SharePoint Transfer') {
+
+            steps {
+
+                catchError(
+                    buildResult: 'UNSTABLE',
+                    stageResult: 'UNSTABLE'
+                ) {
+
+                    script {
+
+                        currentBuild.displayName =
+                            "#${env.BUILD_NUMBER} - ${params.JOB_NAME}"
+
+                        currentBuild.description =
+    "${params.FILE_MASK}"
+
+def tmpDir =
+    "C:\\Jenkins\\Jobs\\Tmp\\${env.BUILD_NUMBER}"
+
+def uploadedFile =
+    "${tmpDir}\\uploaded_files_${env.BUILD_NUMBER}.txt"
+
+def skippedFile =
+    "${tmpDir}\\skipped_files_${env.BUILD_NUMBER}.txt"
+
+def errorFile =
+    "${tmpDir}\\sharepoint_error_${env.BUILD_NUMBER}.txt"
+
+def psFile =
+    "${tmpDir}\\sharepoint-transfer_${env.BUILD_NUMBER}.ps1"
+
+bat """
+@echo off
+
+if not exist "${tmpDir}" mkdir "${tmpDir}"
+
+if exist "${uploadedFile}" del "${uploadedFile}"
+if exist "${skippedFile}" del "${skippedFile}"
+if exist "${errorFile}" del "${errorFile}"
+if exist "${psFile}" del "${psFile}"
+"""
+
+ writeFile(
+    file: psFile,
+    text: '''
+$clientId   = "c9864df8-7369-42e5-bec4-2a7fd1e6cf7a"
+$tenantId   = "eb70b763-b6d7-4486-8555-8831709a784e"
+$thumbPrint = "30da72f8c36269bdcc7e8aefcc577c0ef51eef90"
+
+$ErrorActionPreference = "Stop"
+
+$siteUrl   = $env:SITE_URL
+$source    = $env:SRC_PATH
+$mask      = $env:FILE_MASK
+$library   = $env:LIBRARY
+$operation = $env:OPERATION
+$overwrite = $env:OVERWRITE
+
+$connected = $false
+$uploaded  = @()
+$skipped = @()
+
+$uploadedFile = "${uploadedFile}"
+$skippedFile  = "${skippedFile}"
+$errorFile    = "${errorFile}"
+
+if (Test-Path $uploadedFile) {
+    Remove-Item $uploadedFile -Force
+}
+
+if (Test-Path $skippedFile) {
+    Remove-Item $skippedFile -Force
+}
+
+if (Test-Path $errorFile) {
+    Remove-Item $errorFile -Force
+}
+
+try {
+
+    if (-not (Test-Path $source)) {
+        throw "Source path does not exist: $source"
+    }
+
+
+    Connect-PnPOnline `
+    -Url $siteUrl `
+    -ClientId $clientId `
+    -Tenant $tenantId `
+    -Thumbprint $thumbPrint `
+    -ErrorAction Stop
+
+$connected = $true
+
+        Get-PnPWeb `
+            -ErrorAction Stop |
+            Out-Null
+
+    $files = Get-ChildItem `
+        -Path $source `
+        -Filter $mask `
+        -File
+
+    if ($files.Count -eq 0) {
+    throw "No files found matching: $mask"
+    }
+
+    $sharePointFiles =
+    Get-PnPFolderItem `
+        -FolderSiteRelativeUrl $library `
+        -ErrorAction Stop
+
+    foreach ($file in $files) {
+        Write-Host ""
+        Write-Host "Uploading: $($file.Name)"
+        Write-Host "Operation: $operation"
+
+    if (
+        ($overwrite -eq "True") -or
+        ($overwrite -eq $true)
+    ) {
+
+        Add-PnPFile `
+            -Path $file.FullName `
+            -Folder $library `
+            -ErrorAction Stop
+    }
+    else {
+
+        $existingFile =
+        $sharePointFiles |
+        Where-Object {
+            $_.Name -eq $file.Name
+        }
+
+        if ($existingFile) {
+
+            $skipped += $file.Name
+
+            continue
+        }
+
+        Add-PnPFile `
+            -Path $file.FullName `
+            -Folder $library `
+            -ErrorAction Stop
+    }
+
+    $uploaded += $file.Name
+
+        if ($operation -eq 'MOVE') {
+
+            Remove-Item `
+                -Path $file.FullName `
+                -Force `
+                -ErrorAction Stop
+        }
+    }
+
+    $uploaded |
+        Set-Content $uploadedFile
+
+    $skipped |
+        Set-Content $skippedFile
+}
+catch {
+
+    $_.Exception.Message |
+        Set-Content $errorFile
+
+    exit 1
+}
+finally {
+
+    if ($connected) {
+
+        Disconnect-PnPOnline `
+            -ErrorAction SilentlyContinue
+    }
+}
+
+exit 0
+'''
+)
+
+def rc = bat(
+    returnStatus: true,
+    script: """
+@echo off
+
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" ^
+-NoLogo ^
+-NoProfile ^
+-NonInteractive ^
+-ExecutionPolicy Bypass ^
+-File "${psFile}"
+
+exit /b %ERRORLEVEL%
+"""
+)
+
+                        if (rc != 0) {
+
+                            error(
+                                "SharePoint transfer failed. RC=${rc}"
+                            )
+                        }
+
+                    } // script
+
+                } // catchError
+
+            } // steps
+
+        } // stage
+
+    } // stages
+
+    post {
+
+        always {
+
+            script {
+
+                long elapsed =
+                    (
+                        System.currentTimeMillis()
+                        -
+                        env.START_TIME.toLong()
+                    ) / 1000
+
+def tmpDir =
+    "C:\\Jenkins\\Jobs\\Tmp\\${env.BUILD_NUMBER}"
+
+def uploadedFile =
+    "${tmpDir}\\uploaded_files_${env.BUILD_NUMBER}.txt"
+
+def skippedFile =
+    "${tmpDir}\\skipped_files_${env.BUILD_NUMBER}.txt"
+
+def errorFile =
+    "${tmpDir}\\sharepoint_error_${env.BUILD_NUMBER}.txt"
+def uploadedFiles = ''
+def skippedFiles = ''
+def finalStatus = ''
+
+
+                if (
+                    fileExists(
+                        uploadedFile
+                    )
+                ) {
+
+                    uploadedFiles =
+                        readFile(
+                            uploadedFile
+                        ).trim()
+                }
+
+                if (
+                    fileExists(
+                        skippedFile
+                    )
+            ) {
+                    skippedFiles =
+                        readFile(
+                            skippedFile
+                    ).trim()
+            }          
+
+def errorMsg = ''
+
+if (
+    fileExists(
+        errorFile
+    )
+) {
+
+    errorMsg =
+        readFile(
+            errorFile
+        ).trim()
+}
+
+
+
+if (errorMsg?.trim()) {
+
+    finalStatus = errorMsg
+
+}
+else if (
+    !uploadedFiles?.trim() &&
+    skippedFiles?.trim()
+) {
+
+    finalStatus = 'NO FILES PROCESSED'
+
+}
+else if (
+    !uploadedFiles?.trim() &&
+    !skippedFiles?.trim()
+) {
+
+    finalStatus = 'NO FILES PROCESSED'
+
+}
+else {
+
+    finalStatus =
+        "SUCCESS (${params.OPERATION})"
+}
+
+
+                def summary = """SUMMARY
+
+========================================
+
+Job Name  : ${params.JOB_NAME}
+
+Site URL  : ${params.SITE_URL}
+
+Library   : ${params.LIBRARY}
+
+Operation : ${params.OPERATION}
+
+File Mask : ${params.FILE_MASK}
+
+Status    : ${finalStatus}
+
+Duration  : ${elapsed} seconds
+
+Uploaded Files
+----------------------------------------
+${uploadedFiles?.trim() ? uploadedFiles : 'No files uploaded'}
+
+Skipped Files
+----------------------------------------
+${skippedFiles?.trim() ? skippedFiles : 'No files skipped'}
+
+========================================
+"""
+
+                echo(summary)
+            }
+        }
+    }
+
+} // pipeline
