@@ -1,4 +1,5 @@
-actuaizado
+agreado eliminar el .ps1 al final
+
 pipeline {
     agent {
         label 'Windows'
@@ -290,6 +291,16 @@ ${skippedFiles?.trim() ? skippedFiles : 'No files skipped'}
 ========================================
 """
                 echo(summary)
+
+                // ============================================================
+                // CLEANUP: Delete the temporary PowerShell script
+                // ============================================================
+                if (env.PS_FILE) {
+                    bat """
+@echo off
+if exist "${env.PS_FILE}" del /f /q "${env.PS_FILE}"
+"""
+                }
             }
         }
     }
