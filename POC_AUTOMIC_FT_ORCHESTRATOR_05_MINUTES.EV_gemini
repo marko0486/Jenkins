@@ -1,3 +1,32 @@
+Ahora no me sale el output, lo quiero asi:
+
+FT SUMMARY
+========================================
+FILE TRANSFER SUMMARY
+========================================
+Total    : 8
+Disabled : 2
+Checked  : 5
+Executed : 1
+Skipped  : 5
+Failed   : 1
+========================================
+
+FAILED JOBS
+========================================
+
+JOB    : BR.SD.#WFL.TP1.005_EOO_DELIVERIES.EV
+RESULT : FAILURE
+REASON : Transfer returned FAILURE
+----------------------------------------
+
+========================================
+
+ademas, no ejecuta el job llamado: POC_AUTOMIC_FILE_TRANSFER_IMPROVED_PEFORMANCE
+segun el error: [SKIP] ZF.TMP_JOB (no files matching mask)    pero la realidad es que si hay archivos
+
+
+Te adjunto de nuevo el codigo
 import groovy.json.JsonSlurperClassic
 
 // ============================================================================
