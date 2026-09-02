@@ -24,7 +24,7 @@ pipeline {
         stage('File Transfers') {
             steps {
                 script {
-                    def jsonText = new File('C:/Jenkins/Jobs/file-transfers_05m.json').text
+                    def jsonText = new File('C:/Jenkins/Jobs/tmp.json').text
                     def transfers = new JsonSlurperClassic().parseText(jsonText)
                     TOTAL = transfers.size()
 
