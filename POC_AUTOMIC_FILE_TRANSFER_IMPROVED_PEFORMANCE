@@ -1,4 +1,4 @@
-Ahora quiero que reacomodes los comentarios dek job, identa el codigo
+Ahora quiero que reacomodes los comentarios del job, identa el codigo
 Ademas quiero que guardes el log tal cual ya lo haces con el job de POC_SHAREPOINT_TRANSFER
 
 Quiero el log del Robocopy en :
@@ -8,14 +8,16 @@ Quiero que el log sea asi:
 
 SUMMARY
 ========================================
-Job Name     : extracto del Json
-File Mask    : 
-SRC_CRED     : WIN.SVC.UC4.BATCHUSER
-Duration     : 34 seconds
-Timestamp    : 2026-09-02 19:38:30
+Job Name     : extre del Json
+File Mask    : xtre del Json
+SRC_CRED     : xtre del Json
+Duration     : 
+Timestamp    : 
 Build Parent : NOMBRE_DEL_JENKINS_JOB_BuildID_del_ParentJob #123456
 
 LOG DE ROBOCOPY
+
+AQUI TIENES QUE PONER EL LOG DEL ROBOCOPY.
 
 =====================================
 END OF LOG
