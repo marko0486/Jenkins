@@ -1,3 +1,66 @@
+Solo una cosa en Build Parent
+
+Quiero ver el nombre del Job Parent y el Build
+Algo asi como 
+Build Parent : POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV #160
+
+Eso ya lo hacemos en el job POC_SHAREPOINT_TRANSFER  y quiero lo mismo aqui
+
+
+SUMMARY
+================================================================================
+Job Name     : ZF.TMP_JOB
+File Mask    : *.*
+SRC_CRED     : WIN.SVC.UC4.BATCHUSER
+Duration     : 9 seconds
+Timestamp    : 2026-09-03 00:09:55
+Build Parent : #160
+-------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
+   ROBOCOPY     ::     Robust File Copy for Windows                              
+-------------------------------------------------------------------------------
+
+  Started : Thursday, September 3, 2026 12:09:48 AM
+   Source : \\FRDV02656.emea.zf-world.com\ToolShare\tmp\src\
+     Dest : \\FRDV02656.emea.zf-world.com\ToolShare\tmp\dst\
+
+    Files : *.*
+	    
+  Options : *.* /DCOPY:DA /COPY:DAT /NP /R:0 /W:0 
+
+------------------------------------------------------------------------------
+
+	                   8	\\FRDV02656.emea.zf-world.com\ToolShare\tmp\src\
+	  *EXTRA File 		   42426	2026-08-26_Step List Overview_JXF_HANSEORGA_LOAD_EMEA1.jpg
+	    New File  		  203227	CT-NZN_MRKO_Job_Scheduling_template (1).xlsx
+	    New File  		  203227	CT-NZN_MRKO_Job_Scheduling_template.xlsx
+	    New File  		    7338	export (2).xml
+	    New File  		  140434	IBP_Automic_Job_Request_SP1.xlsx
+	    New File  		  150489	INC10405225_stop_batch_job_JXV_RV56TRGN CREATE SHIPM DC01_3_weekend.xlsm
+	    New File  		  145135	Job requirement_OR9_CONSI_SBI.xlsx
+	    New File  		  145355	Jobs_Nfe_P01 (1).xlsm
+	    New File  		  145355	Jobs_Nfe_P01.xlsm
+
+------------------------------------------------------------------------------
+
+               Total    Copied   Skipped  Mismatch    FAILED    Extras
+    Dirs :         1         0         1         0         0         0
+   Files :         8         8         0         0         0         1
+   Bytes :    1.08 m    1.08 m         0         0         0    41.4 k
+   Times :   0:00:04   0:00:04                       0:00:00   0:00:00
+
+
+   Speed :             256,132 Bytes/sec.
+   Speed :              14.656 MegaBytes/min.
+   Ended : Thursday, September 3, 2026 12:09:53 AM
+
+
+================================================================================
+END OF LOG
+
+Te adjunto el codigo para que lo actualices
+
 pipeline {
     // ========================================================================
     // Agent: cualquier nodo Windows con capacidad de SMB + Robocopy
