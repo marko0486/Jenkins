@@ -311,3 +311,44 @@ END OF LOG
         }
     }
 }
+
+
+este es el json:
+
+[
+  {
+    "job": "ZF.TMP_JOB",
+    "enabled": true,
+    "transferType": "ROBOCOPY",
+    "credentialId": "WIN.SVC.UC4.BATCHUSER",
+    "source": "\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\src",
+    "destination": "\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\dst",
+    "fileMask": "*.*",
+    "flags": [
+      "/MOV",
+      "/R:0",
+      "/W:0",
+      "/NP"
+    ]
+  },
+  {
+    "job": "BR.SD.#WFL.TP1.005_EOO_DELIVERIES.EV",
+    "enabled": true,
+    "transferType": "SHAREPOINT",
+    "source": "\\\\emea.zf-world.com\\frd\\system\\sap\\TP1\\m005\\Wesson",
+    "destination": "https://trw1.sharepoint.com/sites/RelatrioDailyPerformance-PowerBI",
+    "library": "Shared Documents/General/EOO",
+    "fileMask": "testfile.csv",
+    "operation": "COPY",
+    "overwrite": true
+  }
+]
+
+el problema es que  si ejecuta el JOB de sharepoint PERO    no ejecuta el job del ROBOCOPY 
+
+Authenticating share: \\FRDV02656.emea.zf-world.com\ToolShare
+File Not Found 
+
+pero el path si existe 
+
+
