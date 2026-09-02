@@ -1,195 +1,420 @@
+Ahora quiero que reacomodes los comentarios dek job, identa el codigo
+Ademas quiero que guardes el log tal cual ya lo haces con el job de POC_SHAREPOINT_TRANSFER
+
+Quiero el log del Robocopy en :
+C:\Jenkins\Jobs\Log\NOMBRE_DEL_JENKINS_JOB_BuildID_del_ParentJob.txt 
+
+Quiero que el log sea asi:
+
+SUMMARY
+========================================
+Job Name     : extracto del Json
+File Mask    : 
+SRC_CRED     : WIN.SVC.UC4.BATCHUSER
+Duration     : 34 seconds
+Timestamp    : 2026-09-02 19:38:30
+Build Parent : NOMBRE_DEL_JENKINS_JOB_BuildID_del_ParentJob #123456
+
+LOG DE ROBOCOPY
+
+=====================================
+END OF LOG
+
+
 pipeline {
+
+    //
+    // Execute this job on any Windows agent capable of
+    // running SMB commands and Robocopy.
+    //
     agent {
         label 'Windows'
     }
 
+    //
+    // Parameters provided by the Orchestrator.
+    //
+    // JOB_NAME
+    //   Logical transfer identifier.
+    //
+    // SRC_CRED
+    //   Jenkins credential ID used for SMB authentication.
+    //
+    // SRC_PATH
+    //   Full UNC source path.
+    //   Example:
+    //   \\server\share\folder
+    //
+    // DST_PATH
+    //   Full UNC destination path.
+    //
+    // FILE_MASK
+    //   File selection pattern passed to Robocopy.
+    //   Examples:
+    //   *.csv
+    //   *.txt
+    //   *.*
+    //
+    // ROBOCOPY_FLAGS
+    //   Additional Robocopy options.
+    //   Examples:
+    //   /MOV /R:0 /W:0
+    //   /E /XO
+    //
     parameters {
-        string(name: 'JOB_NAME',     defaultValue: '')
-        string(name: 'SRC_PATH',     defaultValue: '')
-        string(name: 'SITE_URL',     defaultValue: '')
-        string(name: 'LIBRARY',      defaultValue: 'Shared Documents')
-        string(name: 'FILE_MASK',    defaultValue: '*.*')
-        choice(name: 'OPERATION',    choices: ['COPY', 'MOVE'])
-        booleanParam(name: 'OVERWRITE', defaultValue: true)
-        string(name: 'SRC_CRED',     defaultValue: 'WIN.SVC.UC4.BATCHUSER')
-        // NEW: Parent Build Number received from the Orchestrator
-        string(name: 'PARENT_BUILD', defaultValue: 'N/A')
+
+        string(
+            name: 'JOB_NAME',
+            defaultValue: ''
+        )
+
+        string(
+            name: 'SRC_CRED',
+            defaultValue: ''
+        )
+
+        string(
+            name: 'SRC_PATH',
+            defaultValue: ''
+        )
+
+        string(
+            name: 'DST_PATH',
+            defaultValue: ''
+        )
+
+        string(
+            name: 'FILE_MASK',
+            defaultValue: '*.*'
+        )
+
+        string(
+            name: 'ROBOCOPY_FLAGS',
+            defaultValue: ''
+        )
     }
 
+    //
+    // Keep only the latest 50 executions.
+    //
     options {
-        buildDiscarder(logRotator(numToKeepStr: '50'))
+
+        buildDiscarder(
+            logRotator(
+                numToKeepStr: '50'
+            )
+        )
+    }
+
+    environment {
+
+        //
+        // Used later to calculate execution duration.
+        //
+        START_TIME = "${System.currentTimeMillis()}"
     }
 
     stages {
-        stage('SharePoint Transfer') {
+
+        stage('Transfer Definition') {
+
             steps {
-                catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+
+                //
+                // Convert runtime failures into UNSTABLE
+                // instead of failing the entire build.
+                //
+                catchError(
+                    buildResult: 'UNSTABLE',
+                    stageResult: 'UNSTABLE'
+                ) {
+
                     script {
-                        def startTime = System.currentTimeMillis()
-                        env.START_TIME = "${startTime}"
 
-                        currentBuild.displayName = "#${env.BUILD_NUMBER} - ${params.JOB_NAME}"
-                        currentBuild.description = "${params.FILE_MASK}"
+                        //
+                        // Customize Jenkins UI.
+                        //
+                        // Example:
+                        // #125 - ZF.FILE_TRANSFER_JOB
+                        //
+                        currentBuild.displayName =
+                            "#${env.BUILD_NUMBER} - ${params.JOB_NAME}"
 
-                        def logDir = "C:\\Jenkins\\Jobs\\Log"
-                        def jenkinsJobName = currentBuild.rawBuild.getParent().getName()
+                        //
+                        // Human readable transfer description.
+                        //
+                        currentBuild.description =
+                            "${params.FILE_MASK} : ${params.SRC_PATH} -> ${params.DST_PATH}"
 
-                        def psFile       = "${logDir}\\${jenkinsJobName}_sharepoint-transfer_BuildID_${env.BUILD_NUMBER}.ps1"
-                        def resultFile   = "${logDir}\\${jenkinsJobName}_result_BuildID_${env.BUILD_NUMBER}.txt"
-                        def finalLogFile = "${logDir}\\${jenkinsJobName}_BuildID_${env.BUILD_NUMBER}.txt"
+                        //
+                        // Retrieve all username/password credentials
+                        // available in Jenkins.
+                        //
+                        def creds =
+                            com.cloudbees.plugins.credentials.CredentialsProvider.lookupCredentials(
+                                com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredentials.class,
+                                jenkins.model.Jenkins.get(),
+                                null,
+                                null
+                            )
 
-                        env.PS_FILE     = psFile
-                        env.RESULT_FILE = resultFile
-                        env.FINAL_LOG   = finalLogFile
+                        //
+                        // Locate the credential requested by SRC_CRED.
+                        //
+                        def cred = creds.find {
+                            it.id == params.SRC_CRED
+                        }
 
-                        bat """
-@echo off
-if not exist "${logDir}" mkdir "${logDir}"
-"""
+                        //
+                        // Store values in environment variables so
+                        // they can be accessed later in the pipeline.
+                        //
+                        env.FT_USERNAME =
+                            cred ? cred.username : "UNKNOWN"
 
+                        env.CREDENTIAL_ID =
+                            cred ? cred.id : ""
+
+                        //
+                        // Stop early if the credential does not exist.
+                        //
+                        if (!env.CREDENTIAL_ID?.trim()) {
+
+                            writeFile(
+                                file: 'robocopy.error',
+                                text: "Credential not found for ID: ${params.SRC_CRED}"
+                            )
+
+                            unstable(
+                                "Credential not found for ID: ${params.SRC_CRED}"
+                            )
+
+                            return
+                        }
+
+                        //
+                        // Normalize Robocopy options.
+                        //
+                        env.ROBOCOPY_OPTIONS =
+                            params.ROBOCOPY_FLAGS?.trim() ?: ""
+
+                        //
+                        // Parse source UNC path.
+                        //
+                        // Example:
+                        // \\server\share\folder
+                        //
+                        // Results:
+                        // server = srcParts[0]
+                        // share  = srcParts[1]
+                        //
+                        def srcParts = params.SRC_PATH
+                            .replaceFirst('^\\\\\\\\', '')
+                            .split('\\\\')
+
+                        //
+                        // A valid UNC path requires at least:
+                        // server + share
+                        //
+                        if (srcParts.size() < 2) {
+
+                            writeFile(
+                                file: 'robocopy.error',
+                                text: 'Invalid source UNC path.'
+                            )
+
+                            unstable(
+                                'Invalid source UNC path.'
+                            )
+
+                            return
+                        }
+
+                        //
+                        // Root share used by NET USE.
+                        //
+                        // Example:
+                        // \\server\share
+                        //
+                        env.SRC_SHARE_ROOT =
+                            "\\\\${srcParts[0]}\\${srcParts[1]}"
+
+                        //
+                        // Parse destination UNC path.
+                        //
+                        def dstParts = params.DST_PATH
+                            .replaceFirst('^\\\\\\\\', '')
+                            .split('\\\\')
+
+                        //
+                        // Destination share root.
+                        //
+                        if (dstParts.size() >= 2) {
+
+                            env.DST_SHARE_ROOT =
+                                "\\\\${dstParts[0]}\\${dstParts[1]}"
+
+                        } else {
+
+                            //
+                            // Fallback.
+                            //
+                            env.DST_SHARE_ROOT =
+                                env.SRC_SHARE_ROOT
+                        }
+
+                        //
+                        // Transfer definition shown in console log.
+                        //
+                        echo "========================================"
+                        echo "Job Name      : ${params.JOB_NAME}"
+                        echo "User          : ${env.FT_USERNAME}"
+                        echo "Credential ID : ${params.SRC_CRED}"
+                        echo "Source        : ${params.SRC_PATH}"
+                        echo "Destination   : ${params.DST_PATH}"
+                        echo "File Mask     : ${params.FILE_MASK}"
+                        echo "Robocopy Flags: ${env.ROBOCOPY_OPTIONS}"
+                        echo "========================================"
+
+                        //
+                        // Load username/password into FT_USER
+                        // and FT_PASS.
+                        //
                         withCredentials([
                             usernamePassword(
-                                credentialsId: params.SRC_CRED,
+                                credentialsId: env.CREDENTIAL_ID,
                                 usernameVariable: 'FT_USER',
                                 passwordVariable: 'FT_PASS'
                             )
                         ]) {
-                            bat """
+
+                            //
+                            // Execute SMB access validation and Robocopy.
+                            //
+                            def rc = bat(
+                                returnStatus: true,
+                                script: """
 @echo off
-echo Authenticating to UNC path using credential: ${params.SRC_CRED}
-net use "${params.SRC_PATH}" %FT_PASS% /user:%FT_USER% >nul 2>&1
+
+if exist robocopy.error del robocopy.error
+if exist robocopy.rc del robocopy.rc
+
+rem Connect to source share.
+net use "%SRC_SHARE_ROOT%" %FT_PASS% /user:%FT_USER% >nul 2>&1
+
 if errorlevel 1 (
-    echo WARNING: net use failed on full path. Trying share root...
-    for /f "tokens=1,2,3 delims=\\" %%a in ("${params.SRC_PATH}") do (
-        net use "\\\\%%b\\%%c" %FT_PASS% /user:%FT_USER% >nul 2>&1
+    exit /b 101
+)
+
+rem Connect to destination share only when different.
+if /I NOT "%SRC_SHARE_ROOT%"=="%DST_SHARE_ROOT%" (
+
+    net use "%DST_SHARE_ROOT%" %FT_PASS% /user:%FT_USER% >nul 2>&1
+
+    if errorlevel 1 (
+        exit /b 102
     )
 )
-exit /b 0
-"""
 
-                            try {
+rem Validate source path.
+dir "${params.SRC_PATH}" >nul 2>&1
+
+if errorlevel 1 (
+    exit /b 103
+)
+
+rem Validate destination path.
+dir "${params.DST_PATH}" >nul 2>&1
+
+if errorlevel 1 (
+    exit /b 104
+)
+
+rem Execute Robocopy.
+robocopy "${params.SRC_PATH}" "${params.DST_PATH}" "${params.FILE_MASK}" ${env.ROBOCOPY_OPTIONS} > robocopy.log
+
+set RC=%ERRORLEVEL%
+
+echo %RC% > robocopy.rc
+
+rem Disconnect SMB sessions.
+net use "%SRC_SHARE_ROOT%" /delete /y >nul 2>&1
+
+if /I NOT "%SRC_SHARE_ROOT%"=="%DST_SHARE_ROOT%" (
+    net use "%DST_SHARE_ROOT%" /delete /y >nul 2>&1
+)
+
+exit /b %RC%
+"""
+                            )
+
+                            //
+                            // Custom return code mapping.
+                            //
+                            if (rc == 101) {
+
                                 writeFile(
-                                    file: psFile,
-                                    text: """
-# ================================================================
-# SharePoint Transfer Script
-# Generated by Jenkins Pipeline - Build ${env.BUILD_NUMBER}
-# ================================================================
-\$clientId   = "c9864df8-7369-42e5-bec4-2a7fd1e6cf7a"
-\$tenantId   = "eb70b763-b6d7-4486-8555-8831709a784e"
-\$thumbPrint = "30da72f8c36269bdcc7e8aefcc577c0ef51eef90"
-\$ErrorActionPreference = "Stop"
-
-\$siteUrl   = \$env:SITE_URL
-\$source    = \$env:SRC_PATH
-\$mask      = \$env:FILE_MASK
-\$library   = \$env:LIBRARY
-\$operation = \$env:OPERATION
-\$overwrite = [System.Convert]::ToBoolean(\$env:OVERWRITE)
-
-\$connected = \$false
-\$uploaded  = @()
-\$skipped   = @()
-\$errorMsg  = ""
-
-\$resultFile = "${resultFile}"
-
-try {
-    if (-not (Test-Path \$source)) {
-        throw "Source path does not exist or is not accessible: \$source"
-    }
-
-    Connect-PnPOnline -Url \$siteUrl -ClientId \$clientId -Tenant \$tenantId -Thumbprint \$thumbPrint -ErrorAction Stop
-    \$connected = \$true
-    Get-PnPWeb -ErrorAction Stop | Out-Null
-
-    \$files = @(Get-ChildItem -Path \$source -Filter \$mask -File)
-
-    if (\$files.Count -eq 0) {
-        throw "No files found matching: \$mask"
-    }
-
-    foreach (\$file in \$files) {
-        Write-Host ""
-        Write-Host "Uploading: \$(\$file.Name)"
-        Write-Host "Operation: \$operation"
-
-        if (\$overwrite) {
-            Add-PnPFile -Path \$file.FullName -Folder \$library -ErrorAction Stop
-        } else {
-            \$existingFile = Get-PnPFile -Url "\$library/\$(\$file.Name)" -AsListItem -ErrorAction SilentlyContinue
-            if (\$existingFile) {
-                \$skipped += \$file.Name
-                Write-Host "Skipped (already exists): \$(\$file.Name)"
-                continue
-            }
-            Add-PnPFile -Path \$file.FullName -Folder \$library -ErrorAction Stop
-        }
-
-        \$uploaded += \$file.Name
-
-        if (\$operation -eq 'MOVE') {
-            Remove-Item -Path \$file.FullName -Force -ErrorAction Stop
-        }
-    }
-}
-catch {
-    \$errorMsg = \$_.Exception.Message
-    exit 1
-}
-finally {
-    if (\$connected) {
-        Disconnect-PnPOnline -ErrorAction SilentlyContinue
-    }
-
-    \$content = @"
-UPLOADED
-\$(\$uploaded -join "`n")
----
-SKIPPED
-\$(\$skipped -join "`n")
----
-ERROR
-\$errorMsg
-"@
-    \$content | Set-Content -Path \$resultFile -Encoding UTF8
-}
-exit 0
-"""
+                                    file: 'robocopy.error',
+                                    text: 'Unable to connect to source SMB share.'
                                 )
 
-                                withEnv([
-                                    "SITE_URL=${params.SITE_URL}",
-                                    "SRC_PATH=${params.SRC_PATH}",
-                                    "FILE_MASK=${params.FILE_MASK}",
-                                    "LIBRARY=${params.LIBRARY}",
-                                    "OPERATION=${params.OPERATION}",
-                                    "OVERWRITE=${params.OVERWRITE}"
-                                ]) {
-                                    def rc = bat(
-                                        returnStatus: true,
-                                        script: """
-@echo off
-"C:\\Program Files\\PowerShell\\7\\pwsh.exe" ^
-    -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass ^
-    -File "${psFile}"
-exit /b %ERRORLEVEL%
-"""
-                                    )
-                                    if (rc != 0) {
-                                        error("SharePoint transfer failed. RC=${rc}")
-                                    }
-                                }
+                                error(
+                                    'Unable to connect to source SMB share.'
+                                )
                             }
-                            finally {
-                                bat """
-@echo off
-net use "${params.SRC_PATH}" /delete /y >nul 2>&1
-for /f "tokens=1,2,3 delims=\\" %%a in ("${params.SRC_PATH}") do (
-    net use "\\\\%%b\\%%c" /delete /y >nul 2>&1
-)
-exit /b 0
-"""
+
+                            if (rc == 102) {
+
+                                writeFile(
+                                    file: 'robocopy.error',
+                                    text: 'Unable to connect to destination SMB share.'
+                                )
+
+                                error(
+                                    'Unable to connect to destination SMB share.'
+                                )
+                            }
+
+                            if (rc == 103) {
+
+                                writeFile(
+                                    file: 'robocopy.error',
+                                    text: 'Source path not accessible (missing path or permissions).'
+                                )
+
+                                error(
+                                    'Source path not accessible.'
+                                )
+                            }
+
+                            if (rc == 104) {
+
+                                writeFile(
+                                    file: 'robocopy.error',
+                                    text: 'Destination path not accessible (missing path or permissions).'
+                                )
+
+                                error(
+                                    'Destination path not accessible.'
+                                )
+                            }
+
+                            //
+                            // Robocopy semantics:
+                            //
+                            // RC 0-7 = Success / Informational
+                            // RC 8+  = Failure
+                            //
+                            if (rc >= 8) {
+
+                                writeFile(
+                                    file: 'robocopy.error',
+                                    text: "Robocopy failed with RC=${rc}"
+                                )
+
+                                error(
+                                    "Robocopy failed with RC=${rc}"
+                                )
                             }
                         }
                     }
@@ -199,107 +424,87 @@ exit /b 0
     }
 
     post {
+
         always {
+
             script {
-                long elapsed = (System.currentTimeMillis() - env.START_TIME.toLong()) / 1000
 
-                def logDir         = "C:\\Jenkins\\Jobs\\Log"
-                def jenkinsJobName = currentBuild.rawBuild.getParent().getName()
-                def resultFile     = "${logDir}\\${jenkinsJobName}_result_BuildID_${env.BUILD_NUMBER}.txt"
-                def finalLogFile   = "${logDir}\\${jenkinsJobName}_BuildID_${env.BUILD_NUMBER}.txt"
+                //
+                // Calculate total execution duration in seconds.
+                //
+                long elapsed =
+                    (System.currentTimeMillis() -
+                    env.START_TIME.toLong()) / 1000
 
-                def uploadedList = []
-                def skippedList  = []
-                def errorMsg     = ''
+                //
+                // Read user-friendly error message when available.
+                //
+                def errorMsg = ''
 
-                if (fileExists(resultFile)) {
-                    def content = readFile(resultFile)
-                    def parts = content.split('---')
+                if (fileExists('robocopy.error')) {
 
-                    if (parts.size() >= 1) {
-                        def uploadedSection = parts[0].replace('UPLOADED', '').trim()
-                        if (uploadedSection) {
-                            uploadedList = uploadedSection.split('\n').findAll { it.trim() }
-                        }
-                    }
-                    if (parts.size() >= 2) {
-                        def skippedSection = parts[1].replace('SKIPPED', '').trim()
-                        if (skippedSection) {
-                            skippedList = skippedSection.split('\n').findAll { it.trim() }
-                        }
-                    }
-                    if (parts.size() >= 3) {
-                        errorMsg = parts[2].replace('ERROR', '').trim()
-                    }
+                    errorMsg =
+                        readFile('robocopy.error').trim()
                 }
 
-                def finalStatus = ''
-                if (errorMsg) {
-                    finalStatus = errorMsg
-                } else if (uploadedList.isEmpty() && skippedList.isEmpty()) {
-                    finalStatus = 'NO FILES PROCESSED'
-                } else if (uploadedList.isEmpty() && !skippedList.isEmpty()) {
-                    finalStatus = 'NO FILES PROCESSED (all skipped)'
-                } else {
-                    finalStatus = "SUCCESS (${params.OPERATION})"
+                //
+                // Read Robocopy return code captured by batch.
+                //
+                def rc = ''
+
+                if (fileExists('robocopy.rc')) {
+
+                    rc =
+                        readFile('robocopy.rc').trim()
                 }
 
-                def uploadedSection = ""
-                if (uploadedList) {
-                    uploadedList.eachWithIndex { file, idx ->
-                        uploadedSection += "${idx + 1}. ${file}\n"
-                    }
-                } else {
-                    uploadedSection = "No files uploaded\n"
+                //
+                // Parse Robocopy log.
+                //
+                // Only files reported as "New File"
+                // are displayed in the final summary.
+                //
+                def copiedFiles = ''
+
+                if (fileExists('robocopy.log')) {
+
+                    copiedFiles =
+                        readFile('robocopy.log')
+                            .readLines()
+                            .findAll {
+                                it.contains('New File')
+                            }
+                            .collect {
+                                it.replace('New File', '').trim()
+                            }
+                            .join('\n')
                 }
 
-                def skippedSection = ""
-                if (skippedList) {
-                    skippedList.eachWithIndex { file, idx ->
-                        skippedSection += "${idx + 1}. ${file}\n"
-                    }
-                } else {
-                    skippedSection = "No files skipped\n"
-                }
+                //
+                // Final execution summary.
+                //
+                def summary = """SUMMARY
 
-                def timestamp = new Date().format('yyyy-MM-dd HH:mm:ss')
-
-                // Build Parent now comes cleanly from the parameter
-                def buildParent = "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV #${params.PARENT_BUILD}"
-
-                def logContent = """SUMMARY
 ========================================
-Job Name     : ${params.JOB_NAME}
-Site URL     : ${params.SITE_URL}
-Library      : ${params.LIBRARY}
-Operation    : ${params.OPERATION}
-File Mask    : ${params.FILE_MASK}
-SRC_CRED     : ${params.SRC_CRED}
-Status       : ${finalStatus}
-Duration     : ${elapsed} seconds
-Timestamp    : ${timestamp}
-Build Parent : ${buildParent}
 
-Uploaded Files (${uploadedList.size()})
+Job Name  : ${params.JOB_NAME}
+
+Flags     : ${env.ROBOCOPY_OPTIONS}
+
+File Mask : ${params.FILE_MASK}
+
+Status    : ${errorMsg?.trim() ? errorMsg : "SUCCESS (RC=${rc})"}
+
+Duration  : ${elapsed} seconds
+
+Copied Files
 ----------------------------------------
-${uploadedSection}
-Skipped Files (${skippedList.size()})
-----------------------------------------
-${skippedSection}
-Errors
-----------------------------------------
-${errorMsg ? errorMsg : 'None'}
+${copiedFiles?.trim() ? copiedFiles : 'No files reported'}
+
 ========================================
 """
 
-                writeFile file: finalLogFile, text: logContent
-                echo(logContent)
-
-                bat """
-@echo off
-if exist "${env.PS_FILE}" del /f /q "${env.PS_FILE}"
-if exist "${resultFile}" del /f /q "${resultFile}"
-"""
+                echo(summary)
             }
         }
     }
