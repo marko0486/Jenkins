@@ -232,3 +232,43 @@ exit /b !RC!
                 def fullLog  = fileExists('robocopy.log')   ? readFile('robocopy.log')          : 'No Robocopy log generated.'
 
                 def logContent = """SUMMARY
+================================================================================
+Job Name     : ${params.JOB_NAME}
+File Mask    : ${params.FILE_MASK}
+SRC_CRED     : ${params.SRC_CRED}
+Duration     : ${elapsed} seconds
+Timestamp    : ${new Date().format('yyyy-MM-dd HH:mm:ss')}
+Build Parent : #${params.PARENT_BUILD}
+-------------------------------------------------------------------------------
+${fullLog}
+================================================================================
+END OF LOG
+"""
+
+                // Log name = JOB_NAME del JSON + BuildID del job actual
+                def logDir  = 'C:\\Jenkins\\Jobs\\Log'
+                def logName = "${params.JOB_NAME}_BuildID_${env.BUILD_NUMBER}.txt"
+                def logPath = "${logDir}\\${logName}"
+
+                bat """
+@echo off
+if not exist "${logDir}" mkdir "${logDir}"
+"""
+
+                writeFile file: logPath, text: logContent
+                echo "Detailed Robocopy log written to: ${logPath}"
+
+                echo """
+SUMMARY
+================================================================================
+Job Name  : ${params.JOB_NAME}
+Flags     : ${env.ROBOCOPY_OPTIONS}
+File Mask : ${params.FILE_MASK}
+Status    : ${errorMsg ? errorMsg : "SUCCESS (RC=${rc})"}
+Duration  : ${elapsed} seconds
+================================================================================
+"""
+            }
+        }
+    }
+}
