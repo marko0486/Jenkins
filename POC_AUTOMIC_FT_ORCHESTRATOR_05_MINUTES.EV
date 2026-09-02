@@ -62,9 +62,6 @@ pipeline {
                                 // ============================================================
                                 // PRE-CHECK (only for ROBOCOPY with the common credential)
                                 // ============================================================
-                                // We now authenticate ONLY the specific share of this job
-                                // instead of a global net use.
-                                // ============================================================
                                 if (transferType == 'ROBOCOPY' && credentialId == 'WIN.SVC.UC4.BATCHUSER') {
                                     CHECKED++
 
@@ -77,24 +74,32 @@ setlocal enabledelayedexpansion
 REM ------------------------------------------------------------
 REM Extract the share root from the source path
 REM Example:
-REM   \\emea.zf-world.com\\frd\\folder\\sub  →  \\emea.zf-world.com\\frd
-REM   \\FRDV01234\\MI_PATH\\FOLDER         →  \\FRDV01234\\MI_PATH
+REM   \\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\src
+REM   %%a = FRDV02656.emea.zf-world.com
+REM   %%b = ToolShare
+REM   SHARE = \\\\FRDV02656.emea.zf-world.com\\ToolShare
 REM ------------------------------------------------------------
 set "SOURCE=${source}"
-for /f "tokens=1,2,3 delims=\\" %%a in ("!SOURCE!") do (
-    set "SHARE=\\\\%%b\\%%c"
+for /f "tokens=1,2 delims=\\" %%a in ("!SOURCE!") do (
+    set "SHARE=\\\\%%a\\%%b"
 )
 
 echo Authenticating share: !SHARE!
 
+REM Clean up any potential stale connections
+net use "!SHARE!" /delete /y >nul 2>&1
+
+REM Authenticate the network share
 net use "!SHARE!" %FT_PASS% /user:%FT_USER% >nul 2>&1
 
+REM Attempt to enter the source path
 pushd "!SOURCE!" >nul 2>&1
 if errorlevel 1 (
     exit /b 100
 )
 
-dir "${fileMask}" /b | findstr . >nul
+REM Check for matching files
+dir "${fileMask}" /b /a-d | findstr . >nul
 set RC=!ERRORLEVEL!
 popd >nul 2>&1
 
@@ -173,8 +178,7 @@ exit /b !RC!
                                 }
                             }
                         } finally {
-                            // Optional: we can leave the mappings or clean them.
-                            // For simplicity we leave them (they are cleaned when the agent session ends).
+                            // Optional: clean up mappings if needed
                         }
                     }
 
@@ -307,34 +311,3 @@ END OF LOG
         }
     }
 }
-
-
-ERROR:
-  RESULT  : PRECHECK_FAILED
-  REASON  : Source path not found or access denied
-
-
-JSON:
-[
-  {
-    "job": "ZF.TMP_JOB",
-    "enabled": true,
-    "transferType": "ROBOCOPY",
-    "credentialId": "WIN.SVC.UC4.BATCHUSER",
-    "source": "\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\src",
-    "destination": "\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\dst",
-    "fileMask": "*.*",
-    "flags": [
-      "/MOV",
-      "/R:0",
-      "/W:0",
-      "/NP"
-    ]
-  }
-]
-
-
-Todavia tengo error
-
-
-
