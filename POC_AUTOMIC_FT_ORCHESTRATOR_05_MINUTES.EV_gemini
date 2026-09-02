@@ -72,49 +72,67 @@ setlocal EnableDelayedExpansion
 set "SOURCE=${source}"
 set "FILEMASK=${fileMask}"
 
+echo ========================================
+echo PRE-CHECK DEBUG
+echo SOURCE raw : !SOURCE!
+echo FILEMASK   : !FILEMASK!
+echo ========================================
+
 REM ------------------------------------------------------------
-REM Extract share root robustly from UNC path
-REM Example:
-REM   \\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\src
-REM   SERVER   = FRDV02656.emea.zf-world.com
-REM   SHARENAME= ToolShare
-REM   SHARE    = \\\\FRDV02656.emea.zf-world.com\\ToolShare
+REM Forma robusta de extraer \\server\\share
+REM Quita los dos primeros \\ y luego toma los dos primeros tokens
 REM ------------------------------------------------------------
-for /f "tokens=1-4 delims=\\" %%a in ("!SOURCE!") do (
-    set "SERVER=%%b"
-    set "SHARENAME=%%c"
+set "TEMP=!SOURCE:~2!"
+for /f "tokens=1,2 delims=\\" %%a in ("!TEMP!") do (
+    set "SERVER=%%a"
+    set "SHARENAME=%%b"
 )
 set "SHARE=\\\\!SERVER!\\!SHARENAME!"
 
-echo Authenticating share: !SHARE!
-echo Source full path    : !SOURCE!
-echo File mask           : !FILEMASK!
+echo Extracted SERVER   : !SERVER!
+echo Extracted SHARENAME: !SHARENAME!
+echo Final SHARE        : !SHARE!
+echo ========================================
 
-REM Clean up any potential stale connections
+REM Limpiar conexiones previas
 net use "!SHARE!" /delete /y >nul 2>&1
 
-REM Authenticate the network share
-net use "!SHARE!" "%FT_PASS%" /user:"%FT_USER%" >nul 2>&1
+REM Autenticar
+echo Authenticating...
+net use "!SHARE!" "%FT_PASS%" /user:"%FT_USER%"
 if errorlevel 1 (
-    echo ERROR: net use failed for !SHARE!
+    echo ERROR: net use FAILED
     exit /b 100
 )
 
-REM Attempt to enter the source path
-pushd "!SOURCE!" >nul 2>&1
+echo net use OK
+
+REM Intentar entrar al path completo
+echo Trying pushd "!SOURCE!"
+pushd "!SOURCE!"
 if errorlevel 1 (
-    echo ERROR: pushd failed - path not accessible or does not exist
+    echo ERROR: pushd FAILED - path not accessible
     net use "!SHARE!" /delete /y >nul 2>&1
     exit /b 100
 )
 
-REM Check for matching files
+echo pushd OK - current dir: %CD%
+
+REM Verificar si hay archivos
+echo Checking files with mask: !FILEMASK!
 dir "!FILEMASK!" /b /a-d 2>nul | findstr . >nul
 set "RC=!ERRORLEVEL!"
 
-popd >nul 2>&1
+if !RC! equ 0 (
+    echo Files found - OK
+) else (
+    echo No files found matching the mask
+)
+
+popd
 net use "!SHARE!" /delete /y >nul 2>&1
 
+echo Final exit code: !RC!
 exit /b !RC!
 """
                                     )
@@ -320,40 +338,3 @@ END OF LOG
         }
     }
 }
-
-
-MISMO ERROR
-Solo ejecuta el job del sharepoint pero no el job del robocopy
-
-[
-  {
-    "job": "ZF.TMP_JOB",
-    "enabled": true,
-    "transferType": "ROBOCOPY",
-    "credentialId": "WIN.SVC.UC4.BATCHUSER",
-    "source": "\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\src",
-    "destination": "\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\dst",
-    "fileMask": "*.*",
-    "flags": [
-      "/MOV",
-      "/R:0",
-      "/W:0",
-      "/NP"
-    ]
-  },
-  {
-    "job": "BR.SD.#WFL.TP1.005_EOO_DELIVERIES.EV",
-    "enabled": true,
-    "transferType": "SHAREPOINT",
-    "source": "\\\\emea.zf-world.com\\frd\\system\\sap\\TP1\\m005\\Wesson",
-    "destination": "https://trw1.sharepoint.com/sites/RelatrioDailyPerformance-PowerBI",
-    "library": "Shared Documents/General/EOO",
-    "fileMask": "testfile.csv",
-    "operation": "COPY",
-    "overwrite": true
-  }
-]
-
-y el error REASON : Source path not found or access denied y confirmo que el usuario si tiene permisos
-
-
