@@ -1,3 +1,61 @@
+SUMMARY
+================================================================================
+Job Name     : ZF.MY_TEST_JOB.EV
+File Mask    : *.txt
+SRC_CRED     : WIN.SVC.UC4.BATCHUSER
+Duration     : 4 seconds
+Timestamp    : 2026-09-02 22:52:56
+Build Parent : #157
+
+
+-------------------------------------------------------------------------------
+   ROBOCOPY     ::     Robust File Copy for Windows                              
+-------------------------------------------------------------------------------
+
+  Started : Wednesday, September 2, 2026 10:52:53 PM
+   Source : \\emea.zf-world.com\frd\team\kst941\individual\
+     Dest : \\FRDV02656.emea.zf-world.com\ToolShare\tmp\dst2\
+
+    Files : *.txt
+	    
+  Options : /DCOPY:DA /COPY:DAT /NP /R:0 /W:0 
+
+------------------------------------------------------------------------------
+
+	                   2	\\emea.zf-world.com\frd\team\kst941\individual\
+	    New File  		  256964	kst941-Berechtigung_Stand_2011-03-22.txt
+2026/09/02 22:52:54 ERROR 5 (0x00000005) Copying File \\emea.zf-world.com\frd\team\kst941\individual\kst941-Berechtigung_Stand_2011-03-22.txt
+Access is denied.
+
+
+	    New File  		   3.5 m	PA9325.txt
+2026/09/02 22:52:55 ERROR 5 (0x00000005) Copying File \\emea.zf-world.com\frd\team\kst941\individual\PA9325.txt
+Access is denied.
+
+
+
+------------------------------------------------------------------------------
+
+               Total    Copied   Skipped  Mismatch    FAILED    Extras
+    Dirs :         1         0         1         0         0         0
+   Files :         2         0         0         0         2         0
+   Bytes :    3.84 m         0         0         0    3.84 m         0
+   Times :   0:00:00   0:00:00                       0:00:00   0:00:00
+   Ended : Wednesday, September 2, 2026 10:52:55 PM
+
+
+================================================================================
+END OF LOG
+
+
+Asegurate que el service account usando en el json SRC_CRED, pueda lograrse al source y destination y de que tenga permisos de lectura/escritura.
+el mismo service account debe ser capaz de copar en source y destination. 
+Hay casos en que el source y destination con casi el mismo path como por ejemplo: \\FRDV02656.emea.zf-world.com\ToolShare\tmp\src\ y \\FRDV02656.emea.zf-world.com\ToolShare\tmp\dst 
+Pero hay veces que el source es: \\emea.zf-world.com\frd\  y el destination es: \FRDV02656.emea.zf-world.com\    
+esto por nombrar un ejemplo, trata de mejorar el peformance cuando source y destination tengan el mismo patron
+
+Codigo
+
 pipeline {
     // ========================================================================
     // Agent: cualquier nodo Windows con capacidad de SMB + Robocopy
@@ -199,16 +257,16 @@ exit /b %RC%
                 // Build the exact log format requested
                 // --------------------------------------------------------
                 def logContent = """SUMMARY
-========================================
+================================================================================
 Job Name     : ${params.JOB_NAME}
 File Mask    : ${params.FILE_MASK}
 SRC_CRED     : ${params.SRC_CRED}
 Duration     : ${elapsed} seconds
 Timestamp    : ${new Date().format('yyyy-MM-dd HH:mm:ss')}
 Build Parent : #${params.PARENT_BUILD}
-LOG DE ROBOCOPY
+
 ${fullLog}
-=====================================
+================================================================================
 END OF LOG
 """
 
@@ -216,7 +274,7 @@ END OF LOG
                 // Write log → C:\Jenkins\Jobs\Log\POC_AUTOMIC_FILE_TRANSFER_IMPROVED_PEFORMANCE_BuildID_123.txt
                 // --------------------------------------------------------
                 def logDir  = 'C:\\Jenkins\\Jobs\\Log'
-                def logName = "POC_AUTOMIC_FILE_TRANSFER_IMPROVED_PEFORMANCE_BuildID_${params.PARENT_BUILD}.txt"
+                def logName = "POC_AUTOMIC_FILE_TRANSFER_IMPROVED_PEFORMANCE_BuildID_${env.BUILD_NUMBER}.txt"
                 def logPath = "${logDir}\\${logName}"
 
                 bat """
@@ -230,15 +288,19 @@ if not exist "${logDir}" mkdir "${logDir}"
                 // Short summary in console
                 echo """
 SUMMARY
-========================================
+================================================================================
 Job Name  : ${params.JOB_NAME}
 Flags     : ${env.ROBOCOPY_OPTIONS}
 File Mask : ${params.FILE_MASK}
 Status    : ${errorMsg ? errorMsg : "SUCCESS (RC=${rc})"}
 Duration  : ${elapsed} seconds
-========================================
+================================================================================
 """
             }
         }
     }
 }
+
+
+
+
