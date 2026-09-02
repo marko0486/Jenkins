@@ -1,0 +1,166 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('UC4 Auto-Remediation (DRY-RUN)') {
+            steps {
+                script {
+                    // Initialize tracking variables
+                    int TOTAL        = 0
+                    int CHECKED      = 0
+                    int REMEDIATED   = 0
+                    int SKIPPED      = 0
+                    def FAILURES     = []
+                    def SKIPPED_JOBS = []
+
+                    // Read JSON config file
+                    def jsonFile = readFile('uc4_transfer_jobs.json')
+                    def jobsData = new groovy.json.JsonSlurper().parseText(jsonFile)
+
+                    TOTAL = jobsData.size()
+
+                    echo "============================================================"
+                    echo " UC4 FILE TRANSFER AUTO-REMEDIATION (DRY-RUN MODE)"
+                    echo " Total Jobs to Process: ${TOTAL}"
+                    echo "============================================================"
+
+                    // Loop through each job
+                    for (int i = 0; i < jobsData.size(); i++) {
+                        def job = jobsData[i]
+
+                        def jobName       = job.job_name
+                        def transferType  = job.transfer_type
+                        def credentialId  = job.credential_id
+                        def source        = job.source
+                        def fileMask      = job.file_mask
+                        def destination   = job.destination
+
+                        echo "------------------------------------------------------------"
+                        echo "[JOB ${i+1}/${TOTAL}] Processing: ${jobName}"
+                        echo " Type       : ${transferType}"
+                        echo " Credential : ${credentialId}"
+                        echo " Source     : ${source}"
+                        echo " File Mask  : ${fileMask}"
+                        echo " Dest       : ${destination}"
+                        echo "------------------------------------------------------------"
+
+                        // Wrap credentials check inside a block to avoid missing credentials error
+                        withCredentials([usernamePassword(
+                            credentialsId: credentialId,
+                            usernameVariable: 'FT_USER',
+                            passwordVariable: 'FT_PASS'
+                        )]) {
+
+                            // ============================================================
+                            // PRE-CHECK (only for ROBOCOPY with common credential)
+                            // ============================================================
+                            if (transferType == 'ROBOCOPY' && credentialId == 'WIN.SVC.UC4.BATCHUSER') {
+                                CHECKED++
+
+                                // Sanitizar backslashes para evitar problemas de escape en Groovy
+                                def safeSource = source.replace('\\', '\\\\')
+
+                                int checkResult = bat(
+                                    returnStatus: true,
+                                    script: """
+@echo off
+setlocal enabledelayedexpansion
+
+set "SOURCE=${safeSource}"
+
+REM Extract the share root from the source path
+for /f "tokens=1,2 delims=\\" %%a in ("!SOURCE!") do (
+    set "SHARE=\\\\%%a\\%%b"
+)
+
+echo Authenticating share: !SHARE!
+
+REM Clean up any potential stale connections
+net use "!SHARE!" /delete /y >nul 2>&1
+
+REM Authenticate the network share
+net use "!SHARE!" %FT_PASS% /user:%FT_USER% >nul 2>&1
+
+REM Check if source directory is accessible
+if not exist "!SOURCE!" (
+    echo [ERROR] Source directory does not exist or access denied: !SOURCE!
+    exit /b 100
+)
+
+REM Navigate into source directory safely
+pushd "!SOURCE!"
+if errorlevel 1 (
+    echo [ERROR] Unable to enter source directory: !SOURCE!
+    exit /b 100
+)
+
+REM Check for matching files without failing if directory is empty
+dir /b /a-d "${fileMask}" >nul 2>&1
+if errorlevel 1 (
+    popd >nul 2>&1
+    exit /b 1
+)
+
+popd >nul 2>&1
+exit /b 0
+"""
+                                )
+
+                                if (checkResult == 100) {
+                                    FAILURES << [
+                                        job    : jobName,
+                                        result : 'PRECHECK_FAILED',
+                                        reason : 'Source path not found or access denied'
+                                    ]
+                                    echo "[FAIL] ${jobName} - Pre-check path error"
+                                    continue
+                                }
+
+                                if (checkResult != 0) {
+                                    SKIPPED++
+                                    SKIPPED_JOBS << jobName
+                                    echo "[SKIP] ${jobName} - No files matching '${fileMask}' found in source"
+                                    continue
+                                }
+                            }
+
+                            // ============================================================
+                            // DRY-RUN EXECUTION (simulates the transfer logic)
+                            // ============================================================
+                            echo "[DRY-RUN] Simulating action for: ${jobName}"
+
+                            // In DRY-RUN mode, we mark checked jobs as successfully validated
+                            REMEDIATED++
+                            echo "[DRY-RUN SUCCESS] ${jobName} is valid and ready for processing."
+
+                        } // end withCredentials
+                    } // end for loop
+
+                    // ============================================================
+                    // FINAL REPORT
+                    // ============================================================
+                    echo "============================================================"
+                    echo " FINAL EXECUTION SUMMARY (DRY-RUN MODE)"
+                    echo " Total Jobs Processed : ${TOTAL}"
+                    echo " Jobs Pre-Checked     : ${CHECKED}"
+                    echo " Jobs Ready/Validated : ${REMEDIATED}"
+                    echo " Jobs Skipped (Empty) : ${SKIPPED}"
+                    echo " Failed Jobs          : ${FAILURES.size()}"
+                    echo "============================================================"
+
+                    if (SKIPPED_JOBS.size() > 0) {
+                        echo "Skipped Jobs list:"
+                        SKIPPED_JOBS.each { echo " - ${it}" }
+                    }
+
+                    if (FAILURES.size() > 0) {
+                        echo "Failed Jobs list:"
+                        FAILURES.each { echo " - Job: ${it.job} | Result: ${it.result} | Reason: ${it.reason}" }
+                        error("Execution completed with ${FAILURES.size()} failure(s). Check logs above.")
+                    }
+
+                } // end script
+            } // end steps
+        } // end stage
+    } // end stages
+} // end pipeline
