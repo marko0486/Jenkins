@@ -307,3 +307,34 @@ END OF LOG
         }
     }
 }
+
+
+ERROR:
+  RESULT  : PRECHECK_FAILED
+  REASON  : Source path not found or access denied
+
+
+JSON:
+[
+  {
+    "job": "ZF.TMP_JOB",
+    "enabled": true,
+    "transferType": "ROBOCOPY",
+    "credentialId": "WIN.SVC.UC4.BATCHUSER",
+    "source": "\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\src",
+    "destination": "\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\dst",
+    "fileMask": "*.*",
+    "flags": [
+      "/MOV",
+      "/R:0",
+      "/W:0",
+      "/NP"
+    ]
+  }
+]
+
+
+Todavia tengo error
+
+
+
