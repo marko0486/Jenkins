@@ -1,166 +1,322 @@
-pipeline {
-    agent any
+import groovy.json.JsonSlurperClassic
 
+// ============================================================================
+// GLOBAL EXECUTION COUNTERS AND LISTS
+// ============================================================================
+def TOTAL          = 0
+def DISABLED       = 0
+def CHECKED        = 0
+def EXECUTED       = 0
+def SKIPPED        = 0
+def FAILURES       = []
+def DISABLED_JOBS  = []
+def SKIPPED_JOBS   = []
+def SUCCESS_JOBS   = []
+
+pipeline {
+    agent {
+        label 'built-in'
+    }
+    options {
+        disableConcurrentBuilds()
+    }
     stages {
-        stage('UC4 Auto-Remediation (DRY-RUN)') {
+        stage('File Transfers') {
             steps {
                 script {
-                    // Initialize tracking variables
-                    int TOTAL        = 0
-                    int CHECKED      = 0
-                    int REMEDIATED   = 0
-                    int SKIPPED      = 0
-                    def FAILURES     = []
-                    def SKIPPED_JOBS = []
+                    def jsonText = new File('C:/Jenkins/Jobs/tmp.json').text
+                    def transfers = new JsonSlurperClassic().parseText(jsonText)
+                    TOTAL = transfers.size()
 
-                    // Read JSON config file
-                    def jsonFile = readFile('uc4_transfer_jobs.json')
-                    def jobsData = new groovy.json.JsonSlurper().parseText(jsonFile)
-
-                    TOTAL = jobsData.size()
-
-                    echo "============================================================"
-                    echo " UC4 FILE TRANSFER AUTO-REMEDIATION (DRY-RUN MODE)"
-                    echo " Total Jobs to Process: ${TOTAL}"
-                    echo "============================================================"
-
-                    // Loop through each job
-                    for (int i = 0; i < jobsData.size(); i++) {
-                        def job = jobsData[i]
-
-                        def jobName       = job.job_name
-                        def transferType  = job.transfer_type
-                        def credentialId  = job.credential_id
-                        def source        = job.source
-                        def fileMask      = job.file_mask
-                        def destination   = job.destination
-
-                        echo "------------------------------------------------------------"
-                        echo "[JOB ${i+1}/${TOTAL}] Processing: ${jobName}"
-                        echo " Type       : ${transferType}"
-                        echo " Credential : ${credentialId}"
-                        echo " Source     : ${source}"
-                        echo " File Mask  : ${fileMask}"
-                        echo " Dest       : ${destination}"
-                        echo "------------------------------------------------------------"
-
-                        // Wrap credentials check inside a block to avoid missing credentials error
-                        withCredentials([usernamePassword(
-                            credentialsId: credentialId,
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: 'WIN.SVC.UC4.BATCHUSER',
                             usernameVariable: 'FT_USER',
                             passwordVariable: 'FT_PASS'
-                        )]) {
+                        )
+                    ]) {
+                        try {
+                            transfers.each { transfer ->
 
-                            // ============================================================
-                            // PRE-CHECK (only for ROBOCOPY with common credential)
-                            // ============================================================
-                            if (transferType == 'ROBOCOPY' && credentialId == 'WIN.SVC.UC4.BATCHUSER') {
-                                CHECKED++
+                                if (transfer.containsKey('enabled') && !transfer.enabled) {
+                                    DISABLED++
+                                    DISABLED_JOBS << transfer.job?.toString()
+                                    echo "[DISABLED] ${transfer.job}"
+                                    return
+                                }
 
-                                // Sanitizar backslashes para evitar problemas de escape en Groovy
-                                def safeSource = source.replace('\\', '\\\\')
+                                String jobName       = transfer.job?.toString()
+                                String credentialId  = transfer.credentialId?.toString()
+                                String source        = transfer.source?.toString()
+                                String destination   = transfer.destination?.toString()
+                                String fileMask      = transfer.fileMask?.toString() ?: '*.*'
+                                String transferType  = transfer.transferType?.toString()?.trim()?.toUpperCase() ?: 'ROBOCOPY'
+                                String roboFlags     = ''
 
-                                int checkResult = bat(
-                                    returnStatus: true,
-                                    script: """
+                                if (transfer.flags instanceof List) {
+                                    roboFlags = transfer.flags.collect { it.toString() }.join(' ')
+                                } else {
+                                    roboFlags = transfer.flags?.toString() ?: ''
+                                }
+
+                                // ============================================================
+                                // PRE-CHECK (only for ROBOCOPY with the common credential)
+                                // ============================================================
+                                if (transferType == 'ROBOCOPY' && credentialId == 'WIN.SVC.UC4.BATCHUSER') {
+                                    CHECKED++
+                                    int checkResult = bat(
+                                        returnStatus: true,
+                                        script: """
 @echo off
-setlocal enabledelayedexpansion
+setlocal EnableDelayedExpansion
+set "SOURCE=${source}"
+set "FILEMASK=${fileMask}"
 
-set "SOURCE=${safeSource}"
-
-REM Extract the share root from the source path
-for /f "tokens=1,2 delims=\\" %%a in ("!SOURCE!") do (
-    set "SHARE=\\\\%%a\\%%b"
+REM ------------------------------------------------------------
+REM Extract share root robustly from UNC path
+REM Example:
+REM   \\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\src
+REM   SERVER   = FRDV02656.emea.zf-world.com
+REM   SHARENAME= ToolShare
+REM   SHARE    = \\\\FRDV02656.emea.zf-world.com\\ToolShare
+REM ------------------------------------------------------------
+for /f "tokens=1-4 delims=\\" %%a in ("!SOURCE!") do (
+    set "SERVER=%%b"
+    set "SHARENAME=%%c"
 )
+set "SHARE=\\\\!SERVER!\\!SHARENAME!"
 
 echo Authenticating share: !SHARE!
+echo Source full path    : !SOURCE!
+echo File mask           : !FILEMASK!
 
 REM Clean up any potential stale connections
 net use "!SHARE!" /delete /y >nul 2>&1
 
 REM Authenticate the network share
-net use "!SHARE!" %FT_PASS% /user:%FT_USER% >nul 2>&1
-
-REM Check if source directory is accessible
-if not exist "!SOURCE!" (
-    echo [ERROR] Source directory does not exist or access denied: !SOURCE!
+net use "!SHARE!" "%FT_PASS%" /user:"%FT_USER%" >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: net use failed for !SHARE!
     exit /b 100
 )
 
-REM Navigate into source directory safely
-pushd "!SOURCE!"
+REM Attempt to enter the source path
+pushd "!SOURCE!" >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Unable to enter source directory: !SOURCE!
+    echo ERROR: pushd failed - path not accessible or does not exist
+    net use "!SHARE!" /delete /y >nul 2>&1
     exit /b 100
 )
 
-REM Check for matching files without failing if directory is empty
-dir /b /a-d "${fileMask}" >nul 2>&1
-if errorlevel 1 (
-    popd >nul 2>&1
-    exit /b 1
-)
+REM Check for matching files
+dir "!FILEMASK!" /b /a-d 2>nul | findstr . >nul
+set "RC=!ERRORLEVEL!"
 
 popd >nul 2>&1
-exit /b 0
-"""
-                                )
+net use "!SHARE!" /delete /y >nul 2>&1
 
-                                if (checkResult == 100) {
+exit /b !RC!
+"""
+                                    )
+
+                                    if (checkResult == 100) {
+                                        FAILURES << [
+                                            job    : jobName,
+                                            result : 'PRECHECK_FAILED',
+                                            reason : 'Source path not found or access denied'
+                                        ]
+                                        echo "[FAIL] ${jobName}"
+                                        return
+                                    }
+                                    if (checkResult != 0) {
+                                        SKIPPED++
+                                        SKIPPED_JOBS << jobName
+                                        echo "[SKIP] ${jobName} (no files matching mask)"
+                                        return
+                                    }
+                                }
+
+                                echo "[EXEC] ${jobName} (${transferType})"
+
+                                def result
+                                if (transferType == 'SHAREPOINT') {
+                                    result = build(
+                                        job: 'POC_SHAREPOINT_TRANSFER',
+                                        wait: true,
+                                        propagate: false,
+                                        parameters: [
+                                            string(name: 'JOB_NAME',     value: jobName),
+                                            string(name: 'SRC_PATH',     value: source),
+                                            string(name: 'SITE_URL',     value: destination),
+                                            string(name: 'LIBRARY',      value: transfer.library?.toString() ?: 'Shared Documents'),
+                                            string(name: 'FILE_MASK',    value: fileMask),
+                                            string(name: 'OPERATION',    value: transfer.operation?.toString()?.toUpperCase() ?: 'COPY'),
+                                            booleanParam(name: 'OVERWRITE', value: transfer.overwrite != false),
+                                            string(name: 'SRC_CRED',     value: credentialId ?: 'WIN.SVC.UC4.BATCHUSER'),
+                                            string(name: 'PARENT_BUILD', value: "${env.BUILD_NUMBER}")
+                                        ]
+                                    )
+                                } else {
+                                    result = build(
+                                        job: 'POC_AUTOMIC_FILE_TRANSFER_IMPROVED_PEFORMANCE',
+                                        wait: true,
+                                        propagate: false,
+                                        parameters: [
+                                            string(name: 'JOB_NAME',        value: jobName),
+                                            string(name: 'SRC_CRED',        value: credentialId),
+                                            string(name: 'SRC_PATH',        value: source),
+                                            string(name: 'DST_PATH',        value: destination),
+                                            string(name: 'FILE_MASK',       value: fileMask),
+                                            string(name: 'ROBOCOPY_FLAGS',  value: roboFlags)
+                                        ]
+                                    )
+                                }
+
+                                EXECUTED++
+                                if (result.result != 'SUCCESS') {
                                     FAILURES << [
                                         job    : jobName,
-                                        result : 'PRECHECK_FAILED',
-                                        reason : 'Source path not found or access denied'
+                                        result : result.result,
+                                        build  : result.number,
+                                        url    : result.absoluteUrl,
+                                        reason : "Transfer returned ${result.result}"
                                     ]
-                                    echo "[FAIL] ${jobName} - Pre-check path error"
-                                    continue
-                                }
-
-                                if (checkResult != 0) {
-                                    SKIPPED++
-                                    SKIPPED_JOBS << jobName
-                                    echo "[SKIP] ${jobName} - No files matching '${fileMask}' found in source"
-                                    continue
+                                    echo "[FAIL] ${jobName}"
+                                } else {
+                                    SUCCESS_JOBS << jobName
+                                    echo "[SUCCESS] ${jobName}"
                                 }
                             }
-
-                            // ============================================================
-                            // DRY-RUN EXECUTION (simulates the transfer logic)
-                            // ============================================================
-                            echo "[DRY-RUN] Simulating action for: ${jobName}"
-
-                            // In DRY-RUN mode, we mark checked jobs as successfully validated
-                            REMEDIATED++
-                            echo "[DRY-RUN SUCCESS] ${jobName} is valid and ready for processing."
-
-                        } // end withCredentials
-                    } // end for loop
-
-                    // ============================================================
-                    // FINAL REPORT
-                    // ============================================================
-                    echo "============================================================"
-                    echo " FINAL EXECUTION SUMMARY (DRY-RUN MODE)"
-                    echo " Total Jobs Processed : ${TOTAL}"
-                    echo " Jobs Pre-Checked     : ${CHECKED}"
-                    echo " Jobs Ready/Validated : ${REMEDIATED}"
-                    echo " Jobs Skipped (Empty) : ${SKIPPED}"
-                    echo " Failed Jobs          : ${FAILURES.size()}"
-                    echo "============================================================"
-
-                    if (SKIPPED_JOBS.size() > 0) {
-                        echo "Skipped Jobs list:"
-                        SKIPPED_JOBS.each { echo " - ${it}" }
+                        } finally {
+                            // Optional: clean up mappings if needed
+                        }
                     }
 
-                    if (FAILURES.size() > 0) {
-                        echo "Failed Jobs list:"
-                        FAILURES.each { echo " - Job: ${it.job} | Result: ${it.result} | Reason: ${it.reason}" }
-                        error("Execution completed with ${FAILURES.size()} failure(s). Check logs above.")
+                    currentBuild.displayName = "#${env.BUILD_NUMBER} D:${DISABLED} X:${EXECUTED} S:${SKIPPED} F:${FAILURES.size()}"
+                    currentBuild.description = "Total=${TOTAL} | Disabled=${DISABLED} | Checked=${CHECKED} | Executed=${EXECUTED} | Skipped=${SKIPPED} | Failed=${FAILURES.size()}"
+                    currentBuild.result = 'SUCCESS'
+                }
+            }
+        }
+    }
+    post {
+        always {
+            script {
+                def summary = """
+FT SUMMARY
+========================================
+FILE TRANSFER SUMMARY
+========================================
+Total    : ${TOTAL}
+Disabled : ${DISABLED}
+Checked  : ${CHECKED}
+Executed : ${EXECUTED}
+Skipped  : ${SKIPPED}
+Failed   : ${FAILURES.size()}
+========================================
+"""
+                if (!FAILURES.isEmpty()) {
+                    summary += """
+FAILED JOBS
+========================================
+"""
+                    FAILURES.each { f ->
+                        summary += """
+JOB    : ${f.job}
+RESULT : ${f.result}
+REASON : ${f.reason}
+----------------------------------------
+"""
                     }
+                    summary += "========================================\n"
+                }
+                echo(summary)
 
-                } // end script
-            } // end steps
-        } // end stage
-    } // end stages
-} // end pipeline
+                // Detailed log file
+                def logDir = 'C:\\Jenkins\\Jobs\\Log'
+                def dateStr = new Date().format('yyyyMMdd')
+                def logFileName = "${env.JOB_NAME}_${dateStr}_BuildID_${env.BUILD_NUMBER}.txt"
+                def logFilePath = "${logDir}\\${logFileName}"
+
+                bat """
+@echo off
+if not exist "${logDir}" mkdir "${logDir}"
+"""
+
+                def logContent = """
+================================================================================
+FILE TRANSFER ORCHESTRATOR - DETAILED EXECUTION LOG
+================================================================================
+Job Name      : ${env.JOB_NAME}
+Build Number  : ${env.BUILD_NUMBER}
+Build URL     : ${env.BUILD_URL}
+Timestamp     : ${new Date().format('yyyy-MM-dd HH:mm:ss')}
+================================================================================
+SUMMARY
+--------------------------------------------------------------------------------
+Total     : ${TOTAL}
+Disabled  : ${DISABLED}
+Checked   : ${CHECKED}
+Executed  : ${EXECUTED}
+Skipped   : ${SKIPPED}
+Failed    : ${FAILURES.size()}
+--------------------------------------------------------------------------------
+DISABLED JOBS (${DISABLED})
+--------------------------------------------------------------------------------
+"""
+                if (DISABLED_JOBS.isEmpty()) {
+                    logContent += "  (none)\n"
+                } else {
+                    DISABLED_JOBS.each { job -> logContent += "  - ${job}\n" }
+                }
+
+                logContent += """
+SKIPPED JOBS (${SKIPPED})
+--------------------------------------------------------------------------------
+"""
+                if (SKIPPED_JOBS.isEmpty()) {
+                    logContent += "  (none)\n"
+                } else {
+                    SKIPPED_JOBS.each { job -> logContent += "  - ${job}\n" }
+                }
+
+                logContent += """
+SUCCESSFULLY EXECUTED JOBS (${SUCCESS_JOBS.size()})
+--------------------------------------------------------------------------------
+"""
+                if (SUCCESS_JOBS.isEmpty()) {
+                    logContent += "  (none)\n"
+                } else {
+                    SUCCESS_JOBS.each { job -> logContent += "  - ${job}\n" }
+                }
+
+                logContent += """
+FAILED JOBS (${FAILURES.size()})
+--------------------------------------------------------------------------------
+"""
+                if (FAILURES.isEmpty()) {
+                    logContent += "  (none)\n"
+                } else {
+                    FAILURES.each { f ->
+                        logContent += """
+  JOB     : ${f.job}
+  RESULT  : ${f.result}
+  REASON  : ${f.reason}
+"""
+                        if (f.build) logContent += "  BUILD   : #${f.build}\n"
+                        if (f.url)   logContent += "  URL     : ${f.url}\n"
+                        logContent += "  ----------------------------------------\n"
+                    }
+                }
+
+                logContent += """
+================================================================================
+END OF LOG
+================================================================================
+"""
+                writeFile file: logFilePath, text: logContent
+                echo "Detailed log written to: ${logFilePath}"
+            }
+        }
+    }
+}
