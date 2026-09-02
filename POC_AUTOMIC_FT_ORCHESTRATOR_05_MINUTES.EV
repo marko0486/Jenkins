@@ -35,11 +35,6 @@ pipeline {
                             passwordVariable: 'FT_PASS'
                         )
                     ]) {
-                        bat '''
-@echo off
-net use "\\\\emea.zf-world.com\\frd" %FT_PASS% /user:%FT_USER% >nul 2>&1
-exit /b 0
-'''
                         try {
                             transfers.each { transfer ->
 
@@ -64,21 +59,46 @@ exit /b 0
                                     roboFlags = transfer.flags?.toString() ?: ''
                                 }
 
-                                // PRE-CHECK only for ROBOCOPY
+                                // ============================================================
+                                // PRE-CHECK (only for ROBOCOPY with the common credential)
+                                // ============================================================
+                                // We now authenticate ONLY the specific share of this job
+                                // instead of a global net use.
+                                // ============================================================
                                 if (transferType == 'ROBOCOPY' && credentialId == 'WIN.SVC.UC4.BATCHUSER') {
                                     CHECKED++
+
                                     int checkResult = bat(
                                         returnStatus: true,
                                         script: """
 @echo off
-pushd "${source}" >nul 2>&1
+setlocal enabledelayedexpansion
+
+REM ------------------------------------------------------------
+REM Extract the share root from the source path
+REM Example:
+REM   \\emea.zf-world.com\\frd\\folder\\sub  →  \\emea.zf-world.com\\frd
+REM   \\FRDV01234\\MI_PATH\\FOLDER         →  \\FRDV01234\\MI_PATH
+REM ------------------------------------------------------------
+set "SOURCE=${source}"
+for /f "tokens=1,2,3 delims=\\" %%a in ("!SOURCE!") do (
+    set "SHARE=\\\\%%b\\%%c"
+)
+
+echo Authenticating share: !SHARE!
+
+net use "!SHARE!" %FT_PASS% /user:%FT_USER% >nul 2>&1
+
+pushd "!SOURCE!" >nul 2>&1
 if errorlevel 1 (
     exit /b 100
 )
+
 dir "${fileMask}" /b | findstr . >nul
-set RC=%ERRORLEVEL%
+set RC=!ERRORLEVEL!
 popd >nul 2>&1
-exit /b %RC%
+
+exit /b !RC!
 """
                                     )
 
@@ -117,7 +137,6 @@ exit /b %RC%
                                             string(name: 'OPERATION',    value: transfer.operation?.toString()?.toUpperCase() ?: 'COPY'),
                                             booleanParam(name: 'OVERWRITE', value: transfer.overwrite != false),
                                             string(name: 'SRC_CRED',     value: credentialId ?: 'WIN.SVC.UC4.BATCHUSER'),
-                                            // NEW: Pass the Orchestrator Build Number
                                             string(name: 'PARENT_BUILD', value: "${env.BUILD_NUMBER}")
                                         ]
                                     )
@@ -154,11 +173,8 @@ exit /b %RC%
                                 }
                             }
                         } finally {
-                            bat '''
-@echo off
-net use "\\\\emea.zf-world.com\\frd" /delete /y >nul 2>&1
-exit /b 0
-'''
+                            // Optional: we can leave the mappings or clean them.
+                            // For simplicity we leave them (they are cleaned when the agent session ends).
                         }
                     }
 
