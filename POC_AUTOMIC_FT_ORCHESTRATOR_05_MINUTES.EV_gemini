@@ -1,32 +1,3 @@
-Ahora no me sale el output, lo quiero asi:
-
-FT SUMMARY
-========================================
-FILE TRANSFER SUMMARY
-========================================
-Total    : 8
-Disabled : 2
-Checked  : 5
-Executed : 1
-Skipped  : 5
-Failed   : 1
-========================================
-
-FAILED JOBS
-========================================
-
-JOB    : BR.SD.#WFL.TP1.005_EOO_DELIVERIES.EV
-RESULT : FAILURE
-REASON : Transfer returned FAILURE
-----------------------------------------
-
-========================================
-
-ademas, no ejecuta el job llamado: POC_AUTOMIC_FILE_TRANSFER_IMPROVED_PEFORMANCE
-segun el error: [SKIP] ZF.TMP_JOB (no files matching mask)    pero la realidad es que si hay archivos
-
-
-Te adjunto de nuevo el codigo
 import groovy.json.JsonSlurperClassic
 
 // ============================================================================
@@ -101,16 +72,7 @@ setlocal EnableDelayedExpansion
 set "SOURCE=${source}"
 set "FILEMASK=${fileMask}"
 
-echo ========================================
-echo PRE-CHECK DEBUG
-echo SOURCE raw : !SOURCE!
-echo FILEMASK   : !FILEMASK!
-echo ========================================
-
-REM ------------------------------------------------------------
-REM Forma robusta de extraer \\server\\share
-REM Quita los dos primeros \\ y luego toma los dos primeros tokens
-REM ------------------------------------------------------------
+REM Extraer \\server\\share de forma robusta
 set "TEMP=!SOURCE:~2!"
 for /f "tokens=1,2 delims=\\" %%a in ("!TEMP!") do (
     set "SERVER=%%a"
@@ -118,50 +80,29 @@ for /f "tokens=1,2 delims=\\" %%a in ("!TEMP!") do (
 )
 set "SHARE=\\\\!SERVER!\\!SHARENAME!"
 
-echo Extracted SERVER   : !SERVER!
-echo Extracted SHARENAME: !SHARENAME!
-echo Final SHARE        : !SHARE!
-echo ========================================
-
-REM Limpiar conexiones previas
+REM Limpiar conexión previa
 net use "!SHARE!" /delete /y >nul 2>&1
 
 REM Autenticar
-echo Authenticating...
-net use "!SHARE!" "%FT_PASS%" /user:"%FT_USER%"
+net use "!SHARE!" "%FT_PASS%" /user:"%FT_USER%" >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: net use FAILED
     exit /b 100
 )
 
-echo net use OK
-
-REM Intentar entrar al path completo
-echo Trying pushd "!SOURCE!"
-pushd "!SOURCE!"
+REM Entrar al path
+pushd "!SOURCE!" >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: pushd FAILED - path not accessible
     net use "!SHARE!" /delete /y >nul 2>&1
     exit /b 100
 )
 
-echo pushd OK - current dir: %CD%
-
-REM Verificar si hay archivos
-echo Checking files with mask: !FILEMASK!
-dir "!FILEMASK!" /b /a-d 2>nul | findstr . >nul
+REM Comprobación fiable de existencia de archivos
+dir /b /a-d "!FILEMASK!" >nul 2>&1
 set "RC=!ERRORLEVEL!"
 
-if !RC! equ 0 (
-    echo Files found - OK
-) else (
-    echo No files found matching the mask
-)
-
-popd
+popd >nul 2>&1
 net use "!SHARE!" /delete /y >nul 2>&1
 
-echo Final exit code: !RC!
 exit /b !RC!
 """
                                     )
