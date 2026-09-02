@@ -1,61 +1,3 @@
-SUMMARY
-================================================================================
-Job Name     : ZF.MY_TEST_JOB.EV
-File Mask    : *.txt
-SRC_CRED     : WIN.SVC.UC4.BATCHUSER
-Duration     : 4 seconds
-Timestamp    : 2026-09-02 22:52:56
-Build Parent : #157
-
-
--------------------------------------------------------------------------------
-   ROBOCOPY     ::     Robust File Copy for Windows                              
--------------------------------------------------------------------------------
-
-  Started : Wednesday, September 2, 2026 10:52:53 PM
-   Source : \\emea.zf-world.com\frd\team\kst941\individual\
-     Dest : \\FRDV02656.emea.zf-world.com\ToolShare\tmp\dst2\
-
-    Files : *.txt
-	    
-  Options : /DCOPY:DA /COPY:DAT /NP /R:0 /W:0 
-
-------------------------------------------------------------------------------
-
-	                   2	\\emea.zf-world.com\frd\team\kst941\individual\
-	    New File  		  256964	kst941-Berechtigung_Stand_2011-03-22.txt
-2026/09/02 22:52:54 ERROR 5 (0x00000005) Copying File \\emea.zf-world.com\frd\team\kst941\individual\kst941-Berechtigung_Stand_2011-03-22.txt
-Access is denied.
-
-
-	    New File  		   3.5 m	PA9325.txt
-2026/09/02 22:52:55 ERROR 5 (0x00000005) Copying File \\emea.zf-world.com\frd\team\kst941\individual\PA9325.txt
-Access is denied.
-
-
-
-------------------------------------------------------------------------------
-
-               Total    Copied   Skipped  Mismatch    FAILED    Extras
-    Dirs :         1         0         1         0         0         0
-   Files :         2         0         0         0         2         0
-   Bytes :    3.84 m         0         0         0    3.84 m         0
-   Times :   0:00:00   0:00:00                       0:00:00   0:00:00
-   Ended : Wednesday, September 2, 2026 10:52:55 PM
-
-
-================================================================================
-END OF LOG
-
-
-Asegurate que el service account usando en el json SRC_CRED, pueda lograrse al source y destination y de que tenga permisos de lectura/escritura.
-el mismo service account debe ser capaz de copar en source y destination. 
-Hay casos en que el source y destination con casi el mismo path como por ejemplo: \\FRDV02656.emea.zf-world.com\ToolShare\tmp\src\ y \\FRDV02656.emea.zf-world.com\ToolShare\tmp\dst 
-Pero hay veces que el source es: \\emea.zf-world.com\frd\  y el destination es: \FRDV02656.emea.zf-world.com\    
-esto por nombrar un ejemplo, trata de mejorar el peformance cuando source y destination tengan el mismo patron
-
-Codigo
-
 pipeline {
     // ========================================================================
     // Agent: cualquier nodo Windows con capacidad de SMB + Robocopy
@@ -94,11 +36,10 @@ pipeline {
     stages {
         stage('Transfer Definition') {
             steps {
-                // Convert runtime errors to UNSTABLE instead of hard FAIL
                 catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
                     script {
                         // ----------------------------------------------------
-                        // Jenkins UI customization
+                        // Jenkins UI
                         // ----------------------------------------------------
                         currentBuild.displayName = "#${env.BUILD_NUMBER} - ${params.JOB_NAME}"
                         currentBuild.description = "${params.FILE_MASK} : ${params.SRC_PATH} → ${params.DST_PATH}"
@@ -141,9 +82,15 @@ pipeline {
                         env.SRC_SHARE_ROOT = "\\\\${srcParts[0]}\\${srcParts[1]}"
 
                         def dstParts = params.DST_PATH.replaceFirst('^\\\\\\\\', '').split('\\\\')
-                        env.DST_SHARE_ROOT = (dstParts.size() >= 2)
-                            ? "\\\\${dstParts[0]}\\${dstParts[1]}"
-                            : env.SRC_SHARE_ROOT
+                        if (dstParts.size() < 2) {
+                            writeFile file: 'robocopy.error', text: 'Invalid destination UNC path.'
+                            unstable('Invalid destination UNC path.')
+                            return
+                        }
+                        env.DST_SHARE_ROOT = "\\\\${dstParts[0]}\\${dstParts[1]}"
+
+                        // Same share? → only map once (performance)
+                        env.SAME_SHARE = (env.SRC_SHARE_ROOT.equalsIgnoreCase(env.DST_SHARE_ROOT)) ? "YES" : "NO"
 
                         // ----------------------------------------------------
                         // Console header
@@ -154,13 +101,16 @@ pipeline {
                         echo "Credential ID : ${params.SRC_CRED}"
                         echo "Source        : ${params.SRC_PATH}"
                         echo "Destination   : ${params.DST_PATH}"
+                        echo "Source Share  : ${env.SRC_SHARE_ROOT}"
+                        echo "Dest Share    : ${env.DST_SHARE_ROOT}"
+                        echo "Same Share    : ${env.SAME_SHARE}"
                         echo "File Mask     : ${params.FILE_MASK}"
                         echo "Robocopy Flags: ${env.ROBOCOPY_OPTIONS}"
                         echo "Parent Build  : #${params.PARENT_BUILD}"
                         echo "========================================"
 
                         // ----------------------------------------------------
-                        // Execute transfer with credentials
+                        // Execute transfer
                         // ----------------------------------------------------
                         withCredentials([
                             usernamePassword(
@@ -173,65 +123,93 @@ pipeline {
                                 returnStatus: true,
                                 script: """
 @echo off
+setlocal EnableDelayedExpansion
+
 if exist robocopy.error del robocopy.error
 if exist robocopy.rc    del robocopy.rc
 if exist robocopy.log   del robocopy.log
 
-rem Connect to source share
-net use "%SRC_SHARE_ROOT%" %FT_PASS% /user:%FT_USER% >nul 2>&1
-if errorlevel 1 exit /b 101
-
-rem Connect to destination share (only if different)
-if /I NOT "%SRC_SHARE_ROOT%"=="%DST_SHARE_ROOT%" (
-    net use "%DST_SHARE_ROOT%" %FT_PASS% /user:%FT_USER% >nul 2>&1
-    if errorlevel 1 exit /b 102
-)
-
-rem Validate source path
-dir "${params.SRC_PATH}" >nul 2>&1
-if errorlevel 1 exit /b 103
-
-rem Validate destination path
-dir "${params.DST_PATH}" >nul 2>&1
-if errorlevel 1 exit /b 104
-
-rem Execute Robocopy
-robocopy "${params.SRC_PATH}" "${params.DST_PATH}" "${params.FILE_MASK}" ${env.ROBOCOPY_OPTIONS} > robocopy.log
-set RC=%ERRORLEVEL%
-echo %RC% > robocopy.rc
-
-rem Disconnect shares
+echo [INFO] Cleaning previous connections...
 net use "%SRC_SHARE_ROOT%" /delete /y >nul 2>&1
-if /I NOT "%SRC_SHARE_ROOT%"=="%DST_SHARE_ROOT%" (
+if /I NOT "%SAME_SHARE%"=="YES" (
     net use "%DST_SHARE_ROOT%" /delete /y >nul 2>&1
 )
 
-exit /b %RC%
+echo [INFO] Authenticating SOURCE share: %SRC_SHARE_ROOT%
+net use "%SRC_SHARE_ROOT%" "%FT_PASS%" /user:"%FT_USER%" /persistent:no >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Failed to authenticate SOURCE share
+    exit /b 101
+)
+
+if /I "%SAME_SHARE%"=="YES" (
+    echo [INFO] Source and Destination are on the SAME share - reusing connection
+) else (
+    echo [INFO] Authenticating DESTINATION share: %DST_SHARE_ROOT%
+    net use "%DST_SHARE_ROOT%" "%FT_PASS%" /user:"%FT_USER%" /persistent:no >nul 2>&1
+    if errorlevel 1 (
+        echo [ERROR] Failed to authenticate DESTINATION share
+        net use "%SRC_SHARE_ROOT%" /delete /y >nul 2>&1
+        exit /b 102
+    )
+)
+
+echo [INFO] Validating SOURCE path accessibility...
+dir "${params.SRC_PATH}" >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] SOURCE path not accessible
+    net use "%SRC_SHARE_ROOT%" /delete /y >nul 2>&1
+    if /I NOT "%SAME_SHARE%"=="YES" net use "%DST_SHARE_ROOT%" /delete /y >nul 2>&1
+    exit /b 103
+)
+
+echo [INFO] Validating DESTINATION path accessibility...
+dir "${params.DST_PATH}" >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] DESTINATION path not accessible
+    net use "%SRC_SHARE_ROOT%" /delete /y >nul 2>&1
+    if /I NOT "%SAME_SHARE%"=="YES" net use "%DST_SHARE_ROOT%" /delete /y >nul 2>&1
+    exit /b 104
+)
+
+echo [INFO] Starting Robocopy...
+robocopy "${params.SRC_PATH}" "${params.DST_PATH}" "${params.FILE_MASK}" ${env.ROBOCOPY_OPTIONS} > robocopy.log
+set RC=!ERRORLEVEL!
+echo !RC! > robocopy.rc
+
+echo [INFO] Cleaning up connections...
+net use "%SRC_SHARE_ROOT%" /delete /y >nul 2>&1
+if /I NOT "%SAME_SHARE%"=="YES" (
+    net use "%DST_SHARE_ROOT%" /delete /y >nul 2>&1
+)
+
+echo [INFO] Robocopy finished with RC=!RC!
+exit /b !RC!
 """
                             )
 
                             // ------------------------------------------------
-                            // Custom return-code handling
+                            // Return code handling
                             // ------------------------------------------------
                             if (rc == 101) {
-                                writeFile file: 'robocopy.error', text: 'Unable to connect to source SMB share.'
-                                error('Unable to connect to source SMB share.')
+                                writeFile file: 'robocopy.error', text: 'Unable to connect to SOURCE SMB share. Check credentials and permissions.'
+                                error('Unable to connect to SOURCE SMB share.')
                             }
                             if (rc == 102) {
-                                writeFile file: 'robocopy.error', text: 'Unable to connect to destination SMB share.'
-                                error('Unable to connect to destination SMB share.')
+                                writeFile file: 'robocopy.error', text: 'Unable to connect to DESTINATION SMB share. Check credentials and permissions.'
+                                error('Unable to connect to DESTINATION SMB share.')
                             }
                             if (rc == 103) {
-                                writeFile file: 'robocopy.error', text: 'Source path not accessible (missing path or permissions).'
-                                error('Source path not accessible.')
+                                writeFile file: 'robocopy.error', text: 'SOURCE path not accessible (missing path or insufficient permissions).'
+                                error('SOURCE path not accessible.')
                             }
                             if (rc == 104) {
-                                writeFile file: 'robocopy.error', text: 'Destination path not accessible (missing path or permissions).'
-                                error('Destination path not accessible.')
+                                writeFile file: 'robocopy.error', text: 'DESTINATION path not accessible (missing path or insufficient permissions).'
+                                error('DESTINATION path not accessible.')
                             }
-                            // Robocopy: 0-7 = success / info, >= 8 = failure
+                            // Robocopy: 0-7 = success/info, >=8 = failure
                             if (rc >= 8) {
-                                writeFile file: 'robocopy.error', text: "Robocopy failed with RC=${rc}"
+                                writeFile file: 'robocopy.error', text: "Robocopy failed with RC=${rc}. Most common cause: Access Denied (ERROR 5) - the account has no Read permission on source files or no Write permission on destination."
                                 error("Robocopy failed with RC=${rc}")
                             }
                         }
@@ -242,7 +220,7 @@ exit /b %RC%
     }
 
     // ========================================================================
-    // Post actions – always write the detailed log
+    // Post – always write the detailed log
     // ========================================================================
     post {
         always {
@@ -253,9 +231,6 @@ exit /b %RC%
                 def rc       = fileExists('robocopy.rc')    ? readFile('robocopy.rc').trim()    : ''
                 def fullLog  = fileExists('robocopy.log')   ? readFile('robocopy.log')          : 'No Robocopy log generated.'
 
-                // --------------------------------------------------------
-                // Build the exact log format requested
-                // --------------------------------------------------------
                 def logContent = """SUMMARY
 ================================================================================
 Job Name     : ${params.JOB_NAME}
@@ -264,15 +239,12 @@ SRC_CRED     : ${params.SRC_CRED}
 Duration     : ${elapsed} seconds
 Timestamp    : ${new Date().format('yyyy-MM-dd HH:mm:ss')}
 Build Parent : #${params.PARENT_BUILD}
-
+-------------------------------------------------------------------------------
 ${fullLog}
 ================================================================================
 END OF LOG
 """
 
-                // --------------------------------------------------------
-                // Write log → C:\Jenkins\Jobs\Log\POC_AUTOMIC_FILE_TRANSFER_IMPROVED_PEFORMANCE_BuildID_123.txt
-                // --------------------------------------------------------
                 def logDir  = 'C:\\Jenkins\\Jobs\\Log'
                 def logName = "POC_AUTOMIC_FILE_TRANSFER_IMPROVED_PEFORMANCE_BuildID_${env.BUILD_NUMBER}.txt"
                 def logPath = "${logDir}\\${logName}"
@@ -285,7 +257,6 @@ if not exist "${logDir}" mkdir "${logDir}"
                 writeFile file: logPath, text: logContent
                 echo "Detailed Robocopy log written to: ${logPath}"
 
-                // Short summary in console
                 echo """
 SUMMARY
 ================================================================================
@@ -300,7 +271,3 @@ Duration  : ${elapsed} seconds
         }
     }
 }
-
-
-
-
