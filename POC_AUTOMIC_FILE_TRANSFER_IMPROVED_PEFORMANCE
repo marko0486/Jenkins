@@ -1,273 +1,95 @@
-Ahora quiero que reacomodes los comentarios del job, identa el codigo
-Ademas quiero que guardes el log tal cual ya lo haces con el job de POC_SHAREPOINT_TRANSFER
-
-Quiero el log del Robocopy en :
-C:\Jenkins\Jobs\Log\NOMBRE_DEL_JENKINS_JOB_BuildID_del_ParentJob.txt 
-
-Quiero que el log sea asi:
-
-SUMMARY
-========================================
-Job Name     : extre del Json
-File Mask    : xtre del Json
-SRC_CRED     : xtre del Json
-Duration     : 
-Timestamp    : 
-Build Parent : NOMBRE_DEL_JENKINS_JOB_BuildID_del_ParentJob #123456
-
-LOG DE ROBOCOPY
-
-AQUI TIENES QUE PONER EL LOG DEL ROBOCOPY.
-
-=====================================
-END OF LOG
-
-
 pipeline {
-
-    //
-    // Execute this job on any Windows agent capable of
-    // running SMB commands and Robocopy.
-    //
+    // ========================================================================
+    // Agent: cualquier nodo Windows con capacidad de SMB + Robocopy
+    // ========================================================================
     agent {
         label 'Windows'
     }
 
-    //
-    // Parameters provided by the Orchestrator.
-    //
-    // JOB_NAME
-    //   Logical transfer identifier.
-    //
-    // SRC_CRED
-    //   Jenkins credential ID used for SMB authentication.
-    //
-    // SRC_PATH
-    //   Full UNC source path.
-    //   Example:
-    //   \\server\share\folder
-    //
-    // DST_PATH
-    //   Full UNC destination path.
-    //
-    // FILE_MASK
-    //   File selection pattern passed to Robocopy.
-    //   Examples:
-    //   *.csv
-    //   *.txt
-    //   *.*
-    //
-    // ROBOCOPY_FLAGS
-    //   Additional Robocopy options.
-    //   Examples:
-    //   /MOV /R:0 /W:0
-    //   /E /XO
-    //
+    // ========================================================================
+    // Parameters (enviados por el Orchestrator)
+    // ========================================================================
     parameters {
-
-        string(
-            name: 'JOB_NAME',
-            defaultValue: ''
-        )
-
-        string(
-            name: 'SRC_CRED',
-            defaultValue: ''
-        )
-
-        string(
-            name: 'SRC_PATH',
-            defaultValue: ''
-        )
-
-        string(
-            name: 'DST_PATH',
-            defaultValue: ''
-        )
-
-        string(
-            name: 'FILE_MASK',
-            defaultValue: '*.*'
-        )
-
-        string(
-            name: 'ROBOCOPY_FLAGS',
-            defaultValue: ''
-        )
+        string(name: 'JOB_NAME',        defaultValue: '', description: 'Logical transfer name from JSON')
+        string(name: 'SRC_CRED',        defaultValue: '', description: 'Jenkins credential ID for SMB')
+        string(name: 'SRC_PATH',        defaultValue: '', description: 'Full UNC source path')
+        string(name: 'DST_PATH',        defaultValue: '', description: 'Full UNC destination path')
+        string(name: 'FILE_MASK',       defaultValue: '*.*', description: 'Robocopy file mask')
+        string(name: 'ROBOCOPY_FLAGS',  defaultValue: '', description: 'Additional Robocopy flags')
+        string(name: 'PARENT_BUILD',    defaultValue: '', description: 'Build number of the parent Orchestrator job')
     }
 
-    //
-    // Keep only the latest 50 executions.
-    //
+    // ========================================================================
+    // Options
+    // ========================================================================
     options {
-
-        buildDiscarder(
-            logRotator(
-                numToKeepStr: '50'
-            )
-        )
+        buildDiscarder(logRotator(numToKeepStr: '50'))
     }
 
+    // ========================================================================
+    // Environment
+    // ========================================================================
     environment {
-
-        //
-        // Used later to calculate execution duration.
-        //
         START_TIME = "${System.currentTimeMillis()}"
     }
 
     stages {
-
         stage('Transfer Definition') {
-
             steps {
-
-                //
-                // Convert runtime failures into UNSTABLE
-                // instead of failing the entire build.
-                //
-                catchError(
-                    buildResult: 'UNSTABLE',
-                    stageResult: 'UNSTABLE'
-                ) {
-
+                // Convert runtime errors to UNSTABLE instead of hard FAIL
+                catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
                     script {
+                        // ----------------------------------------------------
+                        // Jenkins UI customization
+                        // ----------------------------------------------------
+                        currentBuild.displayName = "#${env.BUILD_NUMBER} - ${params.JOB_NAME}"
+                        currentBuild.description = "${params.FILE_MASK} : ${params.SRC_PATH} → ${params.DST_PATH}"
 
-                        //
-                        // Customize Jenkins UI.
-                        //
-                        // Example:
-                        // #125 - ZF.FILE_TRANSFER_JOB
-                        //
-                        currentBuild.displayName =
-                            "#${env.BUILD_NUMBER} - ${params.JOB_NAME}"
+                        // ----------------------------------------------------
+                        // Resolve credential
+                        // ----------------------------------------------------
+                        def creds = com.cloudbees.plugins.credentials.CredentialsProvider.lookupCredentials(
+                            com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredentials.class,
+                            jenkins.model.Jenkins.get(),
+                            null,
+                            null
+                        )
 
-                        //
-                        // Human readable transfer description.
-                        //
-                        currentBuild.description =
-                            "${params.FILE_MASK} : ${params.SRC_PATH} -> ${params.DST_PATH}"
+                        def cred = creds.find { it.id == params.SRC_CRED }
 
-                        //
-                        // Retrieve all username/password credentials
-                        // available in Jenkins.
-                        //
-                        def creds =
-                            com.cloudbees.plugins.credentials.CredentialsProvider.lookupCredentials(
-                                com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredentials.class,
-                                jenkins.model.Jenkins.get(),
-                                null,
-                                null
-                            )
+                        env.FT_USERNAME   = cred ? cred.username : "UNKNOWN"
+                        env.CREDENTIAL_ID = cred ? cred.id : ""
 
-                        //
-                        // Locate the credential requested by SRC_CRED.
-                        //
-                        def cred = creds.find {
-                            it.id == params.SRC_CRED
-                        }
-
-                        //
-                        // Store values in environment variables so
-                        // they can be accessed later in the pipeline.
-                        //
-                        env.FT_USERNAME =
-                            cred ? cred.username : "UNKNOWN"
-
-                        env.CREDENTIAL_ID =
-                            cred ? cred.id : ""
-
-                        //
-                        // Stop early if the credential does not exist.
-                        //
                         if (!env.CREDENTIAL_ID?.trim()) {
-
-                            writeFile(
-                                file: 'robocopy.error',
-                                text: "Credential not found for ID: ${params.SRC_CRED}"
-                            )
-
-                            unstable(
-                                "Credential not found for ID: ${params.SRC_CRED}"
-                            )
-
+                            writeFile file: 'robocopy.error', text: "Credential not found for ID: ${params.SRC_CRED}"
+                            unstable("Credential not found for ID: ${params.SRC_CRED}")
                             return
                         }
 
-                        //
-                        // Normalize Robocopy options.
-                        //
-                        env.ROBOCOPY_OPTIONS =
-                            params.ROBOCOPY_FLAGS?.trim() ?: ""
+                        // ----------------------------------------------------
+                        // Normalize flags
+                        // ----------------------------------------------------
+                        env.ROBOCOPY_OPTIONS = params.ROBOCOPY_FLAGS?.trim() ?: ""
 
-                        //
-                        // Parse source UNC path.
-                        //
-                        // Example:
-                        // \\server\share\folder
-                        //
-                        // Results:
-                        // server = srcParts[0]
-                        // share  = srcParts[1]
-                        //
-                        def srcParts = params.SRC_PATH
-                            .replaceFirst('^\\\\\\\\', '')
-                            .split('\\\\')
-
-                        //
-                        // A valid UNC path requires at least:
-                        // server + share
-                        //
+                        // ----------------------------------------------------
+                        // Parse UNC paths → share roots
+                        // ----------------------------------------------------
+                        def srcParts = params.SRC_PATH.replaceFirst('^\\\\\\\\', '').split('\\\\')
                         if (srcParts.size() < 2) {
-
-                            writeFile(
-                                file: 'robocopy.error',
-                                text: 'Invalid source UNC path.'
-                            )
-
-                            unstable(
-                                'Invalid source UNC path.'
-                            )
-
+                            writeFile file: 'robocopy.error', text: 'Invalid source UNC path.'
+                            unstable('Invalid source UNC path.')
                             return
                         }
+                        env.SRC_SHARE_ROOT = "\\\\${srcParts[0]}\\${srcParts[1]}"
 
-                        //
-                        // Root share used by NET USE.
-                        //
-                        // Example:
-                        // \\server\share
-                        //
-                        env.SRC_SHARE_ROOT =
-                            "\\\\${srcParts[0]}\\${srcParts[1]}"
+                        def dstParts = params.DST_PATH.replaceFirst('^\\\\\\\\', '').split('\\\\')
+                        env.DST_SHARE_ROOT = (dstParts.size() >= 2)
+                            ? "\\\\${dstParts[0]}\\${dstParts[1]}"
+                            : env.SRC_SHARE_ROOT
 
-                        //
-                        // Parse destination UNC path.
-                        //
-                        def dstParts = params.DST_PATH
-                            .replaceFirst('^\\\\\\\\', '')
-                            .split('\\\\')
-
-                        //
-                        // Destination share root.
-                        //
-                        if (dstParts.size() >= 2) {
-
-                            env.DST_SHARE_ROOT =
-                                "\\\\${dstParts[0]}\\${dstParts[1]}"
-
-                        } else {
-
-                            //
-                            // Fallback.
-                            //
-                            env.DST_SHARE_ROOT =
-                                env.SRC_SHARE_ROOT
-                        }
-
-                        //
-                        // Transfer definition shown in console log.
-                        //
+                        // ----------------------------------------------------
+                        // Console header
+                        // ----------------------------------------------------
                         echo "========================================"
                         echo "Job Name      : ${params.JOB_NAME}"
                         echo "User          : ${env.FT_USERNAME}"
@@ -276,12 +98,12 @@ pipeline {
                         echo "Destination   : ${params.DST_PATH}"
                         echo "File Mask     : ${params.FILE_MASK}"
                         echo "Robocopy Flags: ${env.ROBOCOPY_OPTIONS}"
+                        echo "Parent Build  : #${params.PARENT_BUILD}"
                         echo "========================================"
 
-                        //
-                        // Load username/password into FT_USER
-                        // and FT_PASS.
-                        //
+                        // ----------------------------------------------------
+                        // Execute transfer with credentials
+                        // ----------------------------------------------------
                         withCredentials([
                             usernamePassword(
                                 credentialsId: env.CREDENTIAL_ID,
@@ -289,59 +111,39 @@ pipeline {
                                 passwordVariable: 'FT_PASS'
                             )
                         ]) {
-
-                            //
-                            // Execute SMB access validation and Robocopy.
-                            //
                             def rc = bat(
                                 returnStatus: true,
                                 script: """
 @echo off
-
 if exist robocopy.error del robocopy.error
-if exist robocopy.rc del robocopy.rc
+if exist robocopy.rc    del robocopy.rc
+if exist robocopy.log   del robocopy.log
 
-rem Connect to source share.
+rem Connect to source share
 net use "%SRC_SHARE_ROOT%" %FT_PASS% /user:%FT_USER% >nul 2>&1
+if errorlevel 1 exit /b 101
 
-if errorlevel 1 (
-    exit /b 101
-)
-
-rem Connect to destination share only when different.
+rem Connect to destination share (only if different)
 if /I NOT "%SRC_SHARE_ROOT%"=="%DST_SHARE_ROOT%" (
-
     net use "%DST_SHARE_ROOT%" %FT_PASS% /user:%FT_USER% >nul 2>&1
-
-    if errorlevel 1 (
-        exit /b 102
-    )
+    if errorlevel 1 exit /b 102
 )
 
-rem Validate source path.
+rem Validate source path
 dir "${params.SRC_PATH}" >nul 2>&1
+if errorlevel 1 exit /b 103
 
-if errorlevel 1 (
-    exit /b 103
-)
-
-rem Validate destination path.
+rem Validate destination path
 dir "${params.DST_PATH}" >nul 2>&1
+if errorlevel 1 exit /b 104
 
-if errorlevel 1 (
-    exit /b 104
-)
-
-rem Execute Robocopy.
+rem Execute Robocopy
 robocopy "${params.SRC_PATH}" "${params.DST_PATH}" "${params.FILE_MASK}" ${env.ROBOCOPY_OPTIONS} > robocopy.log
-
 set RC=%ERRORLEVEL%
-
 echo %RC% > robocopy.rc
 
-rem Disconnect SMB sessions.
+rem Disconnect shares
 net use "%SRC_SHARE_ROOT%" /delete /y >nul 2>&1
-
 if /I NOT "%SRC_SHARE_ROOT%"=="%DST_SHARE_ROOT%" (
     net use "%DST_SHARE_ROOT%" /delete /y >nul 2>&1
 )
@@ -350,73 +152,29 @@ exit /b %RC%
 """
                             )
 
-                            //
-                            // Custom return code mapping.
-                            //
+                            // ------------------------------------------------
+                            // Custom return-code handling
+                            // ------------------------------------------------
                             if (rc == 101) {
-
-                                writeFile(
-                                    file: 'robocopy.error',
-                                    text: 'Unable to connect to source SMB share.'
-                                )
-
-                                error(
-                                    'Unable to connect to source SMB share.'
-                                )
+                                writeFile file: 'robocopy.error', text: 'Unable to connect to source SMB share.'
+                                error('Unable to connect to source SMB share.')
                             }
-
                             if (rc == 102) {
-
-                                writeFile(
-                                    file: 'robocopy.error',
-                                    text: 'Unable to connect to destination SMB share.'
-                                )
-
-                                error(
-                                    'Unable to connect to destination SMB share.'
-                                )
+                                writeFile file: 'robocopy.error', text: 'Unable to connect to destination SMB share.'
+                                error('Unable to connect to destination SMB share.')
                             }
-
                             if (rc == 103) {
-
-                                writeFile(
-                                    file: 'robocopy.error',
-                                    text: 'Source path not accessible (missing path or permissions).'
-                                )
-
-                                error(
-                                    'Source path not accessible.'
-                                )
+                                writeFile file: 'robocopy.error', text: 'Source path not accessible (missing path or permissions).'
+                                error('Source path not accessible.')
                             }
-
                             if (rc == 104) {
-
-                                writeFile(
-                                    file: 'robocopy.error',
-                                    text: 'Destination path not accessible (missing path or permissions).'
-                                )
-
-                                error(
-                                    'Destination path not accessible.'
-                                )
+                                writeFile file: 'robocopy.error', text: 'Destination path not accessible (missing path or permissions).'
+                                error('Destination path not accessible.')
                             }
-
-                            //
-                            // Robocopy semantics:
-                            //
-                            // RC 0-7 = Success / Informational
-                            // RC 8+  = Failure
-                            //
+                            // Robocopy: 0-7 = success / info, >= 8 = failure
                             if (rc >= 8) {
-
-                                writeFile(
-                                    file: 'robocopy.error',
-                                    text: "Robocopy failed with RC=${rc}"
-                                )
-
-                                error(
-                                    "Robocopy failed with RC=${rc}"
-                                )
+                                writeFile file: 'robocopy.error', text: "Robocopy failed with RC=${rc}"
+                                error("Robocopy failed with RC=${rc}")
                             }
                         }
                     }
@@ -425,88 +183,61 @@ exit /b %RC%
         }
     }
 
+    // ========================================================================
+    // Post actions – always write the detailed log
+    // ========================================================================
     post {
-
         always {
-
             script {
+                long elapsed = (System.currentTimeMillis() - env.START_TIME.toLong()) / 1000
 
-                //
-                // Calculate total execution duration in seconds.
-                //
-                long elapsed =
-                    (System.currentTimeMillis() -
-                    env.START_TIME.toLong()) / 1000
+                def errorMsg = fileExists('robocopy.error') ? readFile('robocopy.error').trim() : ''
+                def rc       = fileExists('robocopy.rc')    ? readFile('robocopy.rc').trim()    : ''
+                def fullLog  = fileExists('robocopy.log')   ? readFile('robocopy.log')          : 'No Robocopy log generated.'
 
-                //
-                // Read user-friendly error message when available.
-                //
-                def errorMsg = ''
-
-                if (fileExists('robocopy.error')) {
-
-                    errorMsg =
-                        readFile('robocopy.error').trim()
-                }
-
-                //
-                // Read Robocopy return code captured by batch.
-                //
-                def rc = ''
-
-                if (fileExists('robocopy.rc')) {
-
-                    rc =
-                        readFile('robocopy.rc').trim()
-                }
-
-                //
-                // Parse Robocopy log.
-                //
-                // Only files reported as "New File"
-                // are displayed in the final summary.
-                //
-                def copiedFiles = ''
-
-                if (fileExists('robocopy.log')) {
-
-                    copiedFiles =
-                        readFile('robocopy.log')
-                            .readLines()
-                            .findAll {
-                                it.contains('New File')
-                            }
-                            .collect {
-                                it.replace('New File', '').trim()
-                            }
-                            .join('\n')
-                }
-
-                //
-                // Final execution summary.
-                //
-                def summary = """SUMMARY
-
+                // --------------------------------------------------------
+                // Build the exact log format requested
+                // --------------------------------------------------------
+                def logContent = """SUMMARY
 ========================================
-
-Job Name  : ${params.JOB_NAME}
-
-Flags     : ${env.ROBOCOPY_OPTIONS}
-
-File Mask : ${params.FILE_MASK}
-
-Status    : ${errorMsg?.trim() ? errorMsg : "SUCCESS (RC=${rc})"}
-
-Duration  : ${elapsed} seconds
-
-Copied Files
-----------------------------------------
-${copiedFiles?.trim() ? copiedFiles : 'No files reported'}
-
-========================================
+Job Name     : ${params.JOB_NAME}
+File Mask    : ${params.FILE_MASK}
+SRC_CRED     : ${params.SRC_CRED}
+Duration     : ${elapsed} seconds
+Timestamp    : ${new Date().format('yyyy-MM-dd HH:mm:ss')}
+Build Parent : #${params.PARENT_BUILD}
+LOG DE ROBOCOPY
+${fullLog}
+=====================================
+END OF LOG
 """
 
-                echo(summary)
+                // --------------------------------------------------------
+                // Write log → C:\Jenkins\Jobs\Log\POC_AUTOMIC_FILE_TRANSFER_IMPROVED_PEFORMANCE_BuildID_123.txt
+                // --------------------------------------------------------
+                def logDir  = 'C:\\Jenkins\\Jobs\\Log'
+                def logName = "POC_AUTOMIC_FILE_TRANSFER_IMPROVED_PEFORMANCE_BuildID_${params.PARENT_BUILD}.txt"
+                def logPath = "${logDir}\\${logName}"
+
+                bat """
+@echo off
+if not exist "${logDir}" mkdir "${logDir}"
+"""
+
+                writeFile file: logPath, text: logContent
+                echo "Detailed Robocopy log written to: ${logPath}"
+
+                // Short summary in console
+                echo """
+SUMMARY
+========================================
+Job Name  : ${params.JOB_NAME}
+Flags     : ${env.ROBOCOPY_OPTIONS}
+File Mask : ${params.FILE_MASK}
+Status    : ${errorMsg ? errorMsg : "SUCCESS (RC=${rc})"}
+Duration  : ${elapsed} seconds
+========================================
+"""
             }
         }
     }
