@@ -1,3 +1,6 @@
+Todavia esta sobreescribiendo el index.json con el ultimo build y borrando el previamente, 
+tiene que hacer un append al json, dejando la ultima ejecucion siempre al principio 
+
 import groovy.json.JsonSlurperClassic
 import groovy.json.JsonOutput
 
@@ -405,3 +408,4 @@ if not exist "C:\\Jenkins\\Jobs\\Dashboard" mkdir "C:\\Jenkins\\Jobs\\Dashboard"
             }
         }
     }
+}
