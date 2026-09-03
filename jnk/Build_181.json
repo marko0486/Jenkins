@@ -1,0 +1,35 @@
+{
+  "parentJob": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
+  "parentBuild": 181,
+  "buildUrl": "http://localhost:8080/jenkins/job/POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV/181/",
+  "status": "SUCCESS",
+  "timestamp": "2026-09-03 23:11:59",
+  "summary": {
+    "total": 3,
+    "disabled": 0,
+    "checked": 2,
+    "executed": 3,
+    "skipped": 0,
+    "failed": 0
+  },
+  "children": [
+    {
+      "job": "ZF.TMP_JOB",
+      "build": 67,
+      "status": "SUCCESS",
+      "logFile": "ZF.TMP_JOB_BuildID_67.txt"
+    },
+    {
+      "job": "BR.SD.#WFL.TP1.005_EOO_DELIVERIES.EV",
+      "build": 117,
+      "status": "SUCCESS",
+      "logFile": "BR.SD.#WFL.TP1.005_EOO_DELIVERIES.EV_BuildID_117.txt"
+    },
+    {
+      "job": "ZF.MY_TEST_JOB.EV",
+      "build": 68,
+      "status": "SUCCESS",
+      "logFile": "ZF.MY_TEST_JOB.EV_BuildID_68.txt"
+    }
+  ]
+}
