@@ -13,7 +13,7 @@ def FAILURES       = []
 def DISABLED_JOBS  = []
 def SKIPPED_JOBS   = []
 def SUCCESS_JOBS   = []
-def CHILDREN       = []   // Nuevo: para el JSON del dashboard
+def CHILDREN       = []
 
 pipeline {
     agent {
@@ -309,9 +309,9 @@ END OF LOG
                 echo "Detailed log written to: ${logFilePath}"
 
                 // ============================================================
-                // Dashboard JSON
+                // Dashboard JSON (Build_xxx.json)
                 // ============================================================
-                def dashboardDir = 'C:\\Jenkins\\Jobs\\Dashboard\\Builds'
+                def dashboardDir  = 'C:\\Jenkins\\Jobs\\Dashboard\\Builds'
                 def dashboardFile = "${dashboardDir}\\Build_${env.BUILD_NUMBER}.json"
 
                 bat """
@@ -319,7 +319,7 @@ END OF LOG
 if not exist "${dashboardDir}" mkdir "${dashboardDir}"
 """
 
-                def overallStatus = FAILURES.isEmpty() ? "SUCCESS" : "FAILURE"
+                def overallStatus = FAILURES.isEmpty() ? "SUCCESS" : "FAILED"
 
                 def dashboardJson = [
                     parentJob   : env.JOB_NAME,
@@ -340,145 +340,48 @@ if not exist "${dashboardDir}" mkdir "${dashboardDir}"
                 def jsonText = JsonOutput.prettyPrint(JsonOutput.toJson(dashboardJson))
                 writeFile file: dashboardFile, text: jsonText
                 echo "Dashboard JSON written to: ${dashboardFile}"
+
+                // ============================================================
+                // Dashboard INDEX (index.json)
+                // ============================================================
+                def indexFile = 'C:\\Jenkins\\Jobs\\Dashboard\\index.json'
+
+                def indexRecord = [
+                    build     : env.BUILD_NUMBER.toInteger(),
+                    job       : env.JOB_NAME,
+                    status    : overallStatus,
+                    timestamp : new Date().format('yyyy-MM-dd HH:mm:ss'),
+                    children  : CHILDREN.size(),
+                    file      : "Build_${env.BUILD_NUMBER}.json"
+                ]
+
+                // Leer index existente
+                def indexData = []
+                if (fileExists(indexFile)) {
+                    try {
+                        indexData = new JsonSlurperClassic().parseText(readFile(indexFile))
+                    } catch (Exception e) {
+                        echo "WARNING: Could not parse existing index.json, starting fresh. Error: ${e.message}"
+                        indexData = []
+                    }
+                }
+
+                // Evitar duplicados del mismo build (re-runs)
+                indexData = indexData.findAll { it.build != env.BUILD_NUMBER.toInteger() }
+
+                // Agregar el nuevo registro
+                indexData << indexRecord
+
+                // Ordenar descendente (más reciente arriba)
+                indexData = indexData.sort { a, b -> b.build <=> a.build }
+
+                // Guardar index.json
+                writeFile(
+                    file: indexFile,
+                    text: JsonOutput.prettyPrint(JsonOutput.toJson(indexData))
+                )
+                echo "Dashboard index updated: ${indexFile}"
             }
         }
     }
 }
-
-
-Necesito un index que se guarde en C:\Jenkins\Jobs\Dashboard\index.json
-
-Basicamente quiero guardar en cada ejecucion un index 
-
-Este es un ejemplo del json que necesito:
-
-[
-  {
-    "build": 161,
-    "job": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-    "status": "SUCCESS",
-    "timestamp": "2026-09-03 10:20:00",
-    "children": 3,
-    "file": "Build_161.json"
-  },
-  {
-    "build": 160,
-    "job": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-    "status": "FAILED",
-    "timestamp": "2026-09-03 10:15:00",
-    "children": 2,
-    "file": "Build_160.json"
-  }
-]
-
-
-
-Después de generar tu Build_xxx.json agrega:
-
-def indexRecord = [
-
-    build :
-        env.BUILD_NUMBER.toInteger(),
-
-    job :
-        env.JOB_NAME,
-
-    status :
-        FAILURES.isEmpty()
-        ? 'SUCCESS'
-        : 'FAILED',
-
-    timestamp :
-        new Date().format(
-            'yyyy-MM-dd HH:mm:ss'
-        ),
-
-    children :
-        CHILD_BUILDS.size(),
-
-    file :
-        "Build_${env.BUILD_NUMBER}.json"
-]
-
-Leer index existente
-
-def indexData = []
-
-if (fileExists(indexFile)) {
-
-    indexData =
-        new JsonSlurperClassic()
-            .parseText(
-                readFile(indexFile)
-            )
-}
-
-
-Agregar nuevo build
-indexData << indexRecord
-
-
-Ordenar descendente
-
-Para que el más reciente aparezca arriba:
-
-indexData =
-    indexData.sort {
-        a,
-        b ->
-
-        b.build <=> a.build
-    }
-
-Guardar index.json
-writeFile(
-    file: indexFile,
-    text: JsonOutput.prettyPrint(
-        JsonOutput.toJson(
-            indexData
-        )
-    )
-)
-
-echo "Dashboard index updated: ${indexFile}"
-
-
-
-Resultado
-Después de algunos builds tendrás:
-
-C:\Jenkins\Jobs\Dashboard
-
-├── index.json
-
-└── Builds
-    ├── Build_161.json
-    ├── Build_162.json
-    ├── Build_163.json
-    └── Build_164.json
-
-
-Y el contenido de:index.json
-
-[
-  {
-    "build": 164,
-    "job": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-    "status": "SUCCESS",
-    "timestamp": "2026-09-03 12:20:00",
-    "children": 4,
-    "file": "Build_164.json"
-  },
-  {
-    "build": 163,
-    "job": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-    "status": "SUCCESS",
-    "timestamp": "2026-09-03 12:15:00",
-    "children": 3,
-    "file": "Build_163.json"
-  }
-]
-
-
-
-
