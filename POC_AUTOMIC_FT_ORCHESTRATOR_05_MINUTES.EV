@@ -153,7 +153,6 @@ exit /b 0
 
                                 EXECUTED++
 
-                                // Guardar información del hijo para el JSON
                                 CHILDREN << [
                                     job    : jobName,
                                     build  : result.number,
@@ -342,9 +341,16 @@ if not exist "${dashboardDir}" mkdir "${dashboardDir}"
                 echo "Dashboard JSON written to: ${dashboardFile}"
 
                 // ============================================================
-                // Dashboard INDEX (index.json)
+                // Dashboard INDEX (index.json) - ROBUSTO
                 // ============================================================
                 def indexFile = 'C:\\Jenkins\\Jobs\\Dashboard\\index.json'
+                def indexFileObj = new File(indexFile)
+
+                // Asegurar que el directorio existe
+                bat """
+@echo off
+if not exist "C:\\Jenkins\\Jobs\\Dashboard" mkdir "C:\\Jenkins\\Jobs\\Dashboard"
+"""
 
                 def indexRecord = [
                     build     : env.BUILD_NUMBER.toInteger(),
@@ -355,32 +361,47 @@ if not exist "${dashboardDir}" mkdir "${dashboardDir}"
                     file      : "Build_${env.BUILD_NUMBER}.json"
                 ]
 
-                // Leer index existente
+                // Leer index existente de forma robusta (java.io.File)
                 def indexData = []
-                if (fileExists(indexFile)) {
+                if (indexFileObj.exists() && indexFileObj.length() > 0) {
                     try {
-                        indexData = new JsonSlurperClassic().parseText(readFile(indexFile))
+                        def raw = indexFileObj.getText('UTF-8')
+                        indexData = new JsonSlurperClassic().parseText(raw)
+                        if (!(indexData instanceof List)) {
+                            echo "WARNING: index.json is not a list, resetting"
+                            indexData = []
+                        }
                     } catch (Exception e) {
                         echo "WARNING: Could not parse existing index.json, starting fresh. Error: ${e.message}"
                         indexData = []
                     }
+                } else {
+                    echo "INFO: index.json does not exist yet, creating new one"
                 }
 
                 // Evitar duplicados del mismo build (re-runs)
-                indexData = indexData.findAll { it.build != env.BUILD_NUMBER.toInteger() }
+                def currentBuildNum = env.BUILD_NUMBER.toInteger()
+                indexData = indexData.findAll { 
+                    def b = (it.build instanceof Number) ? it.build.toInteger() : it.build.toString().toInteger()
+                    return b != currentBuildNum
+                }
 
                 // Agregar el nuevo registro
                 indexData << indexRecord
 
                 // Ordenar descendente (más reciente arriba)
-                indexData = indexData.sort { a, b -> b.build <=> a.build }
+                indexData = indexData.sort { a, b ->
+                    def ba = (a.build instanceof Number) ? a.build.toInteger() : a.build.toString().toInteger()
+                    def bb = (b.build instanceof Number) ? b.build.toInteger() : b.build.toString().toInteger()
+                    return bb <=> ba
+                }
 
-                // Guardar index.json
-                writeFile(
-                    file: indexFile,
-                    text: JsonOutput.prettyPrint(JsonOutput.toJson(indexData))
-                )
+                // Guardar index.json de forma robusta
+                def prettyIndex = JsonOutput.prettyPrint(JsonOutput.toJson(indexData))
+                indexFileObj.write(prettyIndex, 'UTF-8')
+
                 echo "Dashboard index updated: ${indexFile}"
+                echo "Total builds in index: ${indexData.size()}"
             }
         }
     }
