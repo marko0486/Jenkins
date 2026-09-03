@@ -1,0 +1,80 @@
+Tengo este path: 
+
+C:\Jenkins\Jobs\Dashboard
+
+├── dashboard.html   <<NO EXISTE, CREALO TU>>
+├── index.json     <<Ya lo tengo>>
+│
+├── Builds
+│   ├── Build_181.json  <<Se genera en cada build>>
+│   ├── Build_182.json  <<Se genera en cada build>>
+│   └── ...
+│
+└── Assets                 <<Crea eso tu>>
+    ├── dashboard.css     <<Crea eso tu>>
+    └── dashboard.js     <<Crea eso tu>>
+
+    Que tiene cada Json
+EL index.json se actualiza cada que ejecuto un nuevo build
+    index.json
+
+    [
+    {
+        "build": 181,
+        "job": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
+        "status": "SUCCESS",
+        "timestamp": "2026-09-03 23:11:59",
+        "children": 3,
+        "file": "Build_181.json"
+    },
+    {
+        "file": "Build_180.json",
+        "build": 180,
+        "children": 3,
+        "job": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
+        "status": "SUCCESS",
+        "timestamp": "2026-09-03 23:08:49"
+    }
+]
+
+ASi es como se ve el Build_180.json
+
+{
+    "parentJob": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
+    "parentBuild": 180,
+    "buildUrl": "http://localhost:8080/jenkins/job/POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV/180/",
+    "status": "SUCCESS",
+    "timestamp": "2026-09-03 23:08:48",
+    "summary": {
+        "total": 3,
+        "disabled": 0,
+        "checked": 2,
+        "executed": 3,
+        "skipped": 0,
+        "failed": 0
+    },
+    "children": [
+        {
+            "job": "ZF.TMP_JOB",
+            "build": 67,
+            "status": "SUCCESS",
+            "logFile": "ZF.TMP_JOB_BuildID_67.txt"
+        },
+        {
+            "job": "BR.SD.#WFL.TP1.005_EOO_DELIVERIES.EV",
+            "build": 117,
+            "status": "SUCCESS",
+            "logFile": "BR.SD.#WFL.TP1.005_EOO_DELIVERIES.EV_BuildID_117.txt"
+        },
+        {
+            "job": "ZF.MY_TEST_JOB.EV",
+            "build": 68,
+            "status": "SUCCESS",
+            "logFile": "ZF.MY_TEST_JOB.EV_BuildID_68.txt"
+        }
+    ]
+}
+
+Crea el Dashboard en html conforme a lo que te estoy pasando, basate en la imagen que adjunte
+
+
