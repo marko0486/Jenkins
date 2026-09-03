@@ -405,4 +405,3 @@ if not exist "C:\\Jenkins\\Jobs\\Dashboard" mkdir "C:\\Jenkins\\Jobs\\Dashboard"
             }
         }
     }
-}
