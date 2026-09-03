@@ -1,6 +1,3 @@
-Todavia esta sobreescribiendo el index.json con el ultimo build y borrando el previamente, 
-tiene que hacer un append al json, dejando la ultima ejecucion siempre al principio 
-
 import groovy.json.JsonSlurperClassic
 import groovy.json.JsonOutput
 
@@ -344,12 +341,11 @@ if not exist "${dashboardDir}" mkdir "${dashboardDir}"
                 echo "Dashboard JSON written to: ${dashboardFile}"
 
                 // ============================================================
-                // Dashboard INDEX (index.json) - ROBUSTO
+                // Dashboard INDEX (index.json) - APPEND ROBUSTO
                 // ============================================================
-                def indexFile = 'C:\\Jenkins\\Jobs\\Dashboard\\index.json'
-                def indexFileObj = new File(indexFile)
+                def indexFile      = 'C:\\Jenkins\\Jobs\\Dashboard\\index.json'
+                def workspaceIndex = "${env.WORKSPACE}\\dashboard_index_temp.json"
 
-                // Asegurar que el directorio existe
                 bat """
 @echo off
 if not exist "C:\\Jenkins\\Jobs\\Dashboard" mkdir "C:\\Jenkins\\Jobs\\Dashboard"
@@ -364,47 +360,67 @@ if not exist "C:\\Jenkins\\Jobs\\Dashboard" mkdir "C:\\Jenkins\\Jobs\\Dashboard"
                     file      : "Build_${env.BUILD_NUMBER}.json"
                 ]
 
-                // Leer index existente de forma robusta (java.io.File)
+                // Copiar index actual → workspace (o crear vacío)
+                bat """
+@echo off
+if exist "${indexFile}" (
+    copy /Y "${indexFile}" "${workspaceIndex}" >nul
+) else (
+    echo []> "${workspaceIndex}"
+)
+"""
+
                 def indexData = []
-                if (indexFileObj.exists() && indexFileObj.length() > 0) {
-                    try {
-                        def raw = indexFileObj.getText('UTF-8')
-                        indexData = new JsonSlurperClassic().parseText(raw)
-                        if (!(indexData instanceof List)) {
-                            echo "WARNING: index.json is not a list, resetting"
-                            indexData = []
+                try {
+                    def raw = readFile(file: workspaceIndex).trim()
+                    if (raw && raw != '[]') {
+                        def parsed = new JsonSlurperClassic().parseText(raw)
+                        if (parsed instanceof List) {
+                            indexData = parsed
+                            echo "Loaded ${indexData.size()} existing entries from index.json"
                         }
-                    } catch (Exception e) {
-                        echo "WARNING: Could not parse existing index.json, starting fresh. Error: ${e.message}"
-                        indexData = []
                     }
-                } else {
-                    echo "INFO: index.json does not exist yet, creating new one"
+                } catch (Exception e) {
+                    echo "WARNING: Failed to parse index, starting fresh: ${e.message}"
+                    indexData = []
                 }
 
-                // Evitar duplicados del mismo build (re-runs)
+                // Quitar duplicado del mismo build (re-run)
                 def currentBuildNum = env.BUILD_NUMBER.toInteger()
-                indexData = indexData.findAll { 
-                    def b = (it.build instanceof Number) ? it.build.toInteger() : it.build.toString().toInteger()
-                    return b != currentBuildNum
+                indexData = indexData.findAll { entry ->
+                    try {
+                        def b = entry.build
+                        def bi = (b instanceof Number) ? b.intValue() : b.toString().toInteger()
+                        return bi != currentBuildNum
+                    } catch (Exception ignored) {
+                        return true
+                    }
                 }
 
-                // Agregar el nuevo registro
-                indexData << indexRecord
+                // Nuevo build al principio
+                indexData.add(0, indexRecord)
 
-                // Ordenar descendente (más reciente arriba)
+                // Ordenar descendente por build
                 indexData = indexData.sort { a, b ->
-                    def ba = (a.build instanceof Number) ? a.build.toInteger() : a.build.toString().toInteger()
-                    def bb = (b.build instanceof Number) ? b.build.toInteger() : b.build.toString().toInteger()
+                    def ba = (a.build instanceof Number) ? a.build.intValue() : a.build.toString().toInteger()
+                    def bb = (b.build instanceof Number) ? b.build.intValue() : b.build.toString().toInteger()
                     return bb <=> ba
                 }
 
-                // Guardar index.json de forma robusta
+                // Guardar y copiar de vuelta
                 def prettyIndex = JsonOutput.prettyPrint(JsonOutput.toJson(indexData))
-                indexFileObj.write(prettyIndex, 'UTF-8')
+                writeFile file: workspaceIndex, text: prettyIndex
+
+                bat """
+@echo off
+copy /Y "${workspaceIndex}" "${indexFile}" >nul
+"""
 
                 echo "Dashboard index updated: ${indexFile}"
                 echo "Total builds in index: ${indexData.size()}"
+                indexData.each { e ->
+                    echo "  - Build ${e.build} | ${e.status} | ${e.timestamp}"
+                }
             }
         }
     }
