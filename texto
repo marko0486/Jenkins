@@ -1,5 +1,0 @@
-Cuando hay un job dentro de POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV   con algun error, digamos missing path, no se manda ejecutar al Job secundario, por ende no se genera un build .
-El Job POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV termina con estatus Sucess en Jenkins, pero en el Dashboard.html termina con FAILED., quiero el STATUS = Success en el Dashboard
-Total=3 | Disabled=1 | Checked=1 | Executed=1 | Skipped=0 | Failed=1
-
-Quiero que cuando se le de click al build ID parent en la lista inferior salga el nombee del Job que tuvo error y en status FAILED
