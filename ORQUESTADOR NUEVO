@@ -16,7 +16,7 @@ def SUCCESS_JOBS   = []
 def CHILDREN       = []
 
 // ============================================================================
-// Helpers @NonCPS
+// Helper methods (@NonCPS to avoid CPS issues)
 // ============================================================================
 @NonCPS
 def sortIndexDesc(List data) {
@@ -42,7 +42,7 @@ def filterOutBuild(List data, int buildNum) {
 }
 
 // ============================================================================
-// Time helpers
+// Time formatting helpers
 // ============================================================================
 def formatTime(long millis) {
     if (millis <= 0) return "—"
@@ -84,6 +84,8 @@ pipeline {
                     ]) {
                         try {
                             transfers.each { transfer ->
+
+                                // Skip disabled transfers
                                 if (transfer.containsKey('enabled') && !transfer.enabled) {
                                     DISABLED++
                                     DISABLED_JOBS << transfer.job?.toString()
@@ -106,7 +108,7 @@ pipeline {
                                 }
 
                                 // ============================================================
-                                // PRE-CHECK ligero
+                                // Light PRE-CHECK (path accessibility)
                                 // ============================================================
                                 if (transferType == 'ROBOCOPY' && credentialId == 'WIN.SVC.UC4.BATCHUSER') {
                                     CHECKED++
@@ -137,8 +139,9 @@ net use "!SHARE!" /delete /y >nul 2>&1
 exit /b 0
 """
                                     )
+
                                     if (checkResult == 100) {
-                                        // Child virtual (pre-check failed)
+                                        // Virtual child – pre-check failed (no real build created)
                                         CHILDREN << [
                                             job       : jobName,
                                             build     : null,
@@ -159,6 +162,9 @@ exit /b 0
                                     }
                                 }
 
+                                // ============================================================
+                                // Execute the real transfer job
+                                // ============================================================
                                 echo "[EXEC] ${jobName} (${transferType})"
                                 def result
 
@@ -196,7 +202,7 @@ exit /b 0
                                     )
                                 }
 
-                                // Tiempos del child real
+                                // Capture child timing
                                 long childStartMs  = result.startTimeInMillis ?: 0L
                                 long childDuration = result.duration ?: 0L
                                 long childEndMs    = (childStartMs > 0 && childDuration > 0) ? (childStartMs + childDuration) : 0L
@@ -234,9 +240,6 @@ exit /b 0
 
                     currentBuild.displayName = "#${env.BUILD_NUMBER} D:${DISABLED} X:${EXECUTED} S:${SKIPPED} F:${FAILURES.size()}"
                     currentBuild.description = "Total=${TOTAL} | Disabled=${DISABLED} | Checked=${CHECKED} | Executed=${EXECUTED} | Skipped=${SKIPPED} | Failed=${FAILURES.size()}"
-                    
-                    // Siempre SUCCESS en Jenkins
-                    currentBuild.result = 'SUCCESS'
                 }
             }
         }
@@ -246,7 +249,7 @@ exit /b 0
         always {
             script {
                 // ============================================================
-                // Tiempos del Parent
+                // Parent timing
                 // ============================================================
                 long parentStartMs  = currentBuild.startTimeInMillis ?: 0L
                 long parentDuration = currentBuild.duration ?: (System.currentTimeMillis() - parentStartMs)
@@ -257,7 +260,7 @@ exit /b 0
                 String parentDurationStr = formatDuration(parentDuration)
 
                 // ============================================================
-                // Contadores reales de children
+                // Real children counters
                 // ============================================================
                 def successCount  = CHILDREN.count { it.status == 'SUCCESS' }
                 def failedCount   = CHILDREN.count { it.status == 'FAILED' || it.status == 'FAILURE' || it.status == 'PRECHECK_FAILED' }
@@ -385,7 +388,16 @@ END OF LOG
                 echo "Detailed log written to: ${logFilePath}"
 
                 // ============================================================
-                // Dashboard JSON (Build_xxx.json)
+                // Determine Parent status for Dashboard
+                // ============================================================
+                // - SUCCESS  → pipeline finished normally (even if some pre-checks failed)
+                // - FAILED   → unhandled exception or real pipeline failure
+                def overallStatus = (currentBuild.currentResult == 'SUCCESS' || currentBuild.currentResult == null) 
+                                    ? "SUCCESS" 
+                                    : currentBuild.currentResult
+
+                // ============================================================
+                // Dashboard JSON (Build_XXX.json)
                 // ============================================================
                 def dashboardDir  = 'C:\\Jenkins\\Jobs\\Dashboard\\Builds'
                 def dashboardFile = "${dashboardDir}\\Build_${env.BUILD_NUMBER}.json"
@@ -394,9 +406,6 @@ END OF LOG
 @echo off
 if not exist "${dashboardDir}" mkdir "${dashboardDir}"
 """
-
-                // Parent siempre SUCCESS en el Dashboard
-                def overallStatus = "SUCCESS"
 
                 def dashboardJson = [
                     parentJob     : env.JOB_NAME,
