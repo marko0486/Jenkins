@@ -258,20 +258,31 @@ function renderChildren() {
       tr.style.cursor = 'default';
 
       const statusClass = statusBadgeClass(c.status);
+      const hasRealBuild = c.build !== null && c.build !== undefined && c.build !== '';
+      const hasLog = c.logFile;
+
+     
+      let logCell = '—';
+      let actionCell = '—';
+
+      if (hasLog) {
+        logCell = `<span style="font-size:0.8rem;color:#64748b">${c.logFile}</span>`;
+        actionCell = `<button class="link-btn" type="button" onclick="viewLog('${(c.logFile || '').replace(/'/g, "\\'")}')">View</button>`;
+      } else if (c.reason) {
+      
+        logCell = `<span style="font-size:0.8rem;color:#dc2626" title="${c.reason}">${c.reason}</span>`;
+        actionCell = `<span style="font-size:0.8rem;color:#94a3b8">No log</span>`;
+      }
 
       tr.innerHTML = `
         <td style="font-weight:500">${c.job || '—'}</td>
-        <td class="build-id">${c.build || '—'}</td>
+        <td class="build-id">${hasRealBuild ? c.build : '—'}</td>
         <td>${c.startTime || '—'}</td>
         <td>${c.endTime || '—'}</td>
         <td><span class="badge ${statusClass}">${c.status || '—'}</span></td>
         <td>${c.duration || '—'}</td>
-        <td style="font-size:0.8rem;color:#64748b">${c.logFile || '—'}</td>
-        <td>
-          <button class="link-btn" type="button" onclick="viewLog('${(c.logFile || '').replace(/'/g, "\\'")}')">
-            View
-          </button>
-        </td>
+        <td>${logCell}</td>
+        <td>${actionCell}</td>
       `;
       tbody.appendChild(tr);
     });
@@ -282,7 +293,6 @@ function renderChildren() {
     renderChildren();
   });
 }
-
 // ---------- ACTIONS ----------
 function viewLog(logFile) {
   if (!logFile) {
