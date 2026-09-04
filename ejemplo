@@ -1,150 +1,3 @@
-Quiero que que registres en el Dashboard el END TIME, DURATION de cada BUILD Parent
-
-Asi como tambien de cada Child Build,  el START TIME, END TIME, DURATION.
-
-Ejemplo de como tengo el index.json 
-
-Actualiza los archivos necesarios y dame todo el codigo completo o los archivos para copiar y pegar
-
-[
-    {
-        "build": 191,
-        "job": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-        "status": "SUCCESS",
-        "timestamp": "2026-09-04 00:20:52",
-        "children": 1,
-        "file": "Build_191.json"
-    },
-    {
-        "file": "Build_190.json",
-        "build": 190,
-        "children": 1,
-        "job": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-        "status": "SUCCESS",
-        "timestamp": "2026-09-04 00:19:22"
-    },
-    {
-        "file": "Build_189.json",
-        "build": 189,
-        "children": 1,
-        "job": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-        "status": "SUCCESS",
-        "timestamp": "2026-09-04 00:18:17"
-    },
-    {
-        "file": "Build_188.json",
-        "build": 188,
-        "children": 1,
-        "job": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-        "status": "SUCCESS",
-        "timestamp": "2026-09-04 00:16:52"
-    },
-    {
-        "file": "Build_187.json",
-        "build": 187,
-        "children": 3,
-        "job": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-        "status": "SUCCESS",
-        "timestamp": "2026-09-04 00:15:36"
-    },
-    {
-        "file": "Build_186.json",
-        "build": 186,
-        "children": 3,
-        "job": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-        "status": "SUCCESS",
-        "timestamp": "2026-09-04 00:08:31"
-    },
-    {
-        "file": "Build_185.json",
-        "build": 185,
-        "children": 3,
-        "job": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-        "status": "SUCCESS",
-        "timestamp": "2026-09-04 00:06:41"
-    },
-    {
-        "file": "Build_184.json",
-        "build": 184,
-        "children": 3,
-        "job": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-        "status": "SUCCESS",
-        "timestamp": "2026-09-04 00:04:45"
-    },
-    {
-        "file": "Build_183.json",
-        "build": 183,
-        "children": 3,
-        "job": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-        "status": "SUCCESS",
-        "timestamp": "2026-09-04 00:02:46"
-    },
-    {
-        "file": "Build_182.json",
-        "build": 182,
-        "children": 3,
-        "job": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-        "status": "SUCCESS",
-        "timestamp": "2026-09-03 23:54:35"
-    },
-    {
-        "file": "Build_181.json",
-        "build": 181,
-        "children": 3,
-        "job": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-        "status": "SUCCESS",
-        "timestamp": "2026-09-03 23:11:59"
-    },
-    {
-        "file": "Build_180.json",
-        "build": 180,
-        "children": 3,
-        "job": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-        "status": "SUCCESS",
-        "timestamp": "2026-09-03 23:08:49"
-    }
-]
-
-Ejemplo del Build_180.json
-
-{
-    "parentJob": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-    "parentBuild": 180,
-    "buildUrl": "http://localhost:8080/jenkins/job/POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV/180/",
-    "status": "SUCCESS",
-    "timestamp": "2026-09-03 23:08:48",
-    "summary": {
-        "total": 3,
-        "disabled": 0,
-        "checked": 2,
-        "executed": 3,
-        "skipped": 0,
-        "failed": 0
-    },
-    "children": [
-        {
-            "job": "ZF.TMP_JOB",
-            "build": 67,
-            "status": "SUCCESS",
-            "logFile": "ZF.TMP_JOB_BuildID_67.txt"
-        },
-        {
-            "job": "BR.SD.#WFL.TP1.005_EOO_DELIVERIES.EV",
-            "build": 117,
-            "status": "SUCCESS",
-            "logFile": "BR.SD.#WFL.TP1.005_EOO_DELIVERIES.EV_BuildID_117.txt"
-        },
-        {
-            "job": "ZF.MY_TEST_JOB.EV",
-            "build": 68,
-            "status": "SUCCESS",
-            "logFile": "ZF.MY_TEST_JOB.EV_BuildID_68.txt"
-        }
-    ]
-}
-
-Codigo del orquestador
-
 import groovy.json.JsonSlurperClassic
 import groovy.json.JsonOutput
 
@@ -163,7 +16,7 @@ def SUCCESS_JOBS   = []
 def CHILDREN       = []
 
 // ============================================================================
-// Helper @NonCPS para ordenar sin romper CPS
+// Helpers @NonCPS
 // ============================================================================
 @NonCPS
 def sortIndexDesc(List data) {
@@ -186,6 +39,26 @@ def filterOutBuild(List data, int buildNum) {
             return true
         }
     }
+}
+
+// ============================================================================
+// Time helpers
+// ============================================================================
+def formatTime(long millis) {
+    if (millis <= 0) return "—"
+    return new Date(millis).format('yyyy-MM-dd HH:mm:ss')
+}
+
+def formatDuration(long millis) {
+    if (millis <= 0) return "—"
+    long totalSeconds = (millis / 1000).longValue()
+    long minutes = totalSeconds / 60
+    long seconds = totalSeconds % 60
+
+    if (minutes > 0) {
+        return "${minutes} min ${seconds} sec"
+    }
+    return "${seconds} sec"
 }
 
 pipeline {
@@ -212,7 +85,6 @@ pipeline {
                     ]) {
                         try {
                             transfers.each { transfer ->
-
                                 if (transfer.containsKey('enabled') && !transfer.enabled) {
                                     DISABLED++
                                     DISABLED_JOBS << transfer.job?.toString()
@@ -245,7 +117,6 @@ pipeline {
 @echo off
 setlocal EnableDelayedExpansion
 set "SOURCE=${source}"
-
 REM Extraer \\server\\share
 set "TEMP=!SOURCE:~2!"
 for /f "tokens=1,2 delims=\\" %%a in ("!TEMP!") do (
@@ -253,29 +124,24 @@ for /f "tokens=1,2 delims=\\" %%a in ("!TEMP!") do (
     set "SHARENAME=%%b"
 )
 set "SHARE=\\\\!SERVER!\\!SHARENAME!"
-
 REM Limpiar conexión previa
 net use "!SHARE!" /delete /y >nul 2>&1
-
 REM Autenticar
 net use "!SHARE!" "%FT_PASS%" /user:"%FT_USER%" >nul 2>&1
 if errorlevel 1 (
     exit /b 100
 )
-
 REM Comprobar que el path es accesible
 pushd "!SOURCE!" >nul 2>&1
 if errorlevel 1 (
     net use "!SHARE!" /delete /y >nul 2>&1
     exit /b 100
 )
-
 popd >nul 2>&1
 net use "!SHARE!" /delete /y >nul 2>&1
 exit /b 0
 """
                                     )
-
                                     if (checkResult == 100) {
                                         FAILURES << [
                                             job    : jobName,
@@ -288,8 +154,8 @@ exit /b 0
                                 }
 
                                 echo "[EXEC] ${jobName} (${transferType})"
-
                                 def result
+
                                 if (transferType == 'SHAREPOINT') {
                                     result = build(
                                         job: 'POC_SHAREPOINT_TRANSFER',
@@ -324,13 +190,22 @@ exit /b 0
                                     )
                                 }
 
-                                EXECUTED++
+                                // ============================================================
+                                // Captura de tiempos del Child Build
+                                // ============================================================
+                                long childStartMs  = result.startTimeInMillis ?: 0L
+                                long childDuration = result.duration ?: 0L
+                                long childEndMs    = (childStartMs > 0 && childDuration > 0) ? (childStartMs + childDuration) : 0L
 
+                                EXECUTED++
                                 CHILDREN << [
-                                    job     : jobName,
-                                    build   : result.number,
-                                    status  : result.result,
-                                    logFile : "${jobName}_BuildID_${result.number}.txt"
+                                    job       : jobName,
+                                    build     : result.number,
+                                    status    : result.result,
+                                    startTime : formatTime(childStartMs),
+                                    endTime   : formatTime(childEndMs),
+                                    duration  : formatDuration(childDuration),
+                                    logFile   : "${jobName}_BuildID_${result.number}.txt"
                                 ]
 
                                 if (result.result != 'SUCCESS') {
@@ -359,9 +234,22 @@ exit /b 0
             }
         }
     }
+
     post {
         always {
             script {
+                // ============================================================
+                // Tiempos del Parent Build
+                // ============================================================
+                long parentStartMs  = currentBuild.startTimeInMillis ?: 0L
+                // Calculamos duration de forma segura (en post siempre está disponible)
+                long parentDuration = currentBuild.duration ?: (System.currentTimeMillis() - parentStartMs)
+                long parentEndMs    = parentStartMs + parentDuration
+
+                String parentStartTime = formatTime(parentStartMs)
+                String parentEndTime   = formatTime(parentEndMs)
+                String parentDurationStr = formatDuration(parentDuration)
+
                 // ============================================================
                 // Console summary
                 // ============================================================
@@ -414,7 +302,9 @@ FILE TRANSFER ORCHESTRATOR - DETAILED EXECUTION LOG
 Job Name      : ${env.JOB_NAME}
 Build Number  : ${env.BUILD_NUMBER}
 Build URL     : ${env.BUILD_URL}
-Timestamp     : ${new Date().format('yyyy-MM-dd HH:mm:ss')}
+Start Time    : ${parentStartTime}
+End Time      : ${parentEndTime}
+Duration      : ${parentDurationStr}
 ================================================================================
 SUMMARY
 --------------------------------------------------------------------------------
@@ -495,13 +385,14 @@ if not exist "${dashboardDir}" mkdir "${dashboardDir}"
                 def overallStatus = FAILURES.isEmpty() ? "SUCCESS" : "FAILED"
 
                 def dashboardJson = [
-                        parentJob   : env.JOB_NAME,
-                        parentBuild : env.BUILD_NUMBER as Integer,
-                        buildUrl    : env.BUILD_URL,
-                        status      : overallStatus,
-                        timestamp   : new Date().format('yyyy-MM-dd HH:mm:ss'),
-                        
-                    summary : [
+                    parentJob   : env.JOB_NAME,
+                    parentBuild : env.BUILD_NUMBER as Integer,
+                    buildUrl    : env.BUILD_URL,
+                    status      : overallStatus,
+                    timestamp   : parentStartTime,      // START TIME
+                    endTime     : parentEndTime,        // END TIME
+                    duration    : parentDurationStr,    // DURATION
+                    summary     : [
                         total    : TOTAL,
                         disabled : DISABLED,
                         checked  : CHECKED,
@@ -517,7 +408,7 @@ if not exist "${dashboardDir}" mkdir "${dashboardDir}"
                 echo "Dashboard JSON written to: ${dashboardFile}"
 
                 // ============================================================
-                // Dashboard INDEX (index.json) - APPEND ROBUSTO
+                // Dashboard INDEX (index.json)
                 // ============================================================
                 def indexFile      = 'C:\\Jenkins\\Jobs\\Dashboard\\index.json'
                 def workspaceIndex = "${env.WORKSPACE}\\dashboard_index_temp.json"
@@ -531,7 +422,9 @@ if not exist "C:\\Jenkins\\Jobs\\Dashboard" mkdir "C:\\Jenkins\\Jobs\\Dashboard"
                     build     : env.BUILD_NUMBER.toInteger(),
                     job       : env.JOB_NAME,
                     status    : overallStatus,
-                    timestamp : new Date().format('yyyy-MM-dd HH:mm:ss'),
+                    timestamp : parentStartTime,        // START TIME
+                    endTime   : parentEndTime,          // END TIME
+                    duration  : parentDurationStr,      // DURATION
                     children  : CHILDREN.size(),
                     file      : "Build_${env.BUILD_NUMBER}.json"
                 ]
@@ -561,14 +454,14 @@ if exist "${indexFile}" (
                     indexData = []
                 }
 
-                // Quitar duplicado del mismo build (re-run) - usando @NonCPS
+                // Quitar duplicado del mismo build (re-run)
                 def currentBuildNum = env.BUILD_NUMBER.toInteger()
                 indexData = filterOutBuild(indexData, currentBuildNum)
 
                 // Nuevo build al principio
                 indexData.add(0, indexRecord)
 
-                // Ordenar descendente - usando @NonCPS (evita el bug de CPS)
+                // Ordenar descendente
                 indexData = sortIndexDesc(indexData)
 
                 // Guardar y copiar de vuelta
@@ -583,10 +476,9 @@ copy /Y "${workspaceIndex}" "${indexFile}" >nul
                 echo "Dashboard index updated: ${indexFile}"
                 echo "Total builds in index: ${indexData.size()}"
                 indexData.each { e ->
-                    echo "  - Build ${e.build} | ${e.status} | ${e.timestamp}"
+                    echo "  - Build ${e.build} | ${e.status} | ${e.timestamp} → ${e.endTime} (${e.duration})"
                 }
             }
         }
     }
 }
-
