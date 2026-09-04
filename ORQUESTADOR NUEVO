@@ -138,7 +138,7 @@ exit /b 0
 """
                                     )
                                     if (checkResult == 100) {
-                                        // Guardamos el fallo como "child virtual"
+                                        // Child virtual (pre-check failed)
                                         CHILDREN << [
                                             job       : jobName,
                                             build     : null,
@@ -235,7 +235,7 @@ exit /b 0
                     currentBuild.displayName = "#${env.BUILD_NUMBER} D:${DISABLED} X:${EXECUTED} S:${SKIPPED} F:${FAILURES.size()}"
                     currentBuild.description = "Total=${TOTAL} | Disabled=${DISABLED} | Checked=${CHECKED} | Executed=${EXECUTED} | Skipped=${SKIPPED} | Failed=${FAILURES.size()}"
                     
-                    // Siempre SUCCESS en Jenkins (como ya lo tenías)
+                    // Siempre SUCCESS en Jenkins
                     currentBuild.result = 'SUCCESS'
                 }
             }
@@ -255,6 +255,13 @@ exit /b 0
                 String parentStartTime   = formatTime(parentStartMs)
                 String parentEndTime     = formatTime(parentEndMs)
                 String parentDurationStr = formatDuration(parentDuration)
+
+                // ============================================================
+                // Contadores reales de children
+                // ============================================================
+                def successCount  = CHILDREN.count { it.status == 'SUCCESS' }
+                def failedCount   = CHILDREN.count { it.status == 'FAILED' || it.status == 'FAILURE' || it.status == 'PRECHECK_FAILED' }
+                def unstableCount = CHILDREN.count { it.status == 'UNSTABLE' }
 
                 // ============================================================
                 // Console summary
@@ -388,28 +395,29 @@ END OF LOG
 if not exist "${dashboardDir}" mkdir "${dashboardDir}"
 """
 
-                // ===== CAMBIO IMPORTANTE =====
-                // El Parent siempre se marca como SUCCESS en el Dashboard
-                // (coincide con currentBuild.result = 'SUCCESS')
+                // Parent siempre SUCCESS en el Dashboard
                 def overallStatus = "SUCCESS"
 
                 def dashboardJson = [
-                    parentJob   : env.JOB_NAME,
-                    parentBuild : env.BUILD_NUMBER as Integer,
-                    buildUrl    : env.BUILD_URL,
-                    status      : overallStatus,
-                    timestamp   : parentStartTime,
-                    endTime     : parentEndTime,
-                    duration    : parentDurationStr,
-                    summary     : [
-                        total    : TOTAL,
-                        disabled : DISABLED,
-                        checked  : CHECKED,
-                        executed : EXECUTED,
-                        skipped  : SKIPPED,
-                        failed   : FAILURES.size()
+                    parentJob     : env.JOB_NAME,
+                    parentBuild   : env.BUILD_NUMBER as Integer,
+                    buildUrl      : env.BUILD_URL,
+                    status        : overallStatus,
+                    timestamp     : parentStartTime,
+                    endTime       : parentEndTime,
+                    duration      : parentDurationStr,
+                    summary       : [
+                        total     : TOTAL,
+                        disabled  : DISABLED,
+                        checked   : CHECKED,
+                        executed  : EXECUTED,
+                        skipped   : SKIPPED,
+                        failed    : FAILURES.size()
                     ],
-                    children    : CHILDREN
+                    children      : CHILDREN,
+                    successCount  : successCount,
+                    failedCount   : failedCount,
+                    unstableCount : unstableCount
                 ]
 
                 def jsonText = JsonOutput.prettyPrint(JsonOutput.toJson(dashboardJson))
@@ -428,14 +436,17 @@ if not exist "C:\\Jenkins\\Jobs\\Dashboard" mkdir "C:\\Jenkins\\Jobs\\Dashboard"
 """
 
                 def indexRecord = [
-                    build     : env.BUILD_NUMBER.toInteger(),
-                    job       : env.JOB_NAME,
-                    status    : overallStatus,          // SUCCESS
-                    timestamp : parentStartTime,
-                    endTime   : parentEndTime,
-                    duration  : parentDurationStr,
-                    children  : CHILDREN.size(),
-                    file      : "Build_${env.BUILD_NUMBER}.json"
+                    build         : env.BUILD_NUMBER.toInteger(),
+                    job           : env.JOB_NAME,
+                    status        : overallStatus,
+                    timestamp     : parentStartTime,
+                    endTime       : parentEndTime,
+                    duration      : parentDurationStr,
+                    children      : CHILDREN.size(),
+                    successCount  : successCount,
+                    failedCount   : failedCount,
+                    unstableCount : unstableCount,
+                    file          : "Build_${env.BUILD_NUMBER}.json"
                 ]
 
                 bat """
