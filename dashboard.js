@@ -1,12 +1,11 @@
 /* ============================================================
-   Master Build Dashboard – Local JS
+   Master Build Dashboard
    ============================================================ */
 
 const CONFIG = {
   INDEX_URL: 'index.json',
   BUILDS_PATH: 'Builds/',
-  PAGE_SIZE: 8,
-  AUTO_REFRESH_MS: 30000
+  PAGE_SIZE: 8
 };
 
 let allParents = [];
@@ -26,7 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('modal-backdrop').addEventListener('click', closeModal);
 
   loadDashboard();
-  setInterval(loadDashboard, CONFIG.AUTO_REFRESH_MS);
+  // Manual refresh only – no auto-refresh
 });
 
 // ---------- LOAD ----------
@@ -290,7 +289,6 @@ function viewLog(logFile) {
     alert('No log file available');
     return;
   }
-  // Simple alert for now – replace with real log viewer if needed
   document.getElementById('modal-title').textContent = logFile;
   document.getElementById('modal-body').textContent =
     `Log file: ${logFile}\n\nFull path: C:\\Jenkins\\Jobs\\Log\\${logFile}\n\n(Implement real log loading here if desired)`;
