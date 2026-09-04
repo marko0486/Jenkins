@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Master Build Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        body { background-color: #f1f5f9; }
+        .status-success { background-color: #d1fae5; color: #065f46; }
+        .status-failed  { background-color: #fee2e2; color: #991b1b; }
+        .status-unstable{ background-color: #fef3c7; color: #92400e; }
+        .status-badge {
+            @apply px-2.5 py-0.5 rounded-full text-xs font-semibold;
+        }
+        table th { position: sticky; top: 0; z-index: 10; }
+    </style>
+</head>
+<body class="min-h-screen">
+
+    <!-- HEADER -->
+    <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between shadow-lg">
+        <div class="flex items-center gap-3">
+            <div class="bg-blue-500 p-2 rounded-lg">
+                <i class="fa-solid fa-cubes text-white text-xl"></i>
+            </div>
+            <div>
+                <h1 id="job-title" class="text-lg font-bold tracking-tight">POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV</h1>
+                <p class="text-slate-400 text-sm">Master Build Dashboard</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-4 text-sm">
+            <span class="text-slate-400">Last Updated: <span id="last-updated" class="text-white font-medium">—</span></span>
+            <button onclick="loadDashboard()" class="bg-slate-700 hover:bg-slate-600 p-2 rounded-lg transition">
+                <i class="fa-solid fa-rotate-right"></i>
+            </button>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-8">
+
+        <!-- SUMMARY CARDS -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex items-center gap-4">
+                <div class="bg-blue-100 text-blue-600 p-3 rounded-xl">
+                    <i class="fa-solid fa-layer-group text-xl"></i>
+                </div>
+                <div>
+                    <p class="text-slate-500 text-sm font-medium">TOTAL BUILDS</p>
+                    <p id="card-total" class="text-3xl font-bold text-slate-800">0</p>
+                </div>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex items-center gap-4">
+                <div class="bg-emerald-100 text-emerald-600 p-3 rounded-xl">
+                    <i class="fa-solid fa-circle-check text-xl"></i>
+                </div>
+                <div>
+                    <p class="text-slate-500 text-sm font-medium">SUCCESS</p>
+                    <p id="card-success" class="text-3xl font-bold text-emerald-600">0</p>
+                </div>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex items-center gap-4">
+                <div class="bg-red-100 text-red-600 p-3 rounded-xl">
+                    <i class="fa-solid fa-circle-xmark text-xl"></i>
+                </div>
+                <div>
+                    <p class="text-slate-500 text-sm font-medium">FAILED</p>
+                    <p id="card-failed" class="text-3xl font-bold text-red-600">0</p>
+                </div>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex items-center gap-4">
+                <div class="bg-amber-100 text-amber-600 p-3 rounded-xl">
+                    <i class="fa-solid fa-triangle-exclamation text-xl"></i>
+                </div>
+                <div>
+                    <p class="text-slate-500 text-sm font-medium">UNSTABLE</p>
+                    <p id="card-unstable" class="text-3xl font-bold text-amber-600">0</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- PARENT BUILDS TABLE -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-8">
+            <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-cubes text-blue-500"></i>
+                    <h2 class="font-semibold text-slate-800">Orchestrator Builds (Parent)</h2>
+                </div>
+                <div class="relative">
+                    <input type="text" id="search-build" placeholder="Search Build ID..."
+                           class="pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-56"
+                           oninput="filterParents()">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400"></i>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-slate-800 text-white">
+                        <tr>
+                            <th class="px-4 py-3 text-left font-medium">BUILD ID</th>
+                            <th class="px-4 py-3 text-left font-medium">START TIME</th>
+                            <th class="px-4 py-3 text-left font-medium">END TIME</th>
+                            <th class="px-4 py-3 text-left font-medium">STATUS</th>
+                            <th class="px-4 py-3 text-left font-medium">DURATION</th>
+                            <th class="px-4 py-3 text-center font-medium">TOTAL CHILDREN</th>
+                            <th class="px-4 py-3 text-center font-medium">SUCCESS</th>
+                            <th class="px-4 py-3 text-center font-medium">FAILED</th>
+                            <th class="px-4 py-3 text-center font-medium">UNSTABLE</th>
+                            <th class="px-4 py-3 text-left font-medium">LOG</th>
+                        </tr>
+                    </thead>
+                    <tbody id="parent-tbody" class="divide-y divide-slate-100">
+                        <!-- Se llena dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            <div class="px-6 py-4 border-t border-slate-200 flex items-center justify-between">
+                <div class="flex items-center gap-1" id="pagination"></div>
+                <span id="page-info" class="text-sm text-slate-500">Page 1 of 1</span>
+            </div>
+        </div>
+
+        <!-- PARENT DETAILS + CHILDREN -->
+        <div id="details-section" class="hidden">
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <i class="fa-solid fa-file-lines text-blue-500"></i>
+                        <h2 class="font-semibold text-slate-800">
+                            Parent Build Details: <span id="detail-build-id" class="text-blue-600">#—</span>
+                        </h2>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <span id="detail-time-range" class="text-sm text-slate-500"></span>
+                        <span id="detail-status" class="status-badge"></span>
+                        <button onclick="downloadAllLogs()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg flex items-center gap-2 transition">
+                            <i class="fa-solid fa-download"></i> Download All
+                        </button>
+                    </div>
+                </div>
+
+                <div class="px-6 py-3 bg-slate-50 border-b border-slate-200">
+                    <h3 class="text-sm font-medium text-slate-600 flex items-center gap-2">
+                        <i class="fa-solid fa-code-branch text-slate-400"></i> Child Builds (Jobs)
+                    </h3>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead class="bg-slate-100 text-slate-700">
+                            <tr>
+                                <th class="px-4 py-3 text-left font-medium">JOB NAME</th>
+                                <th class="px-4 py-3 text-left font-medium">BUILD ID</th>
+                                <th class="px-4 py-3 text-left font-medium">START TIME</th>
+                                <th class="px-4 py-3 text-left font-medium">END TIME</th>
+                                <th class="px-4 py-3 text-left font-medium">STATUS</th>
+                                <th class="px-4 py-3 text-left font-medium">DURATION</th>
+                                <th class="px-4 py-3 text-left font-medium">LOG FILE</th>
+                                <th class="px-4 py-3 text-left font-medium">ACTIONS</th>
+                            </tr>
+                        </thead>
+                        <tbody id="children-tbody" class="divide-y divide-slate-100">
+                            <!-- Se llena dinámicamente -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="px-6 py-3 bg-blue-50 text-sm text-blue-700 flex items-center gap-2">
+                    <i class="fa-solid fa-circle-info"></i>
+                    All logs are located at: <code class="bg-blue-100 px-2 py-0.5 rounded">C:\Jenkins\Jobs\Log\</code>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // ============================================================
+        // CONFIGURACIÓN
+        // ============================================================
+        const INDEX_URL   = 'index.json';          // Ajusta si está en otra ruta
+        const BUILDS_PATH = 'Builds/';            // Carpeta de los Build_XXX.json
+        const LOGS_PATH   = 'C:\\Jenkins\\Jobs\\Log\\';
+
+        // ============================================================
+        // ESTADO
+        // ============================================================
+        let allParents = [];
+        let filteredParents = [];
+        let currentPage = 1;
+        const PAGE_SIZE = 5;
+        let selectedParent = null;
+
+        // ============================================================
+        // CARGA INICIAL
+        // ============================================================
+        document.addEventListener('DOMContentLoaded', loadDashboard);
+
+        async function loadDashboard() {
+            try {
+                const res = await fetch(INDEX_URL + '?t=' + Date.now());
+                if (!res.ok) throw new Error('No se pudo cargar index.json');
+                allParents = await res.json();
+
+                // Ordenar por build descendente (por si acaso)
+                allParents.sort((a, b) => b.build - a.build);
+
+                filteredParents = [...allParents];
+                currentPage = 1;
+
+                updateSummaryCards();
+                renderParentTable();
+                document.getElementById('last-updated').textContent = new Date().toLocaleString('es-ES');
+
+                // Si había un build seleccionado, recargarlo
+                if (selectedParent) {
+                    const stillExists = allParents.find(p => p.build === selectedParent.build);
+                    if (stillExists) {
+                        showParentDetails(stillExists);
+                    } else {
+                        document.getElementById('details-section').classList.add('hidden');
+                        selectedParent = null;
+                    }
+                }
+            } catch (err) {
+                console.error(err);
+                alert('Error cargando el dashboard: ' + err.message);
+            }
+        }
+
+        // ============================================================
+        // SUMMARY CARDS
+        // ============================================================
+        function updateSummaryCards() {
+            const total = allParents.length;
+            const success = allParents.filter(p => p.status === 'SUCCESS').length;
+            const failed  = allParents.filter(p => p.status === 'FAILED' || p.status === 'FAILURE').length;
+            const unstable= allParents.filter(p => p.status === 'UNSTABLE').length;
+
+            document.getElementById('card-total').textContent = total;
+            document.getElementById('card-success').textContent = success;
+            document.getElementById('card-failed').textContent = failed;
+            document.getElementById('card-unstable').textContent = unstable;
+        }
+
+        // ============================================================
+        // TABLA PARENT
+        // ============================================================
+        function renderParentTable() {
+            const tbody = document.getElementById('parent-tbody');
+            tbody.innerHTML = '';
+
+            const start = (currentPage - 1) * PAGE_SIZE;
+            const pageItems = filteredParents.slice(start, start + PAGE_SIZE);
+
+            if (pageItems.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="10" class="px-4 py-8 text-center text-slate-400">No builds found</td></tr>`;
+                renderPagination();
+                return;
+            }
+
+            pageItems.forEach(p => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-50 cursor-pointer transition';
+                if (selectedParent && selectedParent.build === p.build) {
+                    tr.classList.add('bg-blue-50');
+                }
+                tr.onclick = () => showParentDetails(p);
+
+                const statusClass = getStatusClass(p.status);
+
+                tr.innerHTML = `
+                    <td class="px-4 py-3 font-medium text-blue-600">${p.build}</td>
+                    <td class="px-4 py-3 text-slate-600">${p.timestamp || '—'}</td>
+                    <td class="px-4 py-3 text-slate-600">${p.endTime || '—'}</td>
+                    <td class="px-4 py-3">
+                        <span class="status-badge ${statusClass}">${p.status || '—'}</span>
+                    </td>
+                    <td class="px-4 py-3 text-slate-600">${p.duration || '—'}</td>
+                    <td class="px-4 py-3 text-center">${p.children ?? '—'}</td>
+                    <td class="px-4 py-3 text-center text-emerald-600 font-medium">${p.successCount ?? calcSuccess(p)}</td>
+                    <td class="px-4 py-3 text-center text-red-600 font-medium">${p.failedCount ?? 0}</td>
+                    <td class="px-4 py-3 text-center text-amber-600 font-medium">${p.unstableCount ?? 0}</td>
+                    <td class="px-4 py-3">
+                        <button onclick="event.stopPropagation(); showParentDetails(${JSON.stringify(p).replace(/"/g, '&quot;')})"
+                                class="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                            View details →
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            renderPagination();
+        }
+
+        function calcSuccess(p) {
+            // Si no tenemos contadores, usamos children como aproximación
+            return p.children || 0;
+        }
+
+        function getStatusClass(status) {
+            if (!status) return 'bg-slate-100 text-slate-600';
+            const s = status.toUpperCase();
+            if (s === 'SUCCESS') return 'status-success';
+            if (s === 'FAILED' || s === 'FAILURE') return 'status-failed';
+            if (s === 'UNSTABLE') return 'status-unstable';
+            return 'bg-slate-100 text-slate-600';
+        }
+
+        // ============================================================
+        // PAGINACIÓN
+        // ============================================================
+        function renderPagination() {
+            const totalPages = Math.max(1, Math.ceil(filteredParents.length / PAGE_SIZE));
+            const container = document.getElementById('pagination');
+            container.innerHTML = '';
+
+            // Previous
+            const prev = document.createElement('button');
+            prev.className = `px-3 py-1 rounded-lg border ${currentPage === 1 ? 'text-slate-300 border-slate-200' : 'text-slate-600 border-slate-300 hover:bg-slate-100'}`;
+            prev.innerHTML = '<i class="fa-solid fa-chevron-left"></i>';
+            prev.disabled = currentPage === 1;
+            prev.onclick = () => { if (currentPage > 1) { currentPage--; renderParentTable(); } };
+            container.appendChild(prev);
+
+            // Page numbers (simple)
+            for (let i = 1; i <= totalPages; i++) {
+                if (totalPages > 7 && Math.abs(i - currentPage) > 2 && i !== 1 && i !== totalPages) {
+                    if (i === 2 || i === totalPages - 1) {
+                        const dots = document.createElement('span');
+                        dots.className = 'px-2 text-slate-400';
+                        dots.textContent = '…';
+                        container.appendChild(dots);
+                    }
+                    continue;
+                }
+                const btn = document.createElement('button');
+                btn.className = `px-3 py-1 rounded-lg border ${i === currentPage ? 'bg-blue-600 text-white border-blue-600' : 'text-slate-600 border-slate-300 hover:bg-slate-100'}`;
+                btn.textContent = i;
+                btn.onclick = () => { currentPage = i; renderParentTable(); };
+                container.appendChild(btn);
+            }
+
+            // Next
+            const next = document.createElement('button');
+            next.className = `px-3 py-1 rounded-lg border ${currentPage === totalPages ? 'text-slate-300 border-slate-200' : 'text-slate-600 border-slate-300 hover:bg-slate-100'}`;
+            next.innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
+            next.disabled = currentPage === totalPages;
+            next.onclick = () => { if (currentPage < totalPages) { currentPage++; renderParentTable(); } };
+            container.appendChild(next);
+
+            document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages}`;
+        }
+
+        // ============================================================
+        // FILTRO
+        // ============================================================
+        function filterParents() {
+            const q = document.getElementById('search-build').value.trim().toLowerCase();
+            if (!q) {
+                filteredParents = [...allParents];
+            } else {
+                filteredParents = allParents.filter(p =>
+                    String(p.build).includes(q) ||
+                    (p.job || '').toLowerCase().includes(q)
+                );
+            }
+            currentPage = 1;
+            renderParentTable();
+        }
+
+        // ============================================================
+        // DETALLES DEL PARENT + CHILDREN
+        // ============================================================
+        async function showParentDetails(parent) {
+            selectedParent = parent;
+            document.getElementById('details-section').classList.remove('hidden');
+            document.getElementById('detail-build-id').textContent = '#' + parent.build;
+
+            const statusEl = document.getElementById('detail-status');
+            statusEl.textContent = parent.status || '—';
+            statusEl.className = 'status-badge ' + getStatusClass(parent.status);
+
+            const timeRange = `${parent.timestamp || '—'} → ${parent.endTime || '—'}`;
+            document.getElementById('detail-time-range').textContent = timeRange;
+
+            // Marcar fila seleccionada
+            renderParentTable();
+
+            // Cargar Build_XXX.json
+            try {
+                const res = await fetch(BUILDS_PATH + parent.file + '?t=' + Date.now());
+                if (!res.ok) throw new Error('No se pudo cargar ' + parent.file);
+                const data = await res.json();
+
+                renderChildren(data.children || []);
+            } catch (err) {
+                console.error(err);
+                document.getElementById('children-tbody').innerHTML =
+                    `<tr><td colspan="8" class="px-4 py-6 text-center text-red-500">Error cargando detalles: ${err.message}</td></tr>`;
+            }
+        }
+
+        function renderChildren(children) {
+            const tbody = document.getElementById('children-tbody');
+            tbody.innerHTML = '';
+
+            if (!children || children.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" class="px-4 py-6 text-center text-slate-400">No child builds</td></tr>`;
+                return;
+            }
+
+            children.forEach(c => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-50';
+
+                const statusClass = getStatusClass(c.status);
+
+                tr.innerHTML = `
+                    <td class="px-4 py-3 font-medium text-slate-800">${c.job || '—'}</td>
+                    <td class="px-4 py-3 text-blue-600">${c.build || '—'}</td>
+                    <td class="px-4 py-3 text-slate-600">${c.startTime || '—'}</td>
+                    <td class="px-4 py-3 text-slate-600">${c.endTime || '—'}</td>
+                    <td class="px-4 py-3">
+                        <span class="status-badge ${statusClass}">${c.status || '—'}</span>
+                    </td>
+                    <td class="px-4 py-3 text-slate-600">${c.duration || '—'}</td>
+                    <td class="px-4 py-3">
+                        <span class="text-slate-500 text-xs flex items-center gap-1">
+                            <i class="fa-solid fa-file-lines"></i> ${c.logFile || '—'}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3">
+                        <button onclick="viewLog('${c.logFile || ''}')"
+                                class="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1">
+                            <i class="fa-solid fa-eye"></i> View
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // ============================================================
+        // ACCIONES
+        // ============================================================
+        function viewLog(logFile) {
+            if (!logFile) {
+                alert('No hay archivo de log disponible');
+                return;
+            }
+            // Abre el log (ajusta la URL según cómo sirvas los logs)
+            window.open(LOGS_PATH.replace(/\\/g, '/') + logFile, '_blank');
+            // Alternativa si tienes un endpoint:
+            // window.open(`/logs/${logFile}`, '_blank');
+        }
+
+        function downloadAllLogs() {
+            if (!selectedParent) return;
+            alert('Función de descarga masiva: implementa según tu servidor.\nBuild seleccionado: #' + selectedParent.build);
+            // Aquí puedes hacer un zip o listar los logs de los children
+        }
+    </script>
+</body>
+</html>
