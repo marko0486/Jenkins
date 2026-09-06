@@ -1,362 +1,254 @@
-/* ============================================================
-   Build Dashboard – Multi Orchestrator
-   ============================================================ */
-
 const CONFIG = {
   ORCHESTRATORS_URL: 'orchestrators.json',
   PAGE_SIZE: 8
 };
 
 let orchestrators = [];
-let currentOrchestrator = null;
+let currentOrch = null;
 let allParents = [];
-let filteredParents = [];
-let currentPage = 1;
-let selectedBuild = null;
-let childrenPage = 1;
-let currentChildren = [];
+let filtered = [];
+let page = 1;
+let selected = null;
+let children = [];
+let childPage = 1;
 
-// ---------- INIT ----------
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('btn-refresh').addEventListener('click', () => {
-    if (currentOrchestrator) loadOrchestrator(currentOrchestrator);
-    else loadOrchestrators();
-  });
-  document.getElementById('build-search').addEventListener('input', onSearch);
-  document.getElementById('search-clear').addEventListener('click', clearSearch);
-  document.getElementById('modal-close').addEventListener('click', closeModal);
-  document.getElementById('modal-backdrop').addEventListener('click', closeModal);
-
-  loadOrchestrators();
+  document.getElementById('btn-refresh').onclick = () => {
+    if (currentOrch) loadOrch(currentOrch);
+    else loadList();
+  };
+  document.getElementById('build-search').oninput = onSearch;
+  loadList();
 });
 
-// ---------- LOAD ORCHESTRATORS LIST ----------
-async function loadOrchestrators() {
+async function loadList() {
   try {
     const res = await fetch(CONFIG.ORCHESTRATORS_URL + '?t=' + Date.now());
-    if (!res.ok) throw new Error('Could not load orchestrators.json');
-
+    if (!res.ok) throw new Error('Cannot load orchestrators.json');
     orchestrators = await res.json();
-    renderOrchestratorList();
-
-    // Auto-select first one
-    if (orchestrators.length > 0) {
-      selectOrchestrator(orchestrators[0]);
-    }
-  } catch (err) {
-    console.error(err);
+    renderList();
+    if (orchestrators.length) selectOrch(orchestrators[0]);
+  } catch (e) {
+    console.error(e);
     document.getElementById('orchestrator-list').innerHTML =
-      `<li style="color:#f87171;padding:12px">Error loading orchestrators</li>`;
+      `<li style="color:#f87171;padding:12px">Error loading list</li>`;
   }
 }
 
-function renderOrchestratorList() {
+function renderList() {
   const ul = document.getElementById('orchestrator-list');
   ul.innerHTML = '';
-
   orchestrators.forEach(o => {
     const li = document.createElement('li');
     li.dataset.id = o.id;
-    if (currentOrchestrator && currentOrchestrator.id === o.id) {
-      li.classList.add('active');
-    }
-
+    if (currentOrch && currentOrch.id === o.id) li.classList.add('active');
     li.innerHTML = `
       <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${o.displayName || o.name}</span>
-      <span class="orch-status unknown" id="status-${o.id}"></span>
+      <span class="dot" id="dot-${o.id}"></span>
     `;
-    li.addEventListener('click', () => selectOrchestrator(o));
+    li.onclick = () => selectOrch(o);
     ul.appendChild(li);
   });
 }
 
-async function selectOrchestrator(orch) {
-  currentOrchestrator = orch;
-  selectedBuild = null;
-  document.getElementById('detail-section').hidden = true;
+function selectOrch(o) {
+  currentOrch = o;
+  selected = null;
+  document.getElementById('detail-section').style.display = 'none';
 
-  // Highlight in sidebar
-  document.querySelectorAll('.orchestrator-list li').forEach(li => {
-    li.classList.toggle('active', li.dataset.id === orch.id);
+  document.querySelectorAll('.orch-list li').forEach(li => {
+    li.classList.toggle('active', li.dataset.id === o.id);
   });
 
-  document.getElementById('current-orchestrator-name').textContent =
-    orch.displayName || orch.name;
-
-  await loadOrchestrator(orch);
+  document.getElementById('page-title').textContent = o.displayName || o.name;
+  loadOrch(o);
 }
 
-// ---------- LOAD ONE ORCHESTRATOR DATA ----------
-async function loadOrchestrator(orch) {
+async function loadOrch(o) {
   try {
-    const indexUrl = `data/${orch.folder}/index.json?t=${Date.now()}`;
-    const res = await fetch(indexUrl);
-    if (!res.ok) throw new Error('Could not load index.json for ' + orch.name);
-
+    const url = `data/${o.folder}/index.json?t=${Date.now()}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('No index.json found');
     allParents = await res.json();
     allParents.sort((a, b) => Number(b.build) - Number(a.build));
-
-    filteredParents = [...allParents];
-    currentPage = 1;
-
+    filtered = [...allParents];
+    page = 1;
     updateStats();
-    renderParentTable();
-    updateSidebarStatus(orch);
-
+    renderTable();
+    updateDot(o);
     const now = new Date().toLocaleString('en-GB');
     document.getElementById('last-updated').textContent = now;
-    document.getElementById('sidebar-last-updated').textContent = 'Last Updated: ' + now;
-
-  } catch (err) {
-    console.error(err);
+    document.getElementById('sidebar-updated').textContent = 'Last Updated: ' + now;
+  } catch (e) {
+    console.error(e);
     allParents = [];
-    filteredParents = [];
+    filtered = [];
     updateStats();
     document.getElementById('parent-tbody').innerHTML =
-      `<tr><td colspan="10" style="text-align:center;padding:32px;color:#94a3b8">
-         No data found for this orchestrator<br><small>${err.message}</small>
-       </td></tr>`;
+      `<tr><td colspan="10" style="text-align:center;padding:40px;color:#94a3b8">No data for this orchestrator</td></tr>`;
   }
 }
 
-function updateSidebarStatus(orch) {
-  const el = document.getElementById('status-' + orch.id);
+function updateDot(o) {
+  const el = document.getElementById('dot-' + o.id);
   if (!el) return;
-
-  if (allParents.length === 0) {
-    el.className = 'orch-status unknown';
+  if (!allParents.length) {
+    el.className = 'dot';
     return;
   }
-
   const last = allParents[0];
-  if ((last.status || '').toUpperCase() === 'SUCCESS') {
-    el.className = 'orch-status success';
-  } else {
-    el.className = 'orch-status failed';
-  }
+  el.className = 'dot ' + ((last.status || '').toUpperCase() === 'SUCCESS' ? 'ok' : 'err');
 }
 
-// ---------- STATS ----------
 function updateStats() {
-  const total = allParents.length;
-  const success = allParents.filter(p => (p.status || '').toUpperCase() === 'SUCCESS').length;
-  const failed = allParents.filter(p => {
-    const s = (p.status || '').toUpperCase();
-    return s === 'FAILED' || s === 'FAILURE';
-  }).length;
-  const unstable = allParents.filter(p => (p.status || '').toUpperCase() === 'UNSTABLE').length;
-
-  document.getElementById('stat-total').textContent = total;
-  document.getElementById('stat-success').textContent = success;
-  document.getElementById('stat-failed').textContent = failed;
-  document.getElementById('stat-unstable').textContent = unstable;
+  document.getElementById('stat-total').textContent = allParents.length;
+  document.getElementById('stat-success').textContent =
+    allParents.filter(p => (p.status || '').toUpperCase() === 'SUCCESS').length;
+  document.getElementById('stat-failed').textContent =
+    allParents.filter(p => ['FAILED','FAILURE'].includes((p.status || '').toUpperCase())).length;
+  document.getElementById('stat-unstable').textContent =
+    allParents.filter(p => (p.status || '').toUpperCase() === 'UNSTABLE').length;
 }
 
-// ---------- PARENT TABLE ----------
-function renderParentTable() {
+function renderTable() {
   const tbody = document.getElementById('parent-tbody');
   tbody.innerHTML = '';
+  const start = (page - 1) * CONFIG.PAGE_SIZE;
+  const rows = filtered.slice(start, start + CONFIG.PAGE_SIZE);
 
-  const start = (currentPage - 1) * CONFIG.PAGE_SIZE;
-  const page = filteredParents.slice(start, start + CONFIG.PAGE_SIZE);
-
-  if (page.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:32px;color:#94a3b8">No builds found</td></tr>`;
-    renderPagination('parent-pagination', filteredParents.length, currentPage, p => {
-      currentPage = p;
-      renderParentTable();
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:40px;color:#94a3b8">No builds found</td></tr>`;
+  } else {
+    rows.forEach(p => {
+      const tr = document.createElement('tr');
+      if (selected && selected.build === p.build) tr.classList.add('selected');
+      tr.onclick = () => showDetails(p.build);
+      const cls = badgeClass(p.status);
+      tr.innerHTML = `
+        <td class="build-id">${p.build}</td>
+        <td>${p.timestamp || '—'}</td>
+        <td>${p.endTime || '—'}</td>
+        <td><span class="badge ${cls}">${p.status || '—'}</span></td>
+        <td>${p.duration || '—'}</td>
+        <td style="text-align:center">${p.children ?? '—'}</td>
+        <td style="text-align:center;color:var(--green);font-weight:600">${p.successCount ?? 0}</td>
+        <td style="text-align:center;color:var(--red);font-weight:600">${p.failedCount ?? 0}</td>
+        <td style="text-align:center;color:var(--amber);font-weight:600">${p.unstableCount ?? 0}</td>
+        <td><button class="link">View details →</button></td>
+      `;
+      tbody.appendChild(tr);
     });
-    return;
   }
-
-  page.forEach(p => {
-    const tr = document.createElement('tr');
-    if (selectedBuild && selectedBuild.build === p.build) tr.classList.add('selected');
-    tr.addEventListener('click', () => showDetails(p.build));
-
-    const statusClass = statusBadgeClass(p.status);
-
-    tr.innerHTML = `
-      <td class="build-id">${p.build}</td>
-      <td>${p.timestamp || '—'}</td>
-      <td>${p.endTime || '—'}</td>
-      <td><span class="badge ${statusClass}">${p.status || '—'}</span></td>
-      <td>${p.duration || '—'}</td>
-      <td style="text-align:center">${p.children ?? '—'}</td>
-      <td style="text-align:center;color:var(--success);font-weight:600">${p.successCount ?? 0}</td>
-      <td style="text-align:center;color:var(--failed);font-weight:600">${p.failedCount ?? 0}</td>
-      <td style="text-align:center;color:var(--unstable);font-weight:600">${p.unstableCount ?? 0}</td>
-      <td><button class="link-btn" type="button">View details →</button></td>
-    `;
-    tbody.appendChild(tr);
-  });
-
-  renderPagination('parent-pagination', filteredParents.length, currentPage, p => {
-    currentPage = p;
-    renderParentTable();
-  });
+  renderPager('parent-pagination', filtered.length, page, p => { page = p; renderTable(); });
 }
 
-function statusBadgeClass(status) {
-  if (!status) return 'badge-other';
-  const s = status.toUpperCase();
+function badgeClass(s) {
+  if (!s) return 'badge-other';
+  s = s.toUpperCase();
   if (s === 'SUCCESS') return 'badge-success';
   if (s === 'FAILED' || s === 'FAILURE') return 'badge-failed';
   if (s === 'UNSTABLE') return 'badge-unstable';
   return 'badge-other';
 }
 
-// ---------- PAGINATION ----------
-function renderPagination(containerId, totalItems, current, onChange) {
-  const totalPages = Math.max(1, Math.ceil(totalItems / CONFIG.PAGE_SIZE));
-  const container = document.getElementById(containerId);
-  container.innerHTML = '';
-
+function renderPager(id, total, current, cb) {
+  const pages = Math.max(1, Math.ceil(total / CONFIG.PAGE_SIZE));
+  const el = document.getElementById(id);
+  el.innerHTML = '';
   const prev = document.createElement('button');
   prev.className = 'page-btn';
-  prev.innerHTML = '‹';
+  prev.textContent = '‹';
   prev.disabled = current === 1;
-  prev.onclick = () => onChange(current - 1);
-  container.appendChild(prev);
-
-  for (let i = 1; i <= totalPages; i++) {
-    const btn = document.createElement('button');
-    btn.className = 'page-btn' + (i === current ? ' active' : '');
-    btn.textContent = i;
-    btn.onclick = () => onChange(i);
-    container.appendChild(btn);
+  prev.onclick = () => cb(current - 1);
+  el.appendChild(prev);
+  for (let i = 1; i <= pages; i++) {
+    const b = document.createElement('button');
+    b.className = 'page-btn' + (i === current ? ' active' : '');
+    b.textContent = i;
+    b.onclick = () => cb(i);
+    el.appendChild(b);
   }
-
   const next = document.createElement('button');
   next.className = 'page-btn';
-  next.innerHTML = '›';
-  next.disabled = current === totalPages;
-  next.onclick = () => onChange(current + 1);
-  container.appendChild(next);
+  next.textContent = '›';
+  next.disabled = current === pages;
+  next.onclick = () => cb(current + 1);
+  el.appendChild(next);
 }
 
-// ---------- SEARCH ----------
 function onSearch() {
   const q = document.getElementById('build-search').value.trim().toLowerCase();
-  document.getElementById('search-clear').hidden = !q;
-
-  if (!q) {
-    filteredParents = [...allParents];
-  } else {
-    filteredParents = allParents.filter(p =>
-      String(p.build).includes(q) ||
-      (p.job || '').toLowerCase().includes(q)
-    );
-  }
-  currentPage = 1;
-  renderParentTable();
+  filtered = q
+    ? allParents.filter(p => String(p.build).includes(q) || (p.job || '').toLowerCase().includes(q))
+    : [...allParents];
+  page = 1;
+  renderTable();
 }
 
-function clearSearch() {
-  document.getElementById('build-search').value = '';
-  document.getElementById('search-clear').hidden = true;
-  filteredParents = [...allParents];
-  currentPage = 1;
-  renderParentTable();
-}
-
-// ---------- DETAILS ----------
-async function showDetails(buildNumber) {
-  const parent = allParents.find(p => Number(p.build) === Number(buildNumber));
-  if (!parent || !currentOrchestrator) return;
-
-  selectedBuild = parent;
-
-  document.getElementById('detail-section').hidden = false;
-  document.getElementById('detail-build-id').textContent = '#' + parent.build;
-
+async function showDetails(num) {
+  const p = allParents.find(x => Number(x.build) === Number(num));
+  if (!p || !currentOrch) return;
+  selected = p;
+  document.getElementById('detail-section').style.display = 'block';
+  document.getElementById('detail-build-id').textContent = '#' + p.build;
   const badge = document.getElementById('detail-status-badge');
-  badge.textContent = parent.status || '—';
-  badge.className = 'badge ' + statusBadgeClass(parent.status);
-
+  badge.textContent = p.status || '—';
+  badge.className = 'badge ' + badgeClass(p.status);
   document.getElementById('detail-time-range').textContent =
-    `${parent.timestamp || '—'}  →  ${parent.endTime || '—'}  (${parent.duration || '—'})`;
-
-  renderParentTable();
+    `${p.timestamp || '—'} → ${p.endTime || '—'} (${p.duration || '—'})`;
+  renderTable();
 
   try {
-    const file = parent.file || `Build_${parent.build}.json`;
-    const url = `data/${currentOrchestrator.folder}/Builds/${file}?t=${Date.now()}`;
+    const file = p.file || `Build_${p.build}.json`;
+    const url = `data/${currentOrch.folder}/Builds/${file}?t=${Date.now()}`;
     const res = await fetch(url);
-    if (!res.ok) throw new Error('Could not load ' + file);
-
+    if (!res.ok) throw new Error('Cannot load ' + file);
     const data = await res.json();
-    currentChildren = data.children || [];
-    childrenPage = 1;
+    children = data.children || [];
+    childPage = 1;
     renderChildren();
-  } catch (err) {
-    console.error(err);
+  } catch (e) {
     document.getElementById('children-tbody').innerHTML =
-      `<tr><td colspan="8" style="text-align:center;padding:28px;color:#dc2626">Error: ${err.message}</td></tr>`;
+      `<tr><td colspan="8" style="text-align:center;padding:30px;color:#dc2626">${e.message}</td></tr>`;
   }
 }
 
 function renderChildren() {
   const tbody = document.getElementById('children-tbody');
   tbody.innerHTML = '';
+  const start = (childPage - 1) * CONFIG.PAGE_SIZE;
+  const rows = children.slice(start, start + CONFIG.PAGE_SIZE);
 
-  const start = (childrenPage - 1) * CONFIG.PAGE_SIZE;
-  const page = currentChildren.slice(start, start + CONFIG.PAGE_SIZE);
-
-  if (page.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:28px;color:#94a3b8">No child builds</td></tr>`;
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:30px;color:#94a3b8">No child builds</td></tr>`;
   } else {
-    page.forEach(c => {
+    rows.forEach(c => {
       const tr = document.createElement('tr');
       tr.style.cursor = 'default';
-
-      const statusClass = statusBadgeClass(c.status);
-      const hasRealBuild = c.build !== null && c.build !== undefined && c.build !== '';
-      const hasLog = c.logFile;
-
-      let logCell = '—';
-      let actionCell = '—';
-
-      if (hasLog) {
-        logCell = `<span style="font-size:0.8rem;color:#64748b">${c.logFile}</span>`;
-        actionCell = `<button class="link-btn" type="button" onclick="viewLog('${(c.logFile || '').replace(/'/g, "\\'")}')">View</button>`;
+      const hasBuild = c.build != null && c.build !== '';
+      let logCell = '—', action = '—';
+      if (c.logFile) {
+        logCell = `<span style="font-size:12px;color:#64748b">${c.logFile}</span>`;
+        action = `<button class="link" onclick="alert('Log: ${c.logFile}')">View</button>`;
       } else if (c.reason) {
-        logCell = `<span style="font-size:0.8rem;color:#dc2626" title="${c.reason}">${c.reason}</span>`;
-        actionCell = `<span style="font-size:0.8rem;color:#94a3b8">No log</span>`;
+        logCell = `<span style="font-size:12px;color:#dc2626">${c.reason}</span>`;
+        action = `<span style="font-size:12px;color:#94a3b8">No log</span>`;
       }
-
       tr.innerHTML = `
         <td style="font-weight:500">${c.job || '—'}</td>
-        <td class="build-id">${hasRealBuild ? c.build : '—'}</td>
+        <td class="build-id">${hasBuild ? c.build : '—'}</td>
         <td>${c.startTime || '—'}</td>
         <td>${c.endTime || '—'}</td>
-        <td><span class="badge ${statusClass}">${c.status || '—'}</span></td>
+        <td><span class="badge ${badgeClass(c.status)}">${c.status || '—'}</span></td>
         <td>${c.duration || '—'}</td>
         <td>${logCell}</td>
-        <td>${actionCell}</td>
+        <td>${action}</td>
       `;
       tbody.appendChild(tr);
     });
   }
-
-  renderPagination('children-pagination', currentChildren.length, childrenPage, p => {
-    childrenPage = p;
+  renderPager('children-pagination', children.length, childPage, p => {
+    childPage = p;
     renderChildren();
   });
-}
-
-// ---------- ACTIONS ----------
-function viewLog(logFile) {
-  if (!logFile) {
-    alert('No log file available');
-    return;
-  }
-  document.getElementById('modal-title').textContent = logFile;
-  document.getElementById('modal-body').textContent =
-    `Log file: ${logFile}\n\nFull path: C:\\Jenkins\\Jobs\\Log\\${logFile}`;
-  document.getElementById('log-modal').hidden = false;
-}
-
-function closeModal() {
-  document.getElementById('log-modal').hidden = true;
 }
