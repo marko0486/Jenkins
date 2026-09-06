@@ -2,7 +2,29 @@
   {
     "id": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
     "name": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-    "displayName": "FT Orchestrator - 5 Minutes",
-    "folder": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV"
+    "displayName": "POC_AUTOMIC_FT",
+    "folder": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
+    "color": "#3b82f6"
+  },
+  {
+    "id": "ORCH_UAT",
+    "name": "ORCH_UAT",
+    "displayName": "ORCH_UAT",
+    "folder": "ORCH_UAT",
+    "color": "#8b5cf6"
+  },
+  {
+    "id": "ORCH_PROD",
+    "name": "ORCH_PROD",
+    "displayName": "ORCH_PROD",
+    "folder": "ORCH_PROD",
+    "color": "#10b981"
+  },
+  {
+    "id": "ORCH_DEV",
+    "name": "ORCH_DEV",
+    "displayName": "ORCH_DEV",
+    "folder": "ORCH_DEV",
+    "color": "#f59e0b"
   }
 ]
