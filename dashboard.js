@@ -1,145 +1,325 @@
 const CONFIG = {
   ORCHESTRATORS_URL: 'orchestrators.json',
-  PAGE_SIZE: 8
+  PAGE_SIZE: 10
 };
 
 let orchestrators = [];
-let currentOrch = null;
-let allParents = [];
-let filtered = [];
-let page = 1;
-let selected = null;
+let allBuilds = [];          // flattened from all orchestrators
+let filteredBuilds = [];
+let currentPage = 1;
+let selectedBuild = null;
 let children = [];
-let childPage = 1;
+let activeOrchFilter = 'all';
 
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('btn-refresh').onclick = () => {
-    if (currentOrch) loadOrch(currentOrch);
-    else loadList();
-  };
-  document.getElementById('build-search').oninput = onSearch;
-  loadList();
+  document.getElementById('btn-refresh').onclick = loadAll;
+  document.getElementById('qa-refresh').onclick = loadAll;
+  document.getElementById('build-search').oninput = applyFilters;
+  document.getElementById('filter-orch').onchange = applyFilters;
+  document.getElementById('orch-search').oninput = filterOrchList;
+
+  document.querySelectorAll('.filter-tabs .tab').forEach(tab => {
+    tab.onclick = () => {
+      document.querySelectorAll('.filter-tabs .tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      activeOrchFilter = tab.dataset.filter;
+      renderOrchList();
+    };
+  });
+
+  loadAll();
 });
 
-async function loadList() {
+async function loadAll() {
   try {
     const res = await fetch(CONFIG.ORCHESTRATORS_URL + '?t=' + Date.now());
     if (!res.ok) throw new Error('Cannot load orchestrators.json');
     orchestrators = await res.json();
-    renderList();
-    if (orchestrators.length) selectOrch(orchestrators[0]);
-  } catch (e) {
-    console.error(e);
-    document.getElementById('orchestrator-list').innerHTML =
-      `<li style="color:#f87171;padding:12px">Error loading list</li>`;
+
+    // Load all indexes in parallel
+    const results = await Promise.all(
+      orchestrators.map(async o => {
+        try {
+          const r = await fetch(`data/${o.folder}/index.json?t=${Date.now()}`);
+          if (!r.ok) return [];
+          const data = await r.json();
+          return data.map(b => ({
+            ...b,
+            orchestratorId: o.id,
+            orchestratorName: o.displayName || o.name,
+            orchestratorColor: o.color || '#3b82f6',
+            folder: o.folder
+          }));
+        } catch {
+          return [];
+        }
+      })
+    );
+
+    allBuilds = results.flat().sort((a, b) => Number(b.build) - Number(a.build));
+    filteredBuilds = [...allBuilds];
+    currentPage = 1;
+
+    renderOrchList();
+    populateOrchFilter();
+    updateStats();
+    renderDonut();
+    renderBars();
+    renderOrchStatus();
+    renderActivity();
+    renderTable();
+
+    const now = new Date().toLocaleString('en-GB');
+    document.getElementById('last-updated').textContent = now;
+    document.getElementById('footer-generated').textContent = 'Generated: ' + now;
+    document.getElementById('footer-info').textContent = `Showing ${filteredBuilds.length} of ${allBuilds.length} builds`;
+    document.getElementById('orch-count').textContent = orchestrators.length;
+
+  } catch (err) {
+    console.error(err);
+    alert('Error loading dashboard:\n' + err.message);
   }
 }
 
-function renderList() {
-  const ul = document.getElementById('orchestrator-list');
+/* ---------- Orchestrator List ---------- */
+function renderOrchList() {
+  const ul = document.getElementById('orch-list');
   ul.innerHTML = '';
-  orchestrators.forEach(o => {
+
+  let list = [...orchestrators];
+  const q = (document.getElementById('orch-search').value || '').toLowerCase();
+  if (q) list = list.filter(o => (o.displayName || o.name).toLowerCase().includes(q));
+
+  if (activeOrchFilter === 'active') {
+    list = list.filter(o => {
+      const builds = allBuilds.filter(b => b.orchestratorId === o.id);
+      return builds.length && (builds[0].status || '').toUpperCase() === 'SUCCESS';
+    });
+  } else if (activeOrchFilter === 'issues') {
+    list = list.filter(o => {
+      const builds = allBuilds.filter(b => b.orchestratorId === o.id);
+      return builds.some(b => ['FAILED','FAILURE','UNSTABLE'].includes((b.status || '').toUpperCase()));
+    });
+  }
+
+  list.forEach(o => {
+    const builds = allBuilds.filter(b => b.orchestratorId === o.id);
+    const last = builds[0];
+    const isOk = last && (last.status || '').toUpperCase() === 'SUCCESS';
+
     const li = document.createElement('li');
-    li.dataset.id = o.id;
-    if (currentOrch && currentOrch.id === o.id) li.classList.add('active');
     li.innerHTML = `
-      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${o.displayName || o.name}</span>
-      <span class="dot" id="dot-${o.id}"></span>
+      <div class="orch-info">
+        <span class="orch-dot" style="background:${o.color || '#3b82f6'}"></span>
+        <span class="orch-name">${o.displayName || o.name}</span>
+      </div>
+      <span class="orch-meta">${builds.length} builds</span>
     `;
-    li.onclick = () => selectOrch(o);
+    li.onclick = () => {
+      document.getElementById('filter-orch').value = o.id;
+      applyFilters();
+    };
     ul.appendChild(li);
   });
 }
 
-function selectOrch(o) {
-  currentOrch = o;
-  selected = null;
-  document.getElementById('detail-section').style.display = 'none';
+function filterOrchList() {
+  renderOrchList();
+}
 
-  document.querySelectorAll('.orch-list li').forEach(li => {
-    li.classList.toggle('active', li.dataset.id === o.id);
+function populateOrchFilter() {
+  const sel = document.getElementById('filter-orch');
+  sel.innerHTML = '<option value="all">All Orchestrators</option>';
+  orchestrators.forEach(o => {
+    const opt = document.createElement('option');
+    opt.value = o.id;
+    opt.textContent = o.displayName || o.name;
+    sel.appendChild(opt);
+  });
+}
+
+/* ---------- Stats ---------- */
+function updateStats() {
+  const total = allBuilds.length;
+  const success = allBuilds.filter(b => (b.status || '').toUpperCase() === 'SUCCESS').length;
+  const failed = allBuilds.filter(b => ['FAILED','FAILURE'].includes((b.status || '').toUpperCase())).length;
+  const unstable = allBuilds.filter(b => (b.status || '').toUpperCase() === 'UNSTABLE').length;
+
+  document.getElementById('stat-total').textContent = total;
+  document.getElementById('stat-success').textContent = success;
+  document.getElementById('stat-failed').textContent = failed;
+  document.getElementById('stat-unstable').textContent = unstable;
+}
+
+/* ---------- Donut ---------- */
+function renderDonut() {
+  const total = allBuilds.length || 1;
+  const success = allBuilds.filter(b => (b.status || '').toUpperCase() === 'SUCCESS').length;
+  const failed = allBuilds.filter(b => ['FAILED','FAILURE'].includes((b.status || '').toUpperCase())).length;
+  const unstable = allBuilds.filter(b => (b.status || '').toUpperCase() === 'UNSTABLE').length;
+
+  document.getElementById('donut-total').textContent = allBuilds.length;
+
+  const r = 48, cx = 60, cy = 60;
+  const circ = 2 * Math.PI * r;
+  const segs = [
+    { val: success, color: '#10b981' },
+    { val: failed, color: '#ef4444' },
+    { val: unstable, color: '#f59e0b' }
+  ];
+
+  let offset = 0;
+  let svg = '';
+  segs.forEach(s => {
+    const len = (s.val / total) * circ;
+    svg += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="14"
+              stroke-dasharray="${len} ${circ - len}" stroke-dashoffset="${-offset}"
+              transform="rotate(-90 ${cx} ${cy})"/>`;
+    offset += len;
+  });
+  document.getElementById('donut-chart').innerHTML = svg;
+
+  document.getElementById('status-legend').innerHTML = `
+    <div class="legend-row"><span class="legend-dot" style="background:#10b981"></span> Success ${success} (${Math.round(success/total*100)}%)</div>
+    <div class="legend-row"><span class="legend-dot" style="background:#ef4444"></span> Failed ${failed} (${Math.round(failed/total*100)}%)</div>
+    <div class="legend-row"><span class="legend-dot" style="background:#f59e0b"></span> Unstable ${unstable} (${Math.round(unstable/total*100)}%)</div>
+  `;
+}
+
+/* ---------- Bars (simple last 8 builds) ---------- */
+function renderBars() {
+  const container = document.getElementById('bars-chart');
+  container.innerHTML = '';
+  const recent = allBuilds.slice(0, 8).reverse();
+  if (!recent.length) return;
+
+  const max = Math.max(...recent.map(b => 1), 1);
+
+  recent.forEach(b => {
+    const status = (b.status || '').toUpperCase();
+    const cls = status === 'SUCCESS' ? 'success' : (status === 'UNSTABLE' ? 'unstable' : 'failed');
+    const h = 20 + Math.random() * 60; // visual only
+    const group = document.createElement('div');
+    group.className = 'bar-group';
+    group.innerHTML = `
+      <div class="bar ${cls}" style="height:${h}%"></div>
+      <div class="bar-label">#${b.build}</div>
+    `;
+    container.appendChild(group);
+  });
+}
+
+/* ---------- Status by Orchestrator ---------- */
+function renderOrchStatus() {
+  const el = document.getElementById('orch-status-list');
+  el.innerHTML = '';
+
+  orchestrators.forEach(o => {
+    const builds = allBuilds.filter(b => b.orchestratorId === o.id);
+    if (!builds.length) return;
+    const success = builds.filter(b => (b.status || '').toUpperCase() === 'SUCCESS').length;
+    const failed = builds.filter(b => ['FAILED','FAILURE'].includes((b.status || '').toUpperCase())).length;
+    const unstable = builds.filter(b => (b.status || '').toUpperCase() === 'UNSTABLE').length;
+    const total = builds.length;
+
+    const row = document.createElement('div');
+    row.className = 'orch-status-row';
+    row.innerHTML = `
+      <div class="orch-status-name">
+        <div class="left">
+          <span class="orch-dot" style="background:${o.color || '#3b82f6'}"></span>
+          ${o.displayName || o.name}
+        </div>
+        <span>${success}/${total}</span>
+      </div>
+      <div class="orch-status-bar">
+        <div class="seg success" style="width:${(success/total)*100}%"></div>
+        <div class="seg failed" style="width:${(failed/total)*100}%"></div>
+        <div class="seg unstable" style="width:${(unstable/total)*100}%"></div>
+      </div>
+    `;
+    el.appendChild(row);
+  });
+}
+
+/* ---------- Recent Activity ---------- */
+function renderActivity() {
+  const ul = document.getElementById('activity-list');
+  ul.innerHTML = '';
+  allBuilds.slice(0, 6).forEach(b => {
+    const ok = (b.status || '').toUpperCase() === 'SUCCESS';
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <div class="act-icon ${ok ? 'ok' : 'err'}">${ok ? '✓' : '✕'}</div>
+      <div class="act-text">
+        <div class="act-title">Build #${b.build} ${ok ? 'completed' : 'failed'}</div>
+        <div class="act-sub">${b.orchestratorName} · ${b.timestamp || ''}</div>
+      </div>
+    `;
+    ul.appendChild(li);
+  });
+}
+
+/* ---------- Table ---------- */
+function applyFilters() {
+  const orch = document.getElementById('filter-orch').value;
+  const q = (document.getElementById('build-search').value || '').toLowerCase();
+
+  filteredBuilds = allBuilds.filter(b => {
+    if (orch !== 'all' && b.orchestratorId !== orch) return false;
+    if (q && !String(b.build).includes(q) && !(b.orchestratorName || '').toLowerCase().includes(q)) return false;
+    return true;
   });
 
-  document.getElementById('page-title').textContent = o.displayName || o.name;
-  loadOrch(o);
-}
-
-async function loadOrch(o) {
-  try {
-    const url = `data/${o.folder}/index.json?t=${Date.now()}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('No index.json found');
-    allParents = await res.json();
-    allParents.sort((a, b) => Number(b.build) - Number(a.build));
-    filtered = [...allParents];
-    page = 1;
-    updateStats();
-    renderTable();
-    updateDot(o);
-    const now = new Date().toLocaleString('en-GB');
-    document.getElementById('last-updated').textContent = now;
-    document.getElementById('sidebar-updated').textContent = 'Last Updated: ' + now;
-  } catch (e) {
-    console.error(e);
-    allParents = [];
-    filtered = [];
-    updateStats();
-    document.getElementById('parent-tbody').innerHTML =
-      `<tr><td colspan="10" style="text-align:center;padding:40px;color:#94a3b8">No data for this orchestrator</td></tr>`;
-  }
-}
-
-function updateDot(o) {
-  const el = document.getElementById('dot-' + o.id);
-  if (!el) return;
-  if (!allParents.length) {
-    el.className = 'dot';
-    return;
-  }
-  const last = allParents[0];
-  el.className = 'dot ' + ((last.status || '').toUpperCase() === 'SUCCESS' ? 'ok' : 'err');
-}
-
-function updateStats() {
-  document.getElementById('stat-total').textContent = allParents.length;
-  document.getElementById('stat-success').textContent =
-    allParents.filter(p => (p.status || '').toUpperCase() === 'SUCCESS').length;
-  document.getElementById('stat-failed').textContent =
-    allParents.filter(p => ['FAILED','FAILURE'].includes((p.status || '').toUpperCase())).length;
-  document.getElementById('stat-unstable').textContent =
-    allParents.filter(p => (p.status || '').toUpperCase() === 'UNSTABLE').length;
+  currentPage = 1;
+  document.getElementById('table-subtitle').textContent =
+    orch === 'all' ? 'Showing builds from all orchestrators' : 'Filtered by orchestrator';
+  document.getElementById('footer-info').textContent =
+    `Showing ${filteredBuilds.length} of ${allBuilds.length} builds`;
+  renderTable();
 }
 
 function renderTable() {
-  const tbody = document.getElementById('parent-tbody');
+  const tbody = document.getElementById('builds-tbody');
   tbody.innerHTML = '';
-  const start = (page - 1) * CONFIG.PAGE_SIZE;
-  const rows = filtered.slice(start, start + CONFIG.PAGE_SIZE);
+  const start = (currentPage - 1) * CONFIG.PAGE_SIZE;
+  const rows = filteredBuilds.slice(start, start + CONFIG.PAGE_SIZE);
 
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:40px;color:#94a3b8">No builds found</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:40px;color:#94a3b8">No builds found</td></tr>`;
   } else {
-    rows.forEach(p => {
+    rows.forEach(b => {
       const tr = document.createElement('tr');
-      if (selected && selected.build === p.build) tr.classList.add('selected');
-      tr.onclick = () => showDetails(p.build);
-      const cls = badgeClass(p.status);
+      if (selectedBuild && selectedBuild.build === b.build && selectedBuild.orchestratorId === b.orchestratorId) {
+        tr.classList.add('selected');
+      }
+      tr.onclick = () => showDetails(b);
+      const cls = badgeClass(b.status);
       tr.innerHTML = `
-        <td class="build-id">${p.build}</td>
-        <td>${p.timestamp || '—'}</td>
-        <td>${p.endTime || '—'}</td>
-        <td><span class="badge ${cls}">${p.status || '—'}</span></td>
-        <td>${p.duration || '—'}</td>
-        <td style="text-align:center">${p.children ?? '—'}</td>
-        <td style="text-align:center;color:var(--green);font-weight:600">${p.successCount ?? 0}</td>
-        <td style="text-align:center;color:var(--red);font-weight:600">${p.failedCount ?? 0}</td>
-        <td style="text-align:center;color:var(--amber);font-weight:600">${p.unstableCount ?? 0}</td>
-        <td><button class="link">View details →</button></td>
+        <td class="build-id">${b.build}</td>
+        <td>
+          <div class="orch-cell">
+            <span class="dot" style="background:${b.orchestratorColor}"></span>
+            ${b.orchestratorName}
+          </div>
+        </td>
+        <td>${b.timestamp || '—'}</td>
+        <td>${b.endTime || '—'}</td>
+        <td><span class="badge ${cls}">${b.status || '—'}</span></td>
+        <td>${b.duration || '—'}</td>
+        <td style="text-align:center">${b.children ?? '—'}</td>
+        <td style="text-align:center;color:var(--green);font-weight:600">${b.successCount ?? 0}</td>
+        <td style="text-align:center;color:var(--red);font-weight:600">${b.failedCount ?? 0}</td>
+        <td style="text-align:center;color:var(--amber);font-weight:600">${b.unstableCount ?? 0}</td>
+        <td><button class="link">View →</button></td>
       `;
       tbody.appendChild(tr);
     });
   }
-  renderPager('parent-pagination', filtered.length, page, p => { page = p; renderTable(); });
+  renderPager('builds-pager', filteredBuilds.length, currentPage, p => {
+    currentPage = p;
+    renderTable();
+  });
 }
 
 function badgeClass(s) {
@@ -176,36 +356,25 @@ function renderPager(id, total, current, cb) {
   el.appendChild(next);
 }
 
-function onSearch() {
-  const q = document.getElementById('build-search').value.trim().toLowerCase();
-  filtered = q
-    ? allParents.filter(p => String(p.build).includes(q) || (p.job || '').toLowerCase().includes(q))
-    : [...allParents];
-  page = 1;
-  renderTable();
-}
-
-async function showDetails(num) {
-  const p = allParents.find(x => Number(x.build) === Number(num));
-  if (!p || !currentOrch) return;
-  selected = p;
-  document.getElementById('detail-section').style.display = 'block';
-  document.getElementById('detail-build-id').textContent = '#' + p.build;
-  const badge = document.getElementById('detail-status-badge');
-  badge.textContent = p.status || '—';
-  badge.className = 'badge ' + badgeClass(p.status);
-  document.getElementById('detail-time-range').textContent =
-    `${p.timestamp || '—'} → ${p.endTime || '—'} (${p.duration || '—'})`;
+/* ---------- Details ---------- */
+async function showDetails(b) {
+  selectedBuild = b;
+  document.getElementById('detail-card').style.display = 'block';
+  document.getElementById('detail-id').textContent = '#' + b.build;
+  document.getElementById('detail-range').textContent =
+    `${b.timestamp || '—'} → ${b.endTime || '—'} (${b.duration || '—'})`;
+  const badge = document.getElementById('detail-badge');
+  badge.textContent = b.status || '—';
+  badge.className = 'badge ' + badgeClass(b.status);
   renderTable();
 
   try {
-    const file = p.file || `Build_${p.build}.json`;
-    const url = `data/${currentOrch.folder}/Builds/${file}?t=${Date.now()}`;
+    const file = b.file || `Build_${b.build}.json`;
+    const url = `data/${b.folder}/Builds/${file}?t=${Date.now()}`;
     const res = await fetch(url);
-    if (!res.ok) throw new Error('Cannot load ' + file);
+    if (!res.ok) throw new Error('Cannot load build details');
     const data = await res.json();
     children = data.children || [];
-    childPage = 1;
     renderChildren();
   } catch (e) {
     document.getElementById('children-tbody').innerHTML =
@@ -216,39 +385,32 @@ async function showDetails(num) {
 function renderChildren() {
   const tbody = document.getElementById('children-tbody');
   tbody.innerHTML = '';
-  const start = (childPage - 1) * CONFIG.PAGE_SIZE;
-  const rows = children.slice(start, start + CONFIG.PAGE_SIZE);
-
-  if (!rows.length) {
+  if (!children.length) {
     tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:30px;color:#94a3b8">No child builds</td></tr>`;
-  } else {
-    rows.forEach(c => {
-      const tr = document.createElement('tr');
-      tr.style.cursor = 'default';
-      const hasBuild = c.build != null && c.build !== '';
-      let logCell = '—', action = '—';
-      if (c.logFile) {
-        logCell = `<span style="font-size:12px;color:#64748b">${c.logFile}</span>`;
-        action = `<button class="link" onclick="alert('Log: ${c.logFile}')">View</button>`;
-      } else if (c.reason) {
-        logCell = `<span style="font-size:12px;color:#dc2626">${c.reason}</span>`;
-        action = `<span style="font-size:12px;color:#94a3b8">No log</span>`;
-      }
-      tr.innerHTML = `
-        <td style="font-weight:500">${c.job || '—'}</td>
-        <td class="build-id">${hasBuild ? c.build : '—'}</td>
-        <td>${c.startTime || '—'}</td>
-        <td>${c.endTime || '—'}</td>
-        <td><span class="badge ${badgeClass(c.status)}">${c.status || '—'}</span></td>
-        <td>${c.duration || '—'}</td>
-        <td>${logCell}</td>
-        <td>${action}</td>
-      `;
-      tbody.appendChild(tr);
-    });
+    return;
   }
-  renderPager('children-pagination', children.length, childPage, p => {
-    childPage = p;
-    renderChildren();
+  children.forEach(c => {
+    const tr = document.createElement('tr');
+    tr.style.cursor = 'default';
+    const hasBuild = c.build != null && c.build !== '';
+    let logCell = '—', action = '—';
+    if (c.logFile) {
+      logCell = `<span style="font-size:11px;color:#64748b">${c.logFile}</span>`;
+      action = `<button class="link" onclick="event.stopPropagation();alert('Log: ${c.logFile}')">View</button>`;
+    } else if (c.reason) {
+      logCell = `<span style="font-size:11px;color:#dc2626">${c.reason}</span>`;
+      action = `<span style="font-size:11px;color:#94a3b8">No log</span>`;
+    }
+    tr.innerHTML = `
+      <td style="font-weight:500">${c.job || '—'}</td>
+      <td class="build-id">${hasBuild ? c.build : '—'}</td>
+      <td>${c.startTime || '—'}</td>
+      <td>${c.endTime || '—'}</td>
+      <td><span class="badge ${badgeClass(c.status)}">${c.status || '—'}</span></td>
+      <td>${c.duration || '—'}</td>
+      <td>${logCell}</td>
+      <td>${action}</td>
+    `;
+    tbody.appendChild(tr);
   });
 }
