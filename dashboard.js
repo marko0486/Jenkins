@@ -1,13 +1,14 @@
 /* ============================================================
-   Master Build Dashboard
+   Build Dashboard – Multi Orchestrator
    ============================================================ */
 
 const CONFIG = {
-  INDEX_URL: 'index.json',
-  BUILDS_PATH: 'Builds/',
+  ORCHESTRATORS_URL: 'orchestrators.json',
   PAGE_SIZE: 8
 };
 
+let orchestrators = [];
+let currentOrchestrator = null;
 let allParents = [];
 let filteredParents = [];
 let currentPage = 1;
@@ -17,22 +18,80 @@ let currentChildren = [];
 
 // ---------- INIT ----------
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('btn-refresh').addEventListener('click', loadDashboard);
+  document.getElementById('btn-refresh').addEventListener('click', () => {
+    if (currentOrchestrator) loadOrchestrator(currentOrchestrator);
+    else loadOrchestrators();
+  });
   document.getElementById('build-search').addEventListener('input', onSearch);
   document.getElementById('search-clear').addEventListener('click', clearSearch);
-  document.getElementById('btn-download-all').addEventListener('click', downloadAll);
   document.getElementById('modal-close').addEventListener('click', closeModal);
   document.getElementById('modal-backdrop').addEventListener('click', closeModal);
 
-  loadDashboard();
-  // Manual refresh only – no auto-refresh
+  loadOrchestrators();
 });
 
-// ---------- LOAD ----------
-async function loadDashboard() {
+// ---------- LOAD ORCHESTRATORS LIST ----------
+async function loadOrchestrators() {
   try {
-    const res = await fetch(CONFIG.INDEX_URL + '?t=' + Date.now());
-    if (!res.ok) throw new Error('Could not load index.json');
+    const res = await fetch(CONFIG.ORCHESTRATORS_URL + '?t=' + Date.now());
+    if (!res.ok) throw new Error('Could not load orchestrators.json');
+
+    orchestrators = await res.json();
+    renderOrchestratorList();
+
+    // Auto-select first one
+    if (orchestrators.length > 0) {
+      selectOrchestrator(orchestrators[0]);
+    }
+  } catch (err) {
+    console.error(err);
+    document.getElementById('orchestrator-list').innerHTML =
+      `<li style="color:#f87171;padding:12px">Error loading orchestrators</li>`;
+  }
+}
+
+function renderOrchestratorList() {
+  const ul = document.getElementById('orchestrator-list');
+  ul.innerHTML = '';
+
+  orchestrators.forEach(o => {
+    const li = document.createElement('li');
+    li.dataset.id = o.id;
+    if (currentOrchestrator && currentOrchestrator.id === o.id) {
+      li.classList.add('active');
+    }
+
+    li.innerHTML = `
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${o.displayName || o.name}</span>
+      <span class="orch-status unknown" id="status-${o.id}"></span>
+    `;
+    li.addEventListener('click', () => selectOrchestrator(o));
+    ul.appendChild(li);
+  });
+}
+
+async function selectOrchestrator(orch) {
+  currentOrchestrator = orch;
+  selectedBuild = null;
+  document.getElementById('detail-section').hidden = true;
+
+  // Highlight in sidebar
+  document.querySelectorAll('.orchestrator-list li').forEach(li => {
+    li.classList.toggle('active', li.dataset.id === orch.id);
+  });
+
+  document.getElementById('current-orchestrator-name').textContent =
+    orch.displayName || orch.name;
+
+  await loadOrchestrator(orch);
+}
+
+// ---------- LOAD ONE ORCHESTRATOR DATA ----------
+async function loadOrchestrator(orch) {
+  try {
+    const indexUrl = `data/${orch.folder}/index.json?t=${Date.now()}`;
+    const res = await fetch(indexUrl);
+    if (!res.ok) throw new Error('Could not load index.json for ' + orch.name);
 
     allParents = await res.json();
     allParents.sort((a, b) => Number(b.build) - Number(a.build));
@@ -42,24 +101,38 @@ async function loadDashboard() {
 
     updateStats();
     renderParentTable();
-    updateFooter();
+    updateSidebarStatus(orch);
 
     const now = new Date().toLocaleString('en-GB');
     document.getElementById('last-updated').textContent = now;
-    document.getElementById('footer-generated').textContent = 'Generated: ' + now;
+    document.getElementById('sidebar-last-updated').textContent = 'Last Updated: ' + now;
 
-    // Keep selection if possible
-    if (selectedBuild) {
-      const still = allParents.find(p => p.build === selectedBuild.build);
-      if (still) {
-        await showDetails(still.build);
-      } else {
-        hideDetails();
-      }
-    }
   } catch (err) {
     console.error(err);
-    alert('Error loading dashboard:\n' + err.message);
+    allParents = [];
+    filteredParents = [];
+    updateStats();
+    document.getElementById('parent-tbody').innerHTML =
+      `<tr><td colspan="10" style="text-align:center;padding:32px;color:#94a3b8">
+         No data found for this orchestrator<br><small>${err.message}</small>
+       </td></tr>`;
+  }
+}
+
+function updateSidebarStatus(orch) {
+  const el = document.getElementById('status-' + orch.id);
+  if (!el) return;
+
+  if (allParents.length === 0) {
+    el.className = 'orch-status unknown';
+    return;
+  }
+
+  const last = allParents[0];
+  if ((last.status || '').toUpperCase() === 'SUCCESS') {
+    el.className = 'orch-status success';
+  } else {
+    el.className = 'orch-status failed';
   }
 }
 
@@ -89,7 +162,7 @@ function renderParentTable() {
 
   if (page.length === 0) {
     tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:32px;color:#94a3b8">No builds found</td></tr>`;
-    renderPagination('parent-pagination', filteredParents.length, currentPage, (p) => {
+    renderPagination('parent-pagination', filteredParents.length, currentPage, p => {
       currentPage = p;
       renderParentTable();
     });
@@ -98,9 +171,7 @@ function renderParentTable() {
 
   page.forEach(p => {
     const tr = document.createElement('tr');
-    if (selectedBuild && selectedBuild.build === p.build) {
-      tr.classList.add('selected');
-    }
+    if (selectedBuild && selectedBuild.build === p.build) tr.classList.add('selected');
     tr.addEventListener('click', () => showDetails(p.build));
 
     const statusClass = statusBadgeClass(p.status);
@@ -111,18 +182,16 @@ function renderParentTable() {
       <td>${p.endTime || '—'}</td>
       <td><span class="badge ${statusClass}">${p.status || '—'}</span></td>
       <td>${p.duration || '—'}</td>
-      <td class="center">${p.children ?? '—'}</td>
-      <td class="center" style="color:var(--success);font-weight:600">${p.successCount ?? p.children ?? 0}</td>
-      <td class="center" style="color:var(--failed);font-weight:600">${p.failedCount ?? 0}</td>
-      <td class="center" style="color:var(--unstable);font-weight:600">${p.unstableCount ?? 0}</td>
-      <td>
-        <button class="link-btn" type="button">View details →</button>
-      </td>
+      <td style="text-align:center">${p.children ?? '—'}</td>
+      <td style="text-align:center;color:var(--success);font-weight:600">${p.successCount ?? 0}</td>
+      <td style="text-align:center;color:var(--failed);font-weight:600">${p.failedCount ?? 0}</td>
+      <td style="text-align:center;color:var(--unstable);font-weight:600">${p.unstableCount ?? 0}</td>
+      <td><button class="link-btn" type="button">View details →</button></td>
     `;
     tbody.appendChild(tr);
   });
 
-  renderPagination('parent-pagination', filteredParents.length, currentPage, (p) => {
+  renderPagination('parent-pagination', filteredParents.length, currentPage, p => {
     currentPage = p;
     renderParentTable();
   });
@@ -151,15 +220,6 @@ function renderPagination(containerId, totalItems, current, onChange) {
   container.appendChild(prev);
 
   for (let i = 1; i <= totalPages; i++) {
-    if (totalPages > 9 && Math.abs(i - current) > 2 && i !== 1 && i !== totalPages) {
-      if (i === 2 || i === totalPages - 1) {
-        const dots = document.createElement('span');
-        dots.textContent = '…';
-        dots.style.padding = '0 4px';
-        container.appendChild(dots);
-      }
-      continue;
-    }
     const btn = document.createElement('button');
     btn.className = 'page-btn' + (i === current ? ' active' : '');
     btn.textContent = i;
@@ -190,7 +250,6 @@ function onSearch() {
   }
   currentPage = 1;
   renderParentTable();
-  updateFooter();
 }
 
 function clearSearch() {
@@ -199,13 +258,12 @@ function clearSearch() {
   filteredParents = [...allParents];
   currentPage = 1;
   renderParentTable();
-  updateFooter();
 }
 
 // ---------- DETAILS ----------
 async function showDetails(buildNumber) {
   const parent = allParents.find(p => Number(p.build) === Number(buildNumber));
-  if (!parent) return;
+  if (!parent || !currentOrchestrator) return;
 
   selectedBuild = parent;
 
@@ -219,11 +277,12 @@ async function showDetails(buildNumber) {
   document.getElementById('detail-time-range').textContent =
     `${parent.timestamp || '—'}  →  ${parent.endTime || '—'}  (${parent.duration || '—'})`;
 
-  renderParentTable(); // refresh selection highlight
+  renderParentTable();
 
   try {
     const file = parent.file || `Build_${parent.build}.json`;
-    const res = await fetch(CONFIG.BUILDS_PATH + file + '?t=' + Date.now());
+    const url = `data/${currentOrchestrator.folder}/Builds/${file}?t=${Date.now()}`;
+    const res = await fetch(url);
     if (!res.ok) throw new Error('Could not load ' + file);
 
     const data = await res.json();
@@ -235,12 +294,6 @@ async function showDetails(buildNumber) {
     document.getElementById('children-tbody').innerHTML =
       `<tr><td colspan="8" style="text-align:center;padding:28px;color:#dc2626">Error: ${err.message}</td></tr>`;
   }
-}
-
-function hideDetails() {
-  selectedBuild = null;
-  document.getElementById('detail-section').hidden = true;
-  renderParentTable();
 }
 
 function renderChildren() {
@@ -261,7 +314,6 @@ function renderChildren() {
       const hasRealBuild = c.build !== null && c.build !== undefined && c.build !== '';
       const hasLog = c.logFile;
 
-     
       let logCell = '—';
       let actionCell = '—';
 
@@ -269,7 +321,6 @@ function renderChildren() {
         logCell = `<span style="font-size:0.8rem;color:#64748b">${c.logFile}</span>`;
         actionCell = `<button class="link-btn" type="button" onclick="viewLog('${(c.logFile || '').replace(/'/g, "\\'")}')">View</button>`;
       } else if (c.reason) {
-      
         logCell = `<span style="font-size:0.8rem;color:#dc2626" title="${c.reason}">${c.reason}</span>`;
         actionCell = `<span style="font-size:0.8rem;color:#94a3b8">No log</span>`;
       }
@@ -288,11 +339,12 @@ function renderChildren() {
     });
   }
 
-  renderPagination('children-pagination', currentChildren.length, childrenPage, (p) => {
+  renderPagination('children-pagination', currentChildren.length, childrenPage, p => {
     childrenPage = p;
     renderChildren();
   });
 }
+
 // ---------- ACTIONS ----------
 function viewLog(logFile) {
   if (!logFile) {
@@ -301,21 +353,10 @@ function viewLog(logFile) {
   }
   document.getElementById('modal-title').textContent = logFile;
   document.getElementById('modal-body').textContent =
-    `Log file: ${logFile}\n\nFull path: C:\\Jenkins\\Jobs\\Log\\${logFile}\n\n(Implement real log loading here if desired)`;
+    `Log file: ${logFile}\n\nFull path: C:\\Jenkins\\Jobs\\Log\\${logFile}`;
   document.getElementById('log-modal').hidden = false;
 }
 
 function closeModal() {
   document.getElementById('log-modal').hidden = true;
-}
-
-function downloadAll() {
-  if (!selectedBuild) return;
-  alert('Download All – Build #' + selectedBuild.build +
-        '\n\n(Implement bulk download according to your server)');
-}
-
-function updateFooter() {
-  document.getElementById('footer-count').textContent =
-    `Showing ${filteredParents.length} of ${allParents.length} builds`;
 }
