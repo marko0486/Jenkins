@@ -4,23 +4,5 @@
     "name": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
     "displayName": "FT Orchestrator - 5 Minutes",
     "folder": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV"
-  },
-  {
-    "id": "POC_AUTOMIC_FT_ORCHESTRATOR_HOURLY.EV",
-    "name": "POC_AUTOMIC_FT_ORCHESTRATOR_HOURLY.EV",
-    "displayName": "FT Orchestrator - Hourly",
-    "folder": "POC_AUTOMIC_FT_ORCHESTRATOR_HOURLY.EV"
-  },
-  {
-    "id": "POC_AUTOMIC_FT_ORCHESTRATOR_DAILY.EV",
-    "name": "POC_AUTOMIC_FT_ORCHESTRATOR_DAILY.EV",
-    "displayName": "FT Orchestrator - Daily",
-    "folder": "POC_AUTOMIC_FT_ORCHESTRATOR_DAILY.EV"
-  },
-  {
-    "id": "POC_SHAREPOINT_SYNC.EV",
-    "name": "POC_SHAREPOINT_SYNC.EV",
-    "displayName": "SharePoint Sync",
-    "folder": "POC_SHAREPOINT_SYNC.EV"
   }
 ]
