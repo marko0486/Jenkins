@@ -38,7 +38,6 @@
     <!-- ===================== LEFT SIDEBAR ===================== -->
     <aside class="left-panel">
 
-      <!-- Orchestrators List -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
@@ -62,7 +61,6 @@
         <ul class="orch-list" id="orch-list"></ul>
       </div>
 
-      <!-- Build Status Donut -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
@@ -80,7 +78,6 @@
         <div class="legend" id="status-legend"></div>
       </div>
 
-      <!-- Recent Activity -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
@@ -97,36 +94,83 @@
 
       <!-- Stats Row -->
       <div class="stats-row">
+        <!-- TOTAL -->
         <div class="stat-card">
-          <div class="stat-icon blue"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></div>
-          <div>
+          <div class="stat-icon blue">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
+            </svg>
+          </div>
+          <div class="stat-body">
             <div class="stat-label">TOTAL BUILDS</div>
             <div class="stat-value" id="stat-total">0</div>
+            <div class="stat-trend" id="trend-total">—</div>
           </div>
+          <div class="mini-bars" id="mini-bars"></div>
         </div>
+
+        <!-- SUCCESS -->
         <div class="stat-card">
-          <div class="stat-icon green"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-6"/></svg></div>
-          <div>
+          <div class="stat-icon green">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-6"/>
+            </svg>
+          </div>
+          <div class="stat-body">
             <div class="stat-label">SUCCESS</div>
             <div class="stat-value green" id="stat-success">0</div>
+            <div class="stat-trend" id="trend-success">—</div>
           </div>
-          <div class="mini-ring" id="ring-success"></div>
+          <div class="ring-wrap">
+            <svg class="ring" width="48" height="48" viewBox="0 0 48 48">
+              <circle class="ring-bg" cx="24" cy="24" r="18"/>
+              <circle class="ring-fg green" id="ring-success" cx="24" cy="24" r="18"/>
+            </svg>
+            <span class="ring-text" id="pct-success">0%</span>
+          </div>
         </div>
+
+        <!-- FAILED -->
         <div class="stat-card">
-          <div class="stat-icon red"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg></div>
-          <div>
+          <div class="stat-icon red">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/>
+            </svg>
+          </div>
+          <div class="stat-body">
             <div class="stat-label">FAILED</div>
             <div class="stat-value red" id="stat-failed">0</div>
+            <div class="stat-trend" id="trend-failed">—</div>
           </div>
-          <div class="mini-ring" id="ring-failed"></div>
+          <div class="ring-wrap">
+            <svg class="ring" width="48" height="48" viewBox="0 0 48 48">
+              <circle class="ring-bg" cx="24" cy="24" r="18"/>
+              <circle class="ring-fg red" id="ring-failed" cx="24" cy="24" r="18"/>
+            </svg>
+            <span class="ring-text" id="pct-failed">0%</span>
+          </div>
         </div>
+
+        <!-- UNSTABLE -->
         <div class="stat-card">
-          <div class="stat-icon amber"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg></div>
-          <div>
+          <div class="stat-icon amber">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M12 9v4M12 17h.01"/>
+              <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+            </svg>
+          </div>
+          <div class="stat-body">
             <div class="stat-label">UNSTABLE</div>
             <div class="stat-value amber" id="stat-unstable">0</div>
+            <div class="stat-trend" id="trend-unstable">—</div>
           </div>
-          <div class="mini-ring" id="ring-unstable"></div>
+          <div class="ring-wrap">
+            <svg class="ring" width="48" height="48" viewBox="0 0 48 48">
+              <circle class="ring-bg" cx="24" cy="24" r="18"/>
+              <circle class="ring-fg amber" id="ring-unstable" cx="24" cy="24" r="18"/>
+            </svg>
+            <span class="ring-text" id="pct-unstable">0%</span>
+          </div>
         </div>
       </div>
 
@@ -213,7 +257,6 @@
     <!-- ===================== RIGHT PANEL ===================== -->
     <aside class="right-panel">
 
-      <!-- Builds Over Time (simple bars) -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
@@ -229,7 +272,6 @@
         <div class="bars-chart" id="bars-chart"></div>
       </div>
 
-      <!-- Status by Orchestrator -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
@@ -240,7 +282,6 @@
         <div id="orch-status-list"></div>
       </div>
 
-      <!-- Quick Actions -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
