@@ -38,7 +38,6 @@
     <!-- ===================== LEFT SIDEBAR ===================== -->
     <aside class="left-panel">
 
-      <!-- Orchestrators -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
@@ -62,7 +61,6 @@
         <ul class="orch-list" id="orch-list"></ul>
       </div>
 
-      <!-- Build Status Donut -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
@@ -80,7 +78,6 @@
         <div class="legend" id="status-legend"></div>
       </div>
 
-      <!-- Recent Activity -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
@@ -97,7 +94,6 @@
 
       <!-- Stats Row -->
       <div class="stats-row">
-        <!-- TOTAL -->
         <div class="stat-card">
           <div class="stat-icon blue">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -112,7 +108,6 @@
           <div class="mini-bars" id="mini-bars"></div>
         </div>
 
-        <!-- SUCCESS -->
         <div class="stat-card">
           <div class="stat-icon green">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -133,8 +128,7 @@
           </div>
         </div>
 
-        <!-- FAILED -->
-        <div class="stat-card">
+        <div class="stat-card" id="failed-stat-card" style="cursor:pointer" title="Click to view failed jobs">
           <div class="stat-icon red">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/>
@@ -154,7 +148,6 @@
           </div>
         </div>
 
-        <!-- UNSTABLE -->
         <div class="stat-card">
           <div class="stat-icon amber">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -178,7 +171,7 @@
       </div>
 
       <!-- Builds Table -->
-      <div class="card">
+      <div class="card" id="builds-card">
         <div class="card-head">
           <div class="card-title">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -221,6 +214,37 @@
         <div class="pager" id="builds-pager"></div>
       </div>
 
+      <!-- ========== FAILED JOBS VIEW ========== -->
+      <div class="card" id="failed-jobs-card" style="display:none">
+        <div class="card-head">
+          <div class="card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/>
+            </svg>
+            Failed Jobs
+            <span class="sub" id="failed-jobs-subtitle">All failed jobs across orchestrators</span>
+          </div>
+          <button class="link" id="btn-back-builds" style="font-size:13px">← Back to Builds</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Job Name</th>
+                <th>Parent Build</th>
+                <th>Orchestrator</th>
+                <th>Status</th>
+                <th>Reason</th>
+                <th>Start Time</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="failed-jobs-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pager" id="failed-jobs-pager"></div>
+      </div>
+
       <!-- Selected Build Details -->
       <div class="card" id="detail-card" style="display:none">
         <div class="card-head">
@@ -256,7 +280,6 @@
           </table>
         </div>
 
-        <!-- Children pagination -->
         <div class="pager" id="children-pager"></div>
 
         <div class="info-bar">
@@ -268,7 +291,6 @@
     <!-- ===================== RIGHT PANEL ===================== -->
     <aside class="right-panel">
 
-      <!-- Builds Over Time -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
@@ -284,7 +306,6 @@
         <div class="bars-chart" id="bars-chart"></div>
       </div>
 
-      <!-- Status by Orchestrator -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
@@ -295,7 +316,6 @@
         <div id="orch-status-list"></div>
       </div>
 
-      <!-- Quick Actions -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
