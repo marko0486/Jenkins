@@ -38,6 +38,7 @@
     <!-- ===================== LEFT SIDEBAR ===================== -->
     <aside class="left-panel">
 
+      <!-- Orchestrators -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
@@ -61,6 +62,7 @@
         <ul class="orch-list" id="orch-list"></ul>
       </div>
 
+      <!-- Build Status Donut -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
@@ -78,6 +80,7 @@
         <div class="legend" id="status-legend"></div>
       </div>
 
+      <!-- Recent Activity -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
@@ -232,7 +235,9 @@
             <span class="badge" id="detail-badge">—</span>
           </div>
         </div>
+
         <div class="children-head">Child Builds (Jobs)</div>
+
         <div class="table-wrap">
           <table>
             <thead>
@@ -250,13 +255,20 @@
             <tbody id="children-tbody"></tbody>
           </table>
         </div>
-        <div class="info-bar">All logs are located at: <code>C:\Jenkins\Jobs\Log\</code></div>
+
+        <!-- Children pagination -->
+        <div class="pager" id="children-pager"></div>
+
+        <div class="info-bar">
+          All logs are located at: <code>C:\Jenkins\Jobs\Log\</code>
+        </div>
       </div>
     </main>
 
     <!-- ===================== RIGHT PANEL ===================== -->
     <aside class="right-panel">
 
+      <!-- Builds Over Time -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
@@ -272,6 +284,7 @@
         <div class="bars-chart" id="bars-chart"></div>
       </div>
 
+      <!-- Status by Orchestrator -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
@@ -282,6 +295,7 @@
         <div id="orch-status-list"></div>
       </div>
 
+      <!-- Quick Actions -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
