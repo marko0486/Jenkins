@@ -1,6 +1,7 @@
 const CONFIG = {
   ORCHESTRATORS_URL: 'orchestrators.json',
-  PAGE_SIZE: 6
+  PAGE_SIZE: 6,           // Builds table & Children
+  FAILED_PAGE_SIZE: 15    // Failed Jobs table
 };
 
 let orchestrators = [];
@@ -14,8 +15,8 @@ let activeOrchFilter = 'all';
 
 let failedJobs = [];
 let failedPage = 1;
-let bellCleared = false;
-let isLoadingFailed = false; // evita llamadas concurrentes
+let bellCleared = false;      // solo vive en memoria (se resetea al refrescar la página)
+let isLoadingFailed = false;
 
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-refresh').onclick = loadAll;
@@ -25,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('orch-search').oninput = filterOrchList;
   document.getElementById('btn-back-builds').onclick = closeFailedJobsView;
   document.getElementById('failed-stat-card').onclick = openFailedJobsView;
+
   document.getElementById('btn-bell').onclick = () => {
     bellCleared = true;
     updateBellBadge(0);
@@ -98,13 +100,13 @@ async function loadAll() {
   }
 }
 
-/* ========== FAILED JOBS VIEW (con protección anti-duplicados) ========== */
+/* ========== FAILED JOBS VIEW ========== */
 async function openFailedJobsView() {
-  if (isLoadingFailed) return; // evita múltiples clics simultáneos
+  if (isLoadingFailed) return;
   isLoadingFailed = true;
 
   failedJobs = [];
-  const seen = new Set(); // clave única: parentBuild + jobName
+  const seen = new Set();
 
   try {
     for (const parent of allBuilds) {
@@ -122,7 +124,7 @@ async function openFailedJobsView() {
           const status = (c.status || '').toUpperCase();
           if (status === 'FAILED' || status === 'FAILURE' || status === 'PRECHECK_FAILED') {
             const key = `${parent.build}||${c.job || ''}`;
-            if (seen.has(key)) return; // ya existe → no duplicar
+            if (seen.has(key)) return;
             seen.add(key);
 
             failedJobs.push({
@@ -167,8 +169,8 @@ function renderFailedJobs() {
   const tbody = document.getElementById('failed-jobs-tbody');
   tbody.innerHTML = '';
 
-  const start = (failedPage - 1) * CONFIG.PAGE_SIZE;
-  const page = failedJobs.slice(start, start + CONFIG.PAGE_SIZE);
+  const start = (failedPage - 1) * CONFIG.FAILED_PAGE_SIZE;
+  const page = failedJobs.slice(start, start + CONFIG.FAILED_PAGE_SIZE);
 
   if (!page.length) {
     tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:40px;color:#94a3b8">No failed jobs found</td></tr>`;
@@ -198,7 +200,8 @@ function renderFailedJobs() {
     });
   }
 
-  renderPager('failed-jobs-pager', failedJobs.length, failedPage, p => {
+  // Paginación con 15 items
+  renderPagerCustom('failed-jobs-pager', failedJobs.length, failedPage, CONFIG.FAILED_PAGE_SIZE, p => {
     failedPage = p;
     renderFailedJobs();
   });
@@ -254,9 +257,7 @@ function renderOrchList() {
       document.getElementById('detail-card').style.display = 'none';
 
       const latest = allBuilds.find(b => b.orchestratorId === o.id);
-      if (latest) {
-        showDetails(latest);
-      }
+      if (latest) showDetails(latest);
     };
     ul.appendChild(li);
   });
@@ -295,6 +296,15 @@ function updateStats() {
   const totalUnstableChildren = allBuilds.reduce((sum, b) => sum + (b.unstableCount || 0), 0);
   const totalChildren = totalSuccessChildren + totalFailedChildren + totalUnstableChildren || 1;
 
+  // ===== Campanita: solo fallos de las últimas 24 horas =====
+  const failedLast24h = last24.reduce((s, b) => s + (b.failedCount || 0), 0);
+  if (failedLast24h > 0) {
+    updateBellBadge(failedLast24h);
+  } else {
+    updateBellBadge(0);
+    bellCleared = false;
+  }
+
   const lastSuccess = last24.reduce((s, b) => s + (b.successCount || 0), 0);
   const lastFailed  = last24.reduce((s, b) => s + (b.failedCount || 0), 0);
   const lastUnstable = last24.reduce((s, b) => s + (b.unstableCount || 0), 0);
@@ -307,13 +317,6 @@ function updateStats() {
   document.getElementById('stat-success').textContent = totalSuccessChildren;
   document.getElementById('stat-failed').textContent = totalFailedChildren;
   document.getElementById('stat-unstable').textContent = totalUnstableChildren;
-
-  if (totalFailedChildren > 0) {
-    updateBellBadge(totalFailedChildren);
-  } else {
-    updateBellBadge(0);
-    bellCleared = false;
-  }
 
   const pct = (n, t) => t ? Math.round((n / t) * 1000) / 10 : 0;
   const pctSuccess  = pct(totalSuccessChildren, totalChildren);
@@ -555,16 +558,22 @@ function badgeClass(s) {
 }
 
 function renderPager(id, total, current, cb) {
-  const pages = Math.max(1, Math.ceil(total / CONFIG.PAGE_SIZE));
+  renderPagerCustom(id, total, current, CONFIG.PAGE_SIZE, cb);
+}
+
+function renderPagerCustom(id, total, current, pageSize, cb) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
   const el = document.getElementById(id);
   if (!el) return;
   el.innerHTML = '';
+
   const prev = document.createElement('button');
   prev.className = 'page-btn';
   prev.textContent = '‹';
   prev.disabled = current === 1;
   prev.onclick = () => cb(current - 1);
   el.appendChild(prev);
+
   for (let i = 1; i <= pages; i++) {
     const b = document.createElement('button');
     b.className = 'page-btn' + (i === current ? ' active' : '');
@@ -572,6 +581,7 @@ function renderPager(id, total, current, cb) {
     b.onclick = () => cb(i);
     el.appendChild(b);
   }
+
   const next = document.createElement('button');
   next.className = 'page-btn';
   next.textContent = '›';
