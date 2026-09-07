@@ -11,7 +11,10 @@ let selectedBuild = null;
 let children = [];
 let childrenPage = 1;
 let activeOrchFilter = 'all';
-let showingFailedOnly = false;
+
+// Failed Jobs view
+let failedJobs = [];
+let failedPage = 1;
 
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-refresh').onclick = loadAll;
@@ -19,14 +22,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('build-search').oninput = applyFilters;
   document.getElementById('filter-orch').onchange = applyFilters;
   document.getElementById('orch-search').oninput = filterOrchList;
+  document.getElementById('btn-back-builds').onclick = closeFailedJobsView;
 
-  // Click on FAILED number
-  document.getElementById('stat-failed').style.cursor = 'pointer';
-  document.getElementById('stat-failed').onclick = showFailedFilter;
-
-  // Click on the red ring text / area
-  document.getElementById('pct-failed').style.cursor = 'pointer';
-  document.getElementById('pct-failed').onclick = showFailedFilter;
+  // Click on FAILED card
+  document.getElementById('failed-stat-card').onclick = openFailedJobsView;
 
   document.querySelectorAll('.filter-tabs .tab').forEach(tab => {
     tab.onclick = () => {
@@ -69,9 +68,11 @@ async function loadAll() {
     filteredBuilds = [...allBuilds];
     currentPage = 1;
     selectedBuild = null;
-    showingFailedOnly = false;
+
+    // Close failed view if open
+    closeFailedJobsView();
+
     document.getElementById('detail-card').style.display = 'none';
-    hideFailedBanner();
 
     renderOrchList();
     populateOrchFilter();
@@ -94,58 +95,105 @@ async function loadAll() {
   }
 }
 
-function showFailedFilter() {
-  showingFailedOnly = true;
-  filteredBuilds = allBuilds.filter(b => (b.failedCount || 0) > 0);
-  currentPage = 1;
+/* ========== FAILED JOBS VIEW ========== */
+async function openFailedJobsView() {
+  // Collect all failed children from every parent
+  failedJobs = [];
 
-  showFailedBanner();
-  document.getElementById('table-subtitle').textContent = 'Showing builds with failed jobs';
-  document.getElementById('footer-info').textContent = `Showing ${filteredBuilds.length} of ${allBuilds.length} builds`;
+  for (const parent of allBuilds) {
+    if ((parent.failedCount || 0) === 0) continue;
+
+    try {
+      const file = parent.file || `Build_${parent.build}.json`;
+      const url = `data/${parent.folder}/Builds/${file}?t=${Date.now()}`;
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const kids = data.children || [];
+
+      kids.forEach(c => {
+        const status = (c.status || '').toUpperCase();
+        if (status === 'FAILED' || status === 'FAILURE' || status === 'PRECHECK_FAILED') {
+          failedJobs.push({
+            job: c.job || '—',
+            parentBuild: parent.build,
+            orchestrator: parent.orchestratorName,
+            orchestratorColor: parent.orchestratorColor,
+            status: c.status,
+            reason: c.reason || '—',
+            startTime: c.startTime || '—',
+            logFile: c.logFile || null,
+            folder: parent.folder,
+            parentFile: file
+          });
+        }
+      });
+    } catch (e) {
+      console.warn('Could not load children for build', parent.build, e);
+    }
+  }
+
+  failedPage = 1;
+
+  // Switch views
+  document.getElementById('builds-card').style.display = 'none';
+  document.getElementById('detail-card').style.display = 'none';
+  document.getElementById('failed-jobs-card').style.display = 'block';
+
+  document.getElementById('failed-jobs-subtitle').textContent =
+    `${failedJobs.length} failed job${failedJobs.length !== 1 ? 's' : ''} found`;
+
+  renderFailedJobs();
+}
+
+function closeFailedJobsView() {
+  document.getElementById('failed-jobs-card').style.display = 'none';
+  document.getElementById('builds-card').style.display = 'block';
   renderTable();
+}
 
-  // Auto-select the latest parent that has failures
-  if (filteredBuilds.length > 0) {
-    showDetails(filteredBuilds[0]);
+function renderFailedJobs() {
+  const tbody = document.getElementById('failed-jobs-tbody');
+  tbody.innerHTML = '';
+
+  const start = (failedPage - 1) * CONFIG.PAGE_SIZE;
+  const page = failedJobs.slice(start, start + CONFIG.PAGE_SIZE);
+
+  if (!page.length) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:40px;color:#94a3b8">No failed jobs found</td></tr>`;
+  } else {
+    page.forEach(f => {
+      const tr = document.createElement('tr');
+      tr.style.cursor = 'default';
+      tr.innerHTML = `
+        <td style="font-weight:500">${f.job}</td>
+        <td class="build-id">#${f.parentBuild}</td>
+        <td>
+          <div class="orch-cell">
+            <span class="dot" style="background:${f.orchestratorColor}"></span>
+            ${f.orchestrator}
+          </div>
+        </td>
+        <td><span class="badge badge-failed">${f.status}</span></td>
+        <td style="color:#dc2626;max-width:260px;white-space:normal">${f.reason}</td>
+        <td>${f.startTime}</td>
+        <td>
+          ${f.logFile
+            ? `<button class="link" onclick="alert('Log: ${f.logFile}')">View Log</button>`
+            : `<span style="color:#94a3b8;font-size:12px">No log</span>`}
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
   }
+
+  renderPager('failed-jobs-pager', failedJobs.length, failedPage, p => {
+    failedPage = p;
+    renderFailedJobs();
+  });
 }
 
-function clearFailedFilter() {
-  showingFailedOnly = false;
-  hideFailedBanner();
-  applyFilters();
-}
-
-function showFailedBanner() {
-  let banner = document.getElementById('failed-banner');
-  if (!banner) {
-    banner = document.createElement('div');
-    banner.id = 'failed-banner';
-    banner.style.cssText = `
-      background:#fef2f2; border:1px solid #fecaca; color:#991b1b;
-      padding:10px 16px; margin-bottom:12px; border-radius:8px;
-      display:flex; align-items:center; justify-content:space-between;
-      font-size:13px; font-weight:500;
-    `;
-    const tableCard = document.querySelector('.center-panel .card');
-    tableCard.parentNode.insertBefore(banner, tableCard);
-  }
-  banner.innerHTML = `
-    <span>Showing only builds that contain failed jobs</span>
-    <button onclick="clearFailedFilter()" style="background:#991b1b;color:#fff;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px">
-      Clear filter
-    </button>
-  `;
-  banner.style.display = 'flex';
-}
-
-function hideFailedBanner() {
-  const banner = document.getElementById('failed-banner');
-  if (banner) banner.style.display = 'none';
-}
-
-/* ---------- Rest of the functions (same as before) ---------- */
-
+/* ========== ORCHESTRATOR LIST ========== */
 function renderOrchList() {
   const ul = document.getElementById('orch-list');
   ul.innerHTML = '';
@@ -176,9 +224,8 @@ function renderOrchList() {
       <span class="orch-meta">${builds.length} builds</span>
     `;
     li.onclick = () => {
+      closeFailedJobsView();
       document.getElementById('filter-orch').value = o.id;
-      showingFailedOnly = false;
-      hideFailedBanner();
       applyFilters();
       const latest = allBuilds.find(b => b.orchestratorId === o.id);
       if (latest) showDetails(latest);
@@ -200,6 +247,7 @@ function populateOrchFilter() {
   });
 }
 
+/* ========== STATS ========== */
 function updateStats() {
   const now = Date.now();
   const h24 = 24 * 60 * 60 * 1000;
@@ -327,7 +375,9 @@ function renderDonut() {
 
   document.getElementById('status-legend').innerHTML = `
     <div class="legend-row"><span class="legend-dot" style="background:#10b981"></span> Success ${success} (${Math.round(success/total*100)}%)</div>
-    <div class="legend-row" style="cursor:pointer" onclick="showFailedFilter()"><span class="legend-dot" style="background:#ef4444"></span> Failed ${failed} (${Math.round(failed/total*100)}%)</div>
+    <div class="legend-row" style="cursor:pointer" onclick="openFailedJobsView()">
+      <span class="legend-dot" style="background:#ef4444"></span> Failed ${failed} (${Math.round(failed/total*100)}%)
+    </div>
     <div class="legend-row"><span class="legend-dot" style="background:#f59e0b"></span> Unstable ${unstable} (${Math.round(unstable/total*100)}%)</div>
   `;
 }
@@ -393,8 +443,6 @@ function renderActivity() {
 }
 
 function applyFilters() {
-  if (showingFailedOnly) return; // keep failed filter active until cleared
-
   const orch = document.getElementById('filter-orch').value;
   const q = (document.getElementById('build-search').value || '').toLowerCase();
   filteredBuilds = allBuilds.filter(b => {
