@@ -1,6 +1,6 @@
 const CONFIG = {
   ORCHESTRATORS_URL: 'orchestrators.json',
-  PAGE_SIZE: 10
+  PAGE_SIZE: 6          // 6 builds per page
 };
 
 let orchestrators = [];
@@ -9,6 +9,7 @@ let filteredBuilds = [];
 let currentPage = 1;
 let selectedBuild = null;
 let children = [];
+let childrenPage = 1;
 let activeOrchFilter = 'all';
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -58,6 +59,8 @@ async function loadAll() {
     allBuilds = results.flat().sort((a, b) => Number(b.build) - Number(a.build));
     filteredBuilds = [...allBuilds];
     currentPage = 1;
+    selectedBuild = null;
+    document.getElementById('detail-card').style.display = 'none';
 
     renderOrchList();
     populateOrchFilter();
@@ -80,6 +83,7 @@ async function loadAll() {
   }
 }
 
+/* ---------- Orchestrator List ---------- */
 function renderOrchList() {
   const ul = document.getElementById('orch-list');
   ul.innerHTML = '';
@@ -95,7 +99,7 @@ function renderOrchList() {
   } else if (activeOrchFilter === 'issues') {
     list = list.filter(o => {
       const builds = allBuilds.filter(b => b.orchestratorId === o.id);
-      return builds.some(b => ['FAILED','FAILURE','UNSTABLE'].includes((b.status || '').toUpperCase()));
+      return builds.some(b => (b.failedCount || 0) > 0 || ['FAILED','FAILURE','UNSTABLE'].includes((b.status || '').toUpperCase()));
     });
   }
 
@@ -110,8 +114,15 @@ function renderOrchList() {
       <span class="orch-meta">${builds.length} builds</span>
     `;
     li.onclick = () => {
+      // Filter by this orchestrator
       document.getElementById('filter-orch').value = o.id;
       applyFilters();
+
+      // Auto-select the latest build of this orchestrator
+      const latest = allBuilds.find(b => b.orchestratorId === o.id);
+      if (latest) {
+        showDetails(latest);
+      }
     };
     ul.appendChild(li);
   });
@@ -130,6 +141,7 @@ function populateOrchFilter() {
   });
 }
 
+/* ---------- Stats (now using children counters) ---------- */
 function updateStats() {
   const now = Date.now();
   const h24 = 24 * 60 * 60 * 1000;
@@ -143,30 +155,34 @@ function updateStats() {
     return t && (now - t) > h24 && (now - t) <= h24 * 2;
   });
 
-  const total = allBuilds.length;
-  const success = allBuilds.filter(b => (b.status || '').toUpperCase() === 'SUCCESS').length;
-  const failed  = allBuilds.filter(b => ['FAILED','FAILURE'].includes((b.status || '').toUpperCase())).length;
-  const unstable = allBuilds.filter(b => (b.status || '').toUpperCase() === 'UNSTABLE').length;
+  // Use the real children counters from each parent
+  const totalParents = allBuilds.length;
+  const totalSuccessChildren = allBuilds.reduce((sum, b) => sum + (b.successCount || 0), 0);
+  const totalFailedChildren  = allBuilds.reduce((sum, b) => sum + (b.failedCount || 0), 0);
+  const totalUnstableChildren = allBuilds.reduce((sum, b) => sum + (b.unstableCount || 0), 0);
+  const totalChildren = totalSuccessChildren + totalFailedChildren + totalUnstableChildren || 1;
 
-  const lastTotal    = last24.length;
-  const lastSuccess  = last24.filter(b => (b.status || '').toUpperCase() === 'SUCCESS').length;
-  const lastFailed   = last24.filter(b => ['FAILED','FAILURE'].includes((b.status || '').toUpperCase())).length;
-  const lastUnstable = last24.filter(b => (b.status || '').toUpperCase() === 'UNSTABLE').length;
+  // Last 24h children
+  const lastSuccess = last24.reduce((s, b) => s + (b.successCount || 0), 0);
+  const lastFailed  = last24.reduce((s, b) => s + (b.failedCount || 0), 0);
+  const lastUnstable = last24.reduce((s, b) => s + (b.unstableCount || 0), 0);
+  const lastTotalChildren = lastSuccess + lastFailed + lastUnstable;
 
-  const prevTotal    = prev24.length;
-  const prevSuccess  = prev24.filter(b => (b.status || '').toUpperCase() === 'SUCCESS').length;
-  const prevFailed   = prev24.filter(b => ['FAILED','FAILURE'].includes((b.status || '').toUpperCase())).length;
-  const prevUnstable = prev24.filter(b => (b.status || '').toUpperCase() === 'UNSTABLE').length;
+  // Previous 24h children
+  const prevSuccess = prev24.reduce((s, b) => s + (b.successCount || 0), 0);
+  const prevFailed  = prev24.reduce((s, b) => s + (b.failedCount || 0), 0);
+  const prevUnstable = prev24.reduce((s, b) => s + (b.unstableCount || 0), 0);
+  const prevTotalChildren = prevSuccess + prevFailed + prevUnstable;
 
-  document.getElementById('stat-total').textContent = total;
-  document.getElementById('stat-success').textContent = success;
-  document.getElementById('stat-failed').textContent = failed;
-  document.getElementById('stat-unstable').textContent = unstable;
+  document.getElementById('stat-total').textContent = totalParents;
+  document.getElementById('stat-success').textContent = totalSuccessChildren;
+  document.getElementById('stat-failed').textContent = totalFailedChildren;
+  document.getElementById('stat-unstable').textContent = totalUnstableChildren;
 
   const pct = (n, t) => t ? Math.round((n / t) * 1000) / 10 : 0;
-  const pctSuccess  = pct(success, total);
-  const pctFailed   = pct(failed, total);
-  const pctUnstable = pct(unstable, total);
+  const pctSuccess  = pct(totalSuccessChildren, totalChildren);
+  const pctFailed   = pct(totalFailedChildren, totalChildren);
+  const pctUnstable = pct(totalUnstableChildren, totalChildren);
 
   document.getElementById('pct-success').textContent  = pctSuccess + '%';
   document.getElementById('pct-failed').textContent   = pctFailed + '%';
@@ -177,7 +193,7 @@ function updateStats() {
   setRing('ring-failed',   circ - (pctFailed   / 100) * circ);
   setRing('ring-unstable', circ - (pctUnstable / 100) * circ);
 
-  setTrend('trend-total',    lastTotal - prevTotal);
+  setTrend('trend-total',    last24.length - prev24.length);
   setTrend('trend-success',  lastSuccess - prevSuccess);
   setTrend('trend-failed',   lastFailed - prevFailed);
   setTrend('trend-unstable', lastUnstable - prevUnstable);
@@ -232,13 +248,14 @@ function renderMiniBars(builds) {
   });
 }
 
+/* ---------- Donut (also based on children counters) ---------- */
 function renderDonut() {
-  const total = allBuilds.length || 1;
-  const success = allBuilds.filter(b => (b.status || '').toUpperCase() === 'SUCCESS').length;
-  const failed = allBuilds.filter(b => ['FAILED','FAILURE'].includes((b.status || '').toUpperCase())).length;
-  const unstable = allBuilds.filter(b => (b.status || '').toUpperCase() === 'UNSTABLE').length;
+  const success = allBuilds.reduce((s, b) => s + (b.successCount || 0), 0);
+  const failed  = allBuilds.reduce((s, b) => s + (b.failedCount || 0), 0);
+  const unstable = allBuilds.reduce((s, b) => s + (b.unstableCount || 0), 0);
+  const total = success + failed + unstable || 1;
 
-  document.getElementById('donut-total').textContent = allBuilds.length;
+  document.getElementById('donut-total').textContent = success + failed + unstable;
 
   const r = 48, cx = 60, cy = 60, circ = 2 * Math.PI * r;
   const segs = [
@@ -285,10 +302,10 @@ function renderOrchStatus() {
   orchestrators.forEach(o => {
     const builds = allBuilds.filter(b => b.orchestratorId === o.id);
     if (!builds.length) return;
-    const success = builds.filter(b => (b.status || '').toUpperCase() === 'SUCCESS').length;
-    const failed = builds.filter(b => ['FAILED','FAILURE'].includes((b.status || '').toUpperCase())).length;
-    const unstable = builds.filter(b => (b.status || '').toUpperCase() === 'UNSTABLE').length;
-    const total = builds.length;
+    const success = builds.reduce((s, b) => s + (b.successCount || 0), 0);
+    const failed  = builds.reduce((s, b) => s + (b.failedCount || 0), 0);
+    const unstable = builds.reduce((s, b) => s + (b.unstableCount || 0), 0);
+    const total = success + failed + unstable || 1;
     const row = document.createElement('div');
     row.className = 'orch-status-row';
     row.innerHTML = `
@@ -370,7 +387,10 @@ function renderTable() {
       tbody.appendChild(tr);
     });
   }
-  renderPager('builds-pager', filteredBuilds.length, currentPage, p => { currentPage = p; renderTable(); });
+  renderPager('builds-pager', filteredBuilds.length, currentPage, p => {
+    currentPage = p;
+    renderTable();
+  });
 }
 
 function badgeClass(s) {
@@ -385,25 +405,36 @@ function badgeClass(s) {
 function renderPager(id, total, current, cb) {
   const pages = Math.max(1, Math.ceil(total / CONFIG.PAGE_SIZE));
   const el = document.getElementById(id);
+  if (!el) return;
   el.innerHTML = '';
   const prev = document.createElement('button');
-  prev.className = 'page-btn'; prev.textContent = '‹'; prev.disabled = current === 1;
-  prev.onclick = () => cb(current - 1); el.appendChild(prev);
+  prev.className = 'page-btn';
+  prev.textContent = '‹';
+  prev.disabled = current === 1;
+  prev.onclick = () => cb(current - 1);
+  el.appendChild(prev);
   for (let i = 1; i <= pages; i++) {
     const b = document.createElement('button');
     b.className = 'page-btn' + (i === current ? ' active' : '');
-    b.textContent = i; b.onclick = () => cb(i); el.appendChild(b);
+    b.textContent = i;
+    b.onclick = () => cb(i);
+    el.appendChild(b);
   }
   const next = document.createElement('button');
-  next.className = 'page-btn'; next.textContent = '›'; next.disabled = current === pages;
-  next.onclick = () => cb(current + 1); el.appendChild(next);
+  next.className = 'page-btn';
+  next.textContent = '›';
+  next.disabled = current === pages;
+  next.onclick = () => cb(current + 1);
+  el.appendChild(next);
 }
 
 async function showDetails(b) {
   selectedBuild = b;
+  childrenPage = 1;
   document.getElementById('detail-card').style.display = 'block';
   document.getElementById('detail-id').textContent = '#' + b.build;
-  document.getElementById('detail-range').textContent = `${b.timestamp || '—'} → ${b.endTime || '—'} (${b.duration || '—'})`;
+  document.getElementById('detail-range').textContent =
+    `${b.timestamp || '—'} → ${b.endTime || '—'} (${b.duration || '—'})`;
   const badge = document.getElementById('detail-badge');
   badge.textContent = b.status || '—';
   badge.className = 'badge ' + badgeClass(b.status);
@@ -426,32 +457,42 @@ async function showDetails(b) {
 function renderChildren() {
   const tbody = document.getElementById('children-tbody');
   tbody.innerHTML = '';
-  if (!children.length) {
+
+  const start = (childrenPage - 1) * CONFIG.PAGE_SIZE;
+  const page = children.slice(start, start + CONFIG.PAGE_SIZE);
+
+  if (!page.length) {
     tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:30px;color:#94a3b8">No child builds</td></tr>`;
-    return;
+  } else {
+    page.forEach(c => {
+      const tr = document.createElement('tr');
+      tr.style.cursor = 'default';
+      const hasBuild = c.build != null && c.build !== '';
+      let logCell = '—', action = '—';
+      if (c.logFile) {
+        logCell = `<span style="font-size:11px;color:#64748b">${c.logFile}</span>`;
+        action = `<button class="link" onclick="event.stopPropagation();alert('Log: ${c.logFile}')">View</button>`;
+      } else if (c.reason) {
+        logCell = `<span style="font-size:11px;color:#dc2626">${c.reason}</span>`;
+        action = `<span style="font-size:11px;color:#94a3b8">No log</span>`;
+      }
+      tr.innerHTML = `
+        <td style="font-weight:500">${c.job || '—'}</td>
+        <td class="build-id">${hasBuild ? c.build : '—'}</td>
+        <td>${c.startTime || '—'}</td>
+        <td>${c.endTime || '—'}</td>
+        <td><span class="badge ${badgeClass(c.status)}">${c.status || '—'}</span></td>
+        <td>${c.duration || '—'}</td>
+        <td>${logCell}</td>
+        <td>${action}</td>
+      `;
+      tbody.appendChild(tr);
+    });
   }
-  children.forEach(c => {
-    const tr = document.createElement('tr');
-    tr.style.cursor = 'default';
-    const hasBuild = c.build != null && c.build !== '';
-    let logCell = '—', action = '—';
-    if (c.logFile) {
-      logCell = `<span style="font-size:11px;color:#64748b">${c.logFile}</span>`;
-      action = `<button class="link" onclick="event.stopPropagation();alert('Log: ${c.logFile}')">View</button>`;
-    } else if (c.reason) {
-      logCell = `<span style="font-size:11px;color:#dc2626">${c.reason}</span>`;
-      action = `<span style="font-size:11px;color:#94a3b8">No log</span>`;
-    }
-    tr.innerHTML = `
-      <td style="font-weight:500">${c.job || '—'}</td>
-      <td class="build-id">${hasBuild ? c.build : '—'}</td>
-      <td>${c.startTime || '—'}</td>
-      <td>${c.endTime || '—'}</td>
-      <td><span class="badge ${badgeClass(c.status)}">${c.status || '—'}</span></td>
-      <td>${c.duration || '—'}</td>
-      <td>${logCell}</td>
-      <td>${action}</td>
-    `;
-    tbody.appendChild(tr);
+
+  // Children pagination
+  renderPager('children-pager', children.length, childrenPage, p => {
+    childrenPage = p;
+    renderChildren();
   });
 }
