@@ -12,9 +12,9 @@ let children = [];
 let childrenPage = 1;
 let activeOrchFilter = 'all';
 
-// Failed Jobs view
 let failedJobs = [];
 let failedPage = 1;
+let bellCleared = false; // when user clicks the bell, we hide the badge until new failures appear
 
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-refresh').onclick = loadAll;
@@ -23,9 +23,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('filter-orch').onchange = applyFilters;
   document.getElementById('orch-search').oninput = filterOrchList;
   document.getElementById('btn-back-builds').onclick = closeFailedJobsView;
-
-  // Click on FAILED card
   document.getElementById('failed-stat-card').onclick = openFailedJobsView;
+  document.getElementById('btn-bell').onclick = () => {
+    bellCleared = true;
+    updateBellBadge(0);
+    openFailedJobsView();
+  };
 
   document.querySelectorAll('.filter-tabs .tab').forEach(tab => {
     tab.onclick = () => {
@@ -68,11 +71,10 @@ async function loadAll() {
     filteredBuilds = [...allBuilds];
     currentPage = 1;
     selectedBuild = null;
-
-    // Close failed view if open
-    closeFailedJobsView();
-
+    children = [];
     document.getElementById('detail-card').style.display = 'none';
+
+    closeFailedJobsView();
 
     renderOrchList();
     populateOrchFilter();
@@ -97,7 +99,6 @@ async function loadAll() {
 
 /* ========== FAILED JOBS VIEW ========== */
 async function openFailedJobsView() {
-  // Collect all failed children from every parent
   failedJobs = [];
 
   for (const parent of allBuilds) {
@@ -122,9 +123,7 @@ async function openFailedJobsView() {
             status: c.status,
             reason: c.reason || '—',
             startTime: c.startTime || '—',
-            logFile: c.logFile || null,
-            folder: parent.folder,
-            parentFile: file
+            logFile: c.logFile || null
           });
         }
       });
@@ -135,7 +134,6 @@ async function openFailedJobsView() {
 
   failedPage = 1;
 
-  // Switch views
   document.getElementById('builds-card').style.display = 'none';
   document.getElementById('detail-card').style.display = 'none';
   document.getElementById('failed-jobs-card').style.display = 'block';
@@ -193,6 +191,16 @@ function renderFailedJobs() {
   });
 }
 
+function updateBellBadge(count) {
+  const badge = document.getElementById('bell-badge');
+  if (count > 0 && !bellCleared) {
+    badge.hidden = false;
+    badge.textContent = count > 99 ? '99+' : count;
+  } else {
+    badge.hidden = true;
+  }
+}
+
 /* ========== ORCHESTRATOR LIST ========== */
 function renderOrchList() {
   const ul = document.getElementById('orch-list');
@@ -227,8 +235,19 @@ function renderOrchList() {
       closeFailedJobsView();
       document.getElementById('filter-orch').value = o.id;
       applyFilters();
+
+      // Clear previous details first
+      selectedBuild = null;
+      children = [];
+      document.getElementById('detail-card').style.display = 'none';
+
       const latest = allBuilds.find(b => b.orchestratorId === o.id);
-      if (latest) showDetails(latest);
+      if (latest) {
+        showDetails(latest);
+      } else {
+        // No builds → keep detail section hidden
+        document.getElementById('detail-card').style.display = 'none';
+      }
     };
     ul.appendChild(li);
   });
@@ -279,6 +298,14 @@ function updateStats() {
   document.getElementById('stat-success').textContent = totalSuccessChildren;
   document.getElementById('stat-failed').textContent = totalFailedChildren;
   document.getElementById('stat-unstable').textContent = totalUnstableChildren;
+
+  // Update bell
+  if (totalFailedChildren > 0) {
+    updateBellBadge(totalFailedChildren);
+  } else {
+    updateBellBadge(0);
+    bellCleared = false;
+  }
 
   const pct = (n, t) => t ? Math.round((n / t) * 1000) / 10 : 0;
   const pctSuccess  = pct(totalSuccessChildren, totalChildren);
@@ -382,18 +409,35 @@ function renderDonut() {
   `;
 }
 
+/* ========== Builds Over Time – now respects status ========== */
 function renderBars() {
   const container = document.getElementById('bars-chart');
   container.innerHTML = '';
   const recent = allBuilds.slice(0, 8).reverse();
   if (!recent.length) return;
+
   recent.forEach(b => {
+    const hasFailed = (b.failedCount || 0) > 0;
+    const hasUnstable = (b.unstableCount || 0) > 0;
     const status = (b.status || '').toUpperCase();
-    const cls = status === 'SUCCESS' ? 'success' : (status === 'UNSTABLE' ? 'unstable' : 'failed');
-    const h = 20 + Math.random() * 60;
+
+    let cls = 'success';
+    if (hasFailed || status === 'FAILED' || status === 'FAILURE') {
+      cls = 'failed';
+    } else if (hasUnstable || status === 'UNSTABLE') {
+      cls = 'unstable';
+    }
+
+    // Height based on total children or a minimum visual
+    const totalKids = (b.successCount || 0) + (b.failedCount || 0) + (b.unstableCount || 0);
+    const h = Math.max(18, Math.min(90, 18 + totalKids * 12));
+
     const group = document.createElement('div');
     group.className = 'bar-group';
-    group.innerHTML = `<div class="bar ${cls}" style="height:${h}%"></div><div class="bar-label">#${b.build}</div>`;
+    group.innerHTML = `
+      <div class="bar ${cls}" style="height:${h}%"></div>
+      <div class="bar-label">#${b.build}</div>
+    `;
     container.appendChild(group);
   });
 }
