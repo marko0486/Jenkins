@@ -1,6 +1,6 @@
 const CONFIG = {
   ORCHESTRATORS_URL: 'orchestrators.json',
-  PAGE_SIZE: 6          // 6 builds per page
+  PAGE_SIZE: 6
 };
 
 let orchestrators = [];
@@ -11,6 +11,7 @@ let selectedBuild = null;
 let children = [];
 let childrenPage = 1;
 let activeOrchFilter = 'all';
+let showingFailedOnly = false;
 
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-refresh').onclick = loadAll;
@@ -18,6 +19,14 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('build-search').oninput = applyFilters;
   document.getElementById('filter-orch').onchange = applyFilters;
   document.getElementById('orch-search').oninput = filterOrchList;
+
+  // Click on FAILED number
+  document.getElementById('stat-failed').style.cursor = 'pointer';
+  document.getElementById('stat-failed').onclick = showFailedFilter;
+
+  // Click on the red ring text / area
+  document.getElementById('pct-failed').style.cursor = 'pointer';
+  document.getElementById('pct-failed').onclick = showFailedFilter;
 
   document.querySelectorAll('.filter-tabs .tab').forEach(tab => {
     tab.onclick = () => {
@@ -60,7 +69,9 @@ async function loadAll() {
     filteredBuilds = [...allBuilds];
     currentPage = 1;
     selectedBuild = null;
+    showingFailedOnly = false;
     document.getElementById('detail-card').style.display = 'none';
+    hideFailedBanner();
 
     renderOrchList();
     populateOrchFilter();
@@ -83,7 +94,58 @@ async function loadAll() {
   }
 }
 
-/* ---------- Orchestrator List ---------- */
+function showFailedFilter() {
+  showingFailedOnly = true;
+  filteredBuilds = allBuilds.filter(b => (b.failedCount || 0) > 0);
+  currentPage = 1;
+
+  showFailedBanner();
+  document.getElementById('table-subtitle').textContent = 'Showing builds with failed jobs';
+  document.getElementById('footer-info').textContent = `Showing ${filteredBuilds.length} of ${allBuilds.length} builds`;
+  renderTable();
+
+  // Auto-select the latest parent that has failures
+  if (filteredBuilds.length > 0) {
+    showDetails(filteredBuilds[0]);
+  }
+}
+
+function clearFailedFilter() {
+  showingFailedOnly = false;
+  hideFailedBanner();
+  applyFilters();
+}
+
+function showFailedBanner() {
+  let banner = document.getElementById('failed-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'failed-banner';
+    banner.style.cssText = `
+      background:#fef2f2; border:1px solid #fecaca; color:#991b1b;
+      padding:10px 16px; margin-bottom:12px; border-radius:8px;
+      display:flex; align-items:center; justify-content:space-between;
+      font-size:13px; font-weight:500;
+    `;
+    const tableCard = document.querySelector('.center-panel .card');
+    tableCard.parentNode.insertBefore(banner, tableCard);
+  }
+  banner.innerHTML = `
+    <span>Showing only builds that contain failed jobs</span>
+    <button onclick="clearFailedFilter()" style="background:#991b1b;color:#fff;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px">
+      Clear filter
+    </button>
+  `;
+  banner.style.display = 'flex';
+}
+
+function hideFailedBanner() {
+  const banner = document.getElementById('failed-banner');
+  if (banner) banner.style.display = 'none';
+}
+
+/* ---------- Rest of the functions (same as before) ---------- */
+
 function renderOrchList() {
   const ul = document.getElementById('orch-list');
   ul.innerHTML = '';
@@ -114,15 +176,12 @@ function renderOrchList() {
       <span class="orch-meta">${builds.length} builds</span>
     `;
     li.onclick = () => {
-      // Filter by this orchestrator
       document.getElementById('filter-orch').value = o.id;
+      showingFailedOnly = false;
+      hideFailedBanner();
       applyFilters();
-
-      // Auto-select the latest build of this orchestrator
       const latest = allBuilds.find(b => b.orchestratorId === o.id);
-      if (latest) {
-        showDetails(latest);
-      }
+      if (latest) showDetails(latest);
     };
     ul.appendChild(li);
   });
@@ -141,7 +200,6 @@ function populateOrchFilter() {
   });
 }
 
-/* ---------- Stats (now using children counters) ---------- */
 function updateStats() {
   const now = Date.now();
   const h24 = 24 * 60 * 60 * 1000;
@@ -155,24 +213,19 @@ function updateStats() {
     return t && (now - t) > h24 && (now - t) <= h24 * 2;
   });
 
-  // Use the real children counters from each parent
   const totalParents = allBuilds.length;
   const totalSuccessChildren = allBuilds.reduce((sum, b) => sum + (b.successCount || 0), 0);
   const totalFailedChildren  = allBuilds.reduce((sum, b) => sum + (b.failedCount || 0), 0);
   const totalUnstableChildren = allBuilds.reduce((sum, b) => sum + (b.unstableCount || 0), 0);
   const totalChildren = totalSuccessChildren + totalFailedChildren + totalUnstableChildren || 1;
 
-  // Last 24h children
   const lastSuccess = last24.reduce((s, b) => s + (b.successCount || 0), 0);
   const lastFailed  = last24.reduce((s, b) => s + (b.failedCount || 0), 0);
   const lastUnstable = last24.reduce((s, b) => s + (b.unstableCount || 0), 0);
-  const lastTotalChildren = lastSuccess + lastFailed + lastUnstable;
 
-  // Previous 24h children
   const prevSuccess = prev24.reduce((s, b) => s + (b.successCount || 0), 0);
   const prevFailed  = prev24.reduce((s, b) => s + (b.failedCount || 0), 0);
   const prevUnstable = prev24.reduce((s, b) => s + (b.unstableCount || 0), 0);
-  const prevTotalChildren = prevSuccess + prevFailed + prevUnstable;
 
   document.getElementById('stat-total').textContent = totalParents;
   document.getElementById('stat-success').textContent = totalSuccessChildren;
@@ -248,7 +301,6 @@ function renderMiniBars(builds) {
   });
 }
 
-/* ---------- Donut (also based on children counters) ---------- */
 function renderDonut() {
   const success = allBuilds.reduce((s, b) => s + (b.successCount || 0), 0);
   const failed  = allBuilds.reduce((s, b) => s + (b.failedCount || 0), 0);
@@ -275,7 +327,7 @@ function renderDonut() {
 
   document.getElementById('status-legend').innerHTML = `
     <div class="legend-row"><span class="legend-dot" style="background:#10b981"></span> Success ${success} (${Math.round(success/total*100)}%)</div>
-    <div class="legend-row"><span class="legend-dot" style="background:#ef4444"></span> Failed ${failed} (${Math.round(failed/total*100)}%)</div>
+    <div class="legend-row" style="cursor:pointer" onclick="showFailedFilter()"><span class="legend-dot" style="background:#ef4444"></span> Failed ${failed} (${Math.round(failed/total*100)}%)</div>
     <div class="legend-row"><span class="legend-dot" style="background:#f59e0b"></span> Unstable ${unstable} (${Math.round(unstable/total*100)}%)</div>
   `;
 }
@@ -341,6 +393,8 @@ function renderActivity() {
 }
 
 function applyFilters() {
+  if (showingFailedOnly) return; // keep failed filter active until cleared
+
   const orch = document.getElementById('filter-orch').value;
   const q = (document.getElementById('build-search').value || '').toLowerCase();
   filteredBuilds = allBuilds.filter(b => {
@@ -467,6 +521,9 @@ function renderChildren() {
     page.forEach(c => {
       const tr = document.createElement('tr');
       tr.style.cursor = 'default';
+      const isFailed = ['FAILED','FAILURE'].includes((c.status || '').toUpperCase());
+      if (isFailed) tr.style.background = '#fef2f2';
+
       const hasBuild = c.build != null && c.build !== '';
       let logCell = '—', action = '—';
       if (c.logFile) {
@@ -490,7 +547,6 @@ function renderChildren() {
     });
   }
 
-  // Children pagination
   renderPager('children-pager', children.length, childrenPage, p => {
     childrenPage = p;
     renderChildren();
