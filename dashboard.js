@@ -14,7 +14,8 @@ let activeOrchFilter = 'all';
 
 let failedJobs = [];
 let failedPage = 1;
-let bellCleared = false; // when user clicks the bell, we hide the badge until new failures appear
+let bellCleared = false;
+let isLoadingFailed = false; // evita llamadas concurrentes
 
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-refresh').onclick = loadAll;
@@ -97,39 +98,51 @@ async function loadAll() {
   }
 }
 
-/* ========== FAILED JOBS VIEW ========== */
+/* ========== FAILED JOBS VIEW (con protección anti-duplicados) ========== */
 async function openFailedJobsView() {
+  if (isLoadingFailed) return; // evita múltiples clics simultáneos
+  isLoadingFailed = true;
+
   failedJobs = [];
+  const seen = new Set(); // clave única: parentBuild + jobName
 
-  for (const parent of allBuilds) {
-    if ((parent.failedCount || 0) === 0) continue;
+  try {
+    for (const parent of allBuilds) {
+      if ((parent.failedCount || 0) === 0) continue;
 
-    try {
-      const file = parent.file || `Build_${parent.build}.json`;
-      const url = `data/${parent.folder}/Builds/${file}?t=${Date.now()}`;
-      const res = await fetch(url);
-      if (!res.ok) continue;
-      const data = await res.json();
-      const kids = data.children || [];
+      try {
+        const file = parent.file || `Build_${parent.build}.json`;
+        const url = `data/${parent.folder}/Builds/${file}?t=${Date.now()}`;
+        const res = await fetch(url);
+        if (!res.ok) continue;
+        const data = await res.json();
+        const kids = data.children || [];
 
-      kids.forEach(c => {
-        const status = (c.status || '').toUpperCase();
-        if (status === 'FAILED' || status === 'FAILURE' || status === 'PRECHECK_FAILED') {
-          failedJobs.push({
-            job: c.job || '—',
-            parentBuild: parent.build,
-            orchestrator: parent.orchestratorName,
-            orchestratorColor: parent.orchestratorColor,
-            status: c.status,
-            reason: c.reason || '—',
-            startTime: c.startTime || '—',
-            logFile: c.logFile || null
-          });
-        }
-      });
-    } catch (e) {
-      console.warn('Could not load children for build', parent.build, e);
+        kids.forEach(c => {
+          const status = (c.status || '').toUpperCase();
+          if (status === 'FAILED' || status === 'FAILURE' || status === 'PRECHECK_FAILED') {
+            const key = `${parent.build}||${c.job || ''}`;
+            if (seen.has(key)) return; // ya existe → no duplicar
+            seen.add(key);
+
+            failedJobs.push({
+              job: c.job || '—',
+              parentBuild: parent.build,
+              orchestrator: parent.orchestratorName,
+              orchestratorColor: parent.orchestratorColor,
+              status: c.status,
+              reason: c.reason || '—',
+              startTime: c.startTime || '—',
+              logFile: c.logFile || null
+            });
+          }
+        });
+      } catch (e) {
+        console.warn('Could not load children for build', parent.build, e);
+      }
     }
+  } finally {
+    isLoadingFailed = false;
   }
 
   failedPage = 1;
@@ -236,7 +249,6 @@ function renderOrchList() {
       document.getElementById('filter-orch').value = o.id;
       applyFilters();
 
-      // Clear previous details first
       selectedBuild = null;
       children = [];
       document.getElementById('detail-card').style.display = 'none';
@@ -244,9 +256,6 @@ function renderOrchList() {
       const latest = allBuilds.find(b => b.orchestratorId === o.id);
       if (latest) {
         showDetails(latest);
-      } else {
-        // No builds → keep detail section hidden
-        document.getElementById('detail-card').style.display = 'none';
       }
     };
     ul.appendChild(li);
@@ -299,7 +308,6 @@ function updateStats() {
   document.getElementById('stat-failed').textContent = totalFailedChildren;
   document.getElementById('stat-unstable').textContent = totalUnstableChildren;
 
-  // Update bell
   if (totalFailedChildren > 0) {
     updateBellBadge(totalFailedChildren);
   } else {
@@ -409,7 +417,6 @@ function renderDonut() {
   `;
 }
 
-/* ========== Builds Over Time – now respects status ========== */
 function renderBars() {
   const container = document.getElementById('bars-chart');
   container.innerHTML = '';
@@ -428,7 +435,6 @@ function renderBars() {
       cls = 'unstable';
     }
 
-    // Height based on total children or a minimum visual
     const totalKids = (b.successCount || 0) + (b.failedCount || 0) + (b.unstableCount || 0);
     const h = Math.max(18, Math.min(90, 18 + totalKids * 12));
 
