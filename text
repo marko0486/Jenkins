@@ -1,4 +1,6 @@
-Tengo un problema muy real esa pagina es de solo un Orquestador, pero voy a tener varios
+Quiero que cuado le de click a un orquestador de lado izquiero, por default se seleccione el ultimo Build ID y por ende muestre sus Child Builds ( Jobs ) abajo 
 
+Ademas, la paginacion de Orchestrator Builds debe de ser de 6 jobs  y en la parte de abajo de Selected Build Details: debe de ser de tambien 6 y debes de mostrar la paginacion.
 
-Todavia no entremos en la logica, solo quiero el diseno, acomoda para algo mas Global, tengo espacio a los laterales sin usar, aprobechalo, crea un diseno que pueda ver no solo de un solo Job llamado POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV  sino de varios, dame algo bonito respetando eso que ya tengo, crea la imagen 
+Ademas tengo un error de inconsistencia, tengo un job en estado FAILED, pero no lo veo en los indicadores de la parte superior o lateral marcado. Actualmente dice Failed = 0 y en Build Status Failed 0 (0%)
+
