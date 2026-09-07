@@ -61,6 +61,27 @@ body {
 }
 .icon-btn:hover { background: #334155; }
 
+/* Bell notification */
+.bell-btn { position: relative; }
+.bell-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  line-height: 1;
+  border: 2px solid #0f172a;
+}
+
 /* ========== LAYOUT ========== */
 .layout {
   display: grid;
