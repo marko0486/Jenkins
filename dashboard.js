@@ -15,7 +15,7 @@ let activeOrchFilter = 'all';
 
 let failedJobs = [];
 let failedPage = 1;
-let bellCleared = false;      // solo vive en memoria (se resetea al refrescar la página)
+let bellCleared = false;
 let isLoadingFailed = false;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -127,6 +127,12 @@ async function openFailedJobsView() {
             if (seen.has(key)) return;
             seen.add(key);
 
+            // Fecha del fallo (prioridad)
+            let failTime = c.endTime && c.endTime !== '—' ? c.endTime
+                         : c.startTime && c.startTime !== '—' ? c.startTime
+                         : parent.endTime && parent.endTime !== '—' ? parent.endTime
+                         : parent.timestamp || '—';
+
             failedJobs.push({
               job: c.job || '—',
               parentBuild: parent.build,
@@ -134,8 +140,9 @@ async function openFailedJobsView() {
               orchestratorColor: parent.orchestratorColor,
               status: c.status,
               reason: c.reason || '—',
-              startTime: c.startTime || '—',
-              logFile: c.logFile || null
+              startTime: failTime,
+              logFile: c.logFile || null,
+              _sortKey: parseTimestamp(failTime) || 0
             });
           }
         });
@@ -146,6 +153,9 @@ async function openFailedJobsView() {
   } finally {
     isLoadingFailed = false;
   }
+
+  // Ordenar del más reciente al más antiguo
+  failedJobs.sort((a, b) => b._sortKey - a._sortKey);
 
   failedPage = 1;
 
@@ -200,7 +210,6 @@ function renderFailedJobs() {
     });
   }
 
-  // Paginación con 15 items
   renderPagerCustom('failed-jobs-pager', failedJobs.length, failedPage, CONFIG.FAILED_PAGE_SIZE, p => {
     failedPage = p;
     renderFailedJobs();
@@ -296,7 +305,7 @@ function updateStats() {
   const totalUnstableChildren = allBuilds.reduce((sum, b) => sum + (b.unstableCount || 0), 0);
   const totalChildren = totalSuccessChildren + totalFailedChildren + totalUnstableChildren || 1;
 
-  // ===== Campanita: solo fallos de las últimas 24 horas =====
+  // Campanita: solo fallos de las últimas 24 horas
   const failedLast24h = last24.reduce((s, b) => s + (b.failedCount || 0), 0);
   if (failedLast24h > 0) {
     updateBellBadge(failedLast24h);
