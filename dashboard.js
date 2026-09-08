@@ -1,7 +1,7 @@
 const CONFIG = {
   ORCHESTRATORS_URL: 'orchestrators.json',
-  PAGE_SIZE: 6,           // Builds table & Children
-  FAILED_PAGE_SIZE: 15    // Failed Jobs table
+  PAGE_SIZE: 6,
+  FAILED_PAGE_SIZE: 15
 };
 
 let orchestrators = [];
@@ -33,6 +33,22 @@ document.addEventListener('DOMContentLoaded', () => {
     openFailedJobsView();
   };
 
+  // Navigation
+  document.getElementById('nav-dashboard').onclick = () => {
+    setActiveNav('dashboard');
+    closeFailedJobsView();
+  };
+  document.getElementById('nav-failed').onclick = () => {
+    setActiveNav('failed');
+    openFailedJobsView();
+  };
+  document.getElementById('nav-history').onclick = () => {
+    alert('Job History – Coming soon');
+  };
+  document.getElementById('nav-reports').onclick = () => {
+    alert('Reports – Coming soon');
+  };
+
   document.querySelectorAll('.filter-tabs .tab').forEach(tab => {
     tab.onclick = () => {
       document.querySelectorAll('.filter-tabs .tab').forEach(t => t.classList.remove('active'));
@@ -44,6 +60,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   loadAll();
 });
+
+function setActiveNav(view) {
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  const map = {
+    dashboard: 'nav-dashboard',
+    failed: 'nav-failed',
+    history: 'nav-history',
+    reports: 'nav-reports'
+  };
+  const el = document.getElementById(map[view]);
+  if (el) el.classList.add('active');
+}
 
 async function loadAll() {
   try {
@@ -83,7 +111,6 @@ async function loadAll() {
     populateOrchFilter();
     updateStats();
     renderDonut();
-    renderBars();
     renderOrchStatus();
     renderActivity();
     renderTable();
@@ -127,7 +154,6 @@ async function openFailedJobsView() {
             if (seen.has(key)) return;
             seen.add(key);
 
-            // Fecha del fallo (prioridad)
             let failTime = c.endTime && c.endTime !== '—' ? c.endTime
                          : c.startTime && c.startTime !== '—' ? c.startTime
                          : parent.endTime && parent.endTime !== '—' ? parent.endTime
@@ -154,7 +180,6 @@ async function openFailedJobsView() {
     isLoadingFailed = false;
   }
 
-  // Ordenar del más reciente al más antiguo
   failedJobs.sort((a, b) => b._sortKey - a._sortKey);
 
   failedPage = 1;
@@ -166,12 +191,14 @@ async function openFailedJobsView() {
   document.getElementById('failed-jobs-subtitle').textContent =
     `${failedJobs.length} failed job${failedJobs.length !== 1 ? 's' : ''} found`;
 
+  setActiveNav('failed');
   renderFailedJobs();
 }
 
 function closeFailedJobsView() {
   document.getElementById('failed-jobs-card').style.display = 'none';
   document.getElementById('builds-card').style.display = 'block';
+  setActiveNav('dashboard');
   renderTable();
 }
 
@@ -305,7 +332,6 @@ function updateStats() {
   const totalUnstableChildren = allBuilds.reduce((sum, b) => sum + (b.unstableCount || 0), 0);
   const totalChildren = totalSuccessChildren + totalFailedChildren + totalUnstableChildren || 1;
 
-  // Campanita: solo fallos de las últimas 24 horas
   const failedLast24h = last24.reduce((s, b) => s + (b.failedCount || 0), 0);
   if (failedLast24h > 0) {
     updateBellBadge(failedLast24h);
@@ -427,37 +453,6 @@ function renderDonut() {
     </div>
     <div class="legend-row"><span class="legend-dot" style="background:#f59e0b"></span> Unstable ${unstable} (${Math.round(unstable/total*100)}%)</div>
   `;
-}
-
-function renderBars() {
-  const container = document.getElementById('bars-chart');
-  container.innerHTML = '';
-  const recent = allBuilds.slice(0, 8).reverse();
-  if (!recent.length) return;
-
-  recent.forEach(b => {
-    const hasFailed = (b.failedCount || 0) > 0;
-    const hasUnstable = (b.unstableCount || 0) > 0;
-    const status = (b.status || '').toUpperCase();
-
-    let cls = 'success';
-    if (hasFailed || status === 'FAILED' || status === 'FAILURE') {
-      cls = 'failed';
-    } else if (hasUnstable || status === 'UNSTABLE') {
-      cls = 'unstable';
-    }
-
-    const totalKids = (b.successCount || 0) + (b.failedCount || 0) + (b.unstableCount || 0);
-    const h = Math.max(18, Math.min(90, 18 + totalKids * 12));
-
-    const group = document.createElement('div');
-    group.className = 'bar-group';
-    group.innerHTML = `
-      <div class="bar ${cls}" style="height:${h}%"></div>
-      <div class="bar-label">#${b.build}</div>
-    `;
-    container.appendChild(group);
-  });
 }
 
 function renderOrchStatus() {
