@@ -143,14 +143,19 @@ exit /b 0
                                     if (checkResult == 100) {
                                         // Virtual child – pre-check failed (no real build created)
                                         CHILDREN << [
-                                            job       : jobName,
-                                            build     : null,
-                                            status    : "FAILED",
-                                            startTime : "—",
-                                            endTime   : "—",
-                                            duration  : "—",
-                                            logFile   : null,
-                                            reason    : "Source path not found or access denied"
+                                            job          : jobName,
+                                            build        : null,
+                                            status       : "FAILED",
+                                            startTime    : "—",
+                                            endTime      : "—",
+                                            duration     : "—",
+                                            logFile      : null,
+                                            reason       : "Source path not found or access denied",
+                                            source       : source,
+                                            destination  : destination,
+                                            transferType : transferType,
+                                            fileMask     : fileMask,
+                                            flags        : flags
                                         ]
                                         FAILURES << [
                                             job    : jobName,
@@ -209,14 +214,19 @@ exit /b 0
 
                                 EXECUTED++
                                 CHILDREN << [
-                                    job       : jobName,
-                                    build     : result.number,
-                                    status    : result.result,
-                                    startTime : formatTime(childStartMs),
-                                    endTime   : formatTime(childEndMs),
-                                    duration  : formatDuration(childDuration),
-                                    logFile   : "${jobName}_BuildID_${result.number}.txt",
-                                    reason    : null
+                                    job          : jobName,
+                                    build        : result.number,
+                                    status       : result.result,
+                                    startTime    : formatTime(childStartMs),
+                                    endTime      : formatTime(childEndMs),
+                                    duration     : formatDuration(childDuration),
+                                    logFile      : "${jobName}_BuildID_${result.number}.txt",
+                                    reason       : null,
+                                    source       : source,
+                                    destination  : destination,
+                                    transferType : transferType,
+                                    fileMask     : fileMask,
+                                    flags        : flags
                                 ]
 
                                 if (result.result != 'SUCCESS') {
