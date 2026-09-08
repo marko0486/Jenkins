@@ -24,7 +24,6 @@ body {
   flex-direction: column;
 }
 
-/* ========== HEADER ========== */
 .app-header {
   background: var(--header);
   color: #fff;
@@ -60,28 +59,15 @@ body {
   display: flex; align-items: center; justify-content: center;
 }
 .icon-btn:hover { background: #334155; }
-
 .bell-btn { position: relative; }
 .bell-badge {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  background: #ef4444;
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  min-width: 16px;
-  height: 16px;
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-  line-height: 1;
-  border: 2px solid #0f172a;
+  position: absolute; top: -5px; right: -5px;
+  background: #ef4444; color: #fff; font-size: 10px; font-weight: 700;
+  min-width: 16px; height: 16px; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 4px; line-height: 1; border: 2px solid #0f172a;
 }
 
-/* ========== LAYOUT ========== */
 .layout {
   display: grid;
   grid-template-columns: 270px 1fr 280px;
@@ -91,7 +77,6 @@ body {
   min-height: 0;
 }
 
-/* ========== PANEL CARDS ========== */
 .panel-card {
   background: var(--card); border: 1px solid var(--border);
   border-radius: var(--radius); margin-bottom: 14px; overflow: hidden;
@@ -110,7 +95,6 @@ body {
   font-weight: 700; padding: 2px 8px; border-radius: 999px;
 }
 
-/* ========== LEFT PANEL ========== */
 .left-panel { overflow-y: auto; max-height: calc(100vh - 90px); }
 .search-mini { position: relative; margin: 10px 12px; }
 .search-mini svg { position: absolute; left: 9px; top: 8px; color: #94a3b8; }
@@ -138,28 +122,12 @@ body {
 .orch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .orch-meta { font-size: 11px; color: var(--muted); flex-shrink: 0; }
 
-/* Navigation */
-.nav-menu {
-  display: flex;
-  flex-direction: column;
-  padding: 8px;
-  gap: 2px;
-}
+.nav-menu { display: flex; flex-direction: column; padding: 8px; gap: 2px; }
 .nav-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border: none;
-  background: transparent;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #475569;
-  cursor: pointer;
-  text-align: left;
-  width: 100%;
-  transition: background 0.12s, color 0.12s;
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  border: none; background: transparent; border-radius: 8px;
+  font-size: 13px; font-weight: 500; color: #475569; cursor: pointer;
+  text-align: left; width: 100%; transition: background 0.12s, color 0.12s;
 }
 .nav-item svg { flex-shrink: 0; color: #94a3b8; }
 .nav-item:hover { background: #f1f5f9; color: #1e293b; }
@@ -167,7 +135,6 @@ body {
 .nav-item.active { background: #eff6ff; color: #2563eb; font-weight: 600; }
 .nav-item.active svg { color: #2563eb; }
 
-/* Donut */
 .donut-wrap { position: relative; width: 120px; height: 120px; margin: 16px auto 8px; }
 .donut-center {
   position: absolute; inset: 0; display: flex; flex-direction: column;
@@ -179,12 +146,9 @@ body {
 .legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
 
-/* Activity – muestra ~4 y scroll, datos = últimos 5 */
 .activity-list {
-  list-style: none;
-  padding: 8px 12px 12px;
-  max-height: 210px;
-  overflow-y: auto;
+  list-style: none; padding: 8px 12px 12px;
+  max-height: 210px; overflow-y: auto;
 }
 .activity-list li {
   display: flex; align-items: flex-start; gap: 8px; padding: 7px 0;
@@ -201,7 +165,6 @@ body {
 .act-title { font-weight: 500; }
 .act-sub { color: var(--muted); font-size: 11px; margin-top: 1px; }
 
-/* ========== CENTER ========== */
 .center-panel { overflow-y: auto; max-height: calc(100vh - 90px); }
 .stats-row {
   display: grid; grid-template-columns: repeat(4, 1fr);
@@ -330,7 +293,6 @@ td { padding: 9px 12px; white-space: nowrap; color: #334155; }
 .page-btn.active { background: var(--blue); color: #fff; border-color: var(--blue); }
 .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* ========== RIGHT PANEL ========== */
 .right-panel { overflow-y: auto; max-height: calc(100vh - 90px); }
 #orch-status-list { padding: 10px 14px 14px; }
 .orch-status-row { margin-bottom: 10px; }
@@ -357,7 +319,6 @@ td { padding: 9px 12px; white-space: nowrap; color: #334155; }
 .quick-btn:hover { background: #f8fafc; border-color: #cbd5e1; }
 .quick-btn svg { color: var(--blue); }
 
-/* ========== FOOTER ========== */
 .app-footer {
   background: #fff; border-top: 1px solid var(--border); padding: 8px 24px;
   display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); flex-shrink: 0;
