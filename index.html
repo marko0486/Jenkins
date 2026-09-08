@@ -24,7 +24,6 @@
     <div class="header-right">
       <span class="live-badge"><span class="pulse"></span> Live</span>
       <span class="updated">Last Updated: <strong id="last-updated">—</strong></span>
-
       <button class="icon-btn bell-btn" id="btn-bell" title="Failed jobs">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
@@ -32,7 +31,6 @@
         </svg>
         <span class="bell-badge" id="bell-badge" hidden>0</span>
       </button>
-
       <button class="icon-btn" id="btn-refresh" title="Refresh">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
           <path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
@@ -43,9 +41,7 @@
 
   <div class="layout">
 
-    <!-- LEFT -->
     <aside class="left-panel">
-
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
@@ -78,27 +74,27 @@
             Navigation
           </span>
         </div>
-        <nav class="nav-menu" id="nav-menu">
-          <button class="nav-item active" data-view="dashboard" id="nav-dashboard">
+        <nav class="nav-menu">
+          <button class="nav-item active" id="nav-dashboard">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
               <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
             </svg>
             Dashboard
           </button>
-          <button class="nav-item" data-view="failed" id="nav-failed">
+          <button class="nav-item" id="nav-failed">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/>
             </svg>
             Failed Jobs
           </button>
-          <button class="nav-item" data-view="history" id="nav-history">
+          <button class="nav-item" id="nav-history">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
             </svg>
             Job History
           </button>
-          <button class="nav-item" data-view="reports" id="nav-reports">
+          <button class="nav-item" id="nav-reports">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/>
             </svg>
@@ -118,9 +114,7 @@
       </div>
     </aside>
 
-    <!-- CENTER -->
     <main class="center-panel">
-
       <div class="stats-row">
         <div class="stat-card">
           <div class="stat-icon blue">
@@ -135,7 +129,6 @@
           </div>
           <div class="mini-bars" id="mini-bars"></div>
         </div>
-
         <div class="stat-card">
           <div class="stat-icon green">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -155,7 +148,6 @@
             <span class="ring-text" id="pct-success">0%</span>
           </div>
         </div>
-
         <div class="stat-card" id="failed-stat-card" style="cursor:pointer" title="Click to view failed jobs">
           <div class="stat-icon red">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -175,7 +167,6 @@
             <span class="ring-text" id="pct-failed">0%</span>
           </div>
         </div>
-
         <div class="stat-card">
           <div class="stat-icon amber">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -210,9 +201,7 @@
             <span class="sub" id="table-subtitle">Showing builds from all orchestrators</span>
           </div>
           <div class="card-actions">
-            <select id="filter-orch">
-              <option value="all">All Orchestrators</option>
-            </select>
+            <select id="filter-orch"><option value="all">All Orchestrators</option></select>
             <div class="search-box">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
               <input type="text" id="build-search" placeholder="Search builds..." />
@@ -223,17 +212,9 @@
           <table>
             <thead>
               <tr>
-                <th>Build ID</th>
-                <th>Orchestrator</th>
-                <th>Start Time</th>
-                <th>End Time</th>
-                <th>Status</th>
-                <th>Duration</th>
-                <th>Children</th>
-                <th>Success</th>
-                <th>Failed</th>
-                <th>Unstable</th>
-                <th>Log</th>
+                <th>Build ID</th><th>Orchestrator</th><th>Start Time</th><th>End Time</th>
+                <th>Status</th><th>Duration</th><th>Children</th><th>Success</th>
+                <th>Failed</th><th>Unstable</th><th>Log</th>
               </tr>
             </thead>
             <tbody id="builds-tbody"></tbody>
@@ -257,20 +238,15 @@
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
               <input type="text" id="failed-search" placeholder="Search Job..." />
             </div>
-            <button class="link" id="btn-back-builds" style="font-size:13px">← Back to Builds</button>
+            <button class="link" id="btn-back-builds">← Back to Builds</button>
           </div>
         </div>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Job Name</th>
-                <th>Parent Build</th>
-                <th>Orchestrator</th>
-                <th>Status</th>
-                <th>Reason</th>
-                <th>Failed At</th>
-                <th>Actions</th>
+                <th>Job Name</th><th>Parent Build</th><th>Orchestrator</th>
+                <th>Status</th><th>Reason</th><th>Failed At</th><th>Actions</th>
               </tr>
             </thead>
             <tbody id="failed-jobs-tbody"></tbody>
@@ -294,7 +270,7 @@
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
               <input type="text" id="history-search" placeholder="Search Job..." />
             </div>
-            <button class="link" id="btn-back-history" style="font-size:13px">← Back to Builds</button>
+            <button class="link" id="btn-back-history">← Back to Builds</button>
           </div>
         </div>
         <div class="table-wrap">
@@ -302,9 +278,11 @@
             <thead>
               <tr>
                 <th>Job Name</th>
-                <th>Times Seen</th>
-                <th>Orchestrators</th>
-                <th>Last Seen</th>
+                <th>Source</th>
+                <th>Destination</th>
+                <th>Transfer Type</th>
+                <th>File Mask</th>
+                <th>Flags</th>
               </tr>
             </thead>
             <tbody id="history-tbody"></tbody>
@@ -332,29 +310,19 @@
           <table>
             <thead>
               <tr>
-                <th>Job Name</th>
-                <th>Build ID</th>
-                <th>Start Time</th>
-                <th>End Time</th>
-                <th>Status</th>
-                <th>Duration</th>
-                <th>Log File</th>
-                <th>Actions</th>
+                <th>Job Name</th><th>Build ID</th><th>Start Time</th><th>End Time</th>
+                <th>Status</th><th>Duration</th><th>Log File</th><th>Actions</th>
               </tr>
             </thead>
             <tbody id="children-tbody"></tbody>
           </table>
         </div>
         <div class="pager" id="children-pager"></div>
-        <div class="info-bar">
-          All logs are located at: <code>C:\Jenkins\Jobs\Log\</code>
-        </div>
+        <div class="info-bar">All logs are located at: <code>C:\Jenkins\Jobs\Log\</code></div>
       </div>
     </main>
 
-    <!-- RIGHT -->
     <aside class="right-panel">
-
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
