@@ -1,6 +1,12 @@
-Quiero que cuado le de click a un orquestador de lado izquiero, por default se seleccione el ultimo Build ID y por ende muestre sus Child Builds ( Jobs ) abajo 
+Elimina el Builds Overtime no me interesa, 
+Mueve el Build Status  donde solia estar Builds Overtime
+Agrega done estaba Build Status el Menu Navigation y agrega lo siguiente tal cual se ve en la imagen
+Pero solo quiero:
+Dashboard ( Que debe de redireccionar a la pagina principal )
+Failed Jobs ( Que debe de redireccionar a la pagina de Failed Jobs) 
+Job History ( Esa la vamos a crear despues ) 
+Reports ( Esa la vamos a crear despues ) 
 
-Ademas, la paginacion de Orchestrator Builds debe de ser de 6 jobs  y en la parte de abajo de Selected Build Details: debe de ser de tambien 6 y debes de mostrar la paginacion.
+Quiero que te bases en la imagen que te adjunte, dame el codigo completo de todo lo que necesito
 
-Ademas tengo un error de inconsistencia, tengo un job en estado FAILED, pero no lo veo en los indicadores de la parte superior o lateral marcado. Actualmente dice Failed = 0 y en Build Status Failed 0 (0%)
 
