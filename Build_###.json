@@ -1,0 +1,52 @@
+{
+    "parentJob": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
+    "parentBuild": 205,
+    "buildUrl": "http://localhost:8080/jenkins/job/POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV/205/",
+    "status": "SUCCESS",
+    "timestamp": "2026-09-07 14:47:46",
+    "endTime": "2026-09-07 14:48:47",
+    "duration": "1 min 0 sec",
+    "summary": {
+        "total": 3,
+        "disabled": 0,
+        "checked": 2,
+        "executed": 2,
+        "skipped": 0,
+        "failed": 1
+    },
+    "children": [
+        {
+            "job": "ZF.TMP_JOB",
+            "build": 99,
+            "status": "SUCCESS",
+            "startTime": "2026-09-07 14:47:54",
+            "endTime": "2026-09-07 14:48:00",
+            "duration": "5 sec",
+            "logFile": "ZF.TMP_JOB_BuildID_99.txt",
+            "reason": null
+        },
+        {
+            "job": "BR.SD.#WFL.TP1.005_EOO_DELIVERIES.EV",
+            "build": 137,
+            "status": "SUCCESS",
+            "startTime": "2026-09-07 14:48:09",
+            "endTime": "2026-09-07 14:48:46",
+            "duration": "37 sec",
+            "logFile": "BR.SD.#WFL.TP1.005_EOO_DELIVERIES.EV_BuildID_137.txt",
+            "reason": null
+        },
+        {
+            "job": "ZF.MY_TEST_JOB.EV",
+            "build": null,
+            "status": "FAILED",
+            "startTime": "\u2014",
+            "endTime": "\u2014",
+            "duration": "\u2014",
+            "logFile": null,
+            "reason": "Source path not found or access denied"
+        }
+    ],
+    "successCount": 2,
+    "failedCount": 1,
+    "unstableCount": 0
+}
