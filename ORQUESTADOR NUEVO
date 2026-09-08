@@ -1,4 +1,3 @@
-.
 import groovy.json.JsonSlurperClassic
 import groovy.json.JsonOutput
 
@@ -391,22 +390,32 @@ END OF LOG
                 // ============================================================
                 // Determine Parent status for Dashboard
                 // ============================================================
-                // - SUCCESS  → pipeline finished normally (even if some pre-checks failed)
-                // - FAILED   → unhandled exception or real pipeline failure
+                // SUCCESS  → pipeline finished normally (even if some pre-checks failed)
+                // FAILED   → unhandled exception or real pipeline failure
                 def overallStatus = (currentBuild.currentResult == 'SUCCESS' || currentBuild.currentResult == null) 
                                     ? "SUCCESS" 
                                     : currentBuild.currentResult
 
                 // ============================================================
-                // Dashboard JSON (Build_XXX.json)
+                // MULTI-ORCHESTRATOR PATHS
+                // Each orchestrator writes into its own folder
                 // ============================================================
-                def dashboardDir  = 'C:\\Jenkins\\Jobs\\Dashboard\\Builds'
-                def dashboardFile = "${dashboardDir}\\Build_${env.BUILD_NUMBER}.json"
+                def orchestratorName = env.JOB_NAME
+                def baseDashboardDir = "C:\\Jenkins\\Jobs\\Dashboard\\data\\${orchestratorName}"
+                def dashboardDir     = "${baseDashboardDir}\\Builds"
+                def indexFile        = "${baseDashboardDir}\\index.json"
+                def workspaceIndex   = "${env.WORKSPACE}\\dashboard_index_temp.json"
 
                 bat """
 @echo off
+if not exist "${baseDashboardDir}" mkdir "${baseDashboardDir}"
 if not exist "${dashboardDir}" mkdir "${dashboardDir}"
 """
+
+                // ============================================================
+                // Dashboard JSON (Build_XXX.json)
+                // ============================================================
+                def dashboardFile = "${dashboardDir}\\Build_${env.BUILD_NUMBER}.json"
 
                 def dashboardJson = [
                     parentJob     : env.JOB_NAME,
@@ -437,14 +446,6 @@ if not exist "${dashboardDir}" mkdir "${dashboardDir}"
                 // ============================================================
                 // Dashboard INDEX (index.json)
                 // ============================================================
-                def indexFile      = 'C:\\Jenkins\\Jobs\\Dashboard\\index.json'
-                def workspaceIndex = "${env.WORKSPACE}\\dashboard_index_temp.json"
-
-                bat """
-@echo off
-if not exist "C:\\Jenkins\\Jobs\\Dashboard" mkdir "C:\\Jenkins\\Jobs\\Dashboard"
-"""
-
                 def indexRecord = [
                     build         : env.BUILD_NUMBER.toInteger(),
                     job           : env.JOB_NAME,
