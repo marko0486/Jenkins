@@ -34,7 +34,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-back-builds').onclick = closeFailedJobsView;
   document.getElementById('failed-stat-card').onclick = openFailedJobsView;
   document.getElementById('failed-search').oninput = filterFailedJobs;
-
   document.getElementById('btn-back-history').onclick = closeHistoryView;
   document.getElementById('history-search').oninput = filterHistoryJobs;
 
@@ -44,7 +43,6 @@ document.addEventListener('DOMContentLoaded', () => {
     openFailedJobsView();
   };
 
-  // Navigation
   document.getElementById('nav-dashboard').onclick = () => {
     setActiveNav('dashboard');
     showDashboardView();
@@ -140,11 +138,24 @@ async function loadAll() {
     document.getElementById('footer-generated').textContent = 'Generated: ' + now;
     document.getElementById('footer-info').textContent = `Showing ${filteredBuilds.length} of ${allBuilds.length} builds`;
     document.getElementById('orch-count').textContent = orchestrators.length;
-
   } catch (err) {
     console.error(err);
     alert('Error loading dashboard:\n' + err.message);
   }
+}
+
+function parseTimestamp(ts) {
+  if (!ts || ts === '—') return null;
+  const d = new Date(ts.replace(' ', 'T'));
+  return isNaN(d.getTime()) ? null : d.getTime();
+}
+
+function displayPath(p) {
+  if (!p || p === '—' || p === 'null') return '—';
+  let s = String(p);
+  s = s.replace(/\\+/g, '\\');
+  if (s.startsWith('\\')) s = '\\' + s;
+  return s;
 }
 
 /* ========== FAILED JOBS ========== */
@@ -158,7 +169,6 @@ async function openFailedJobsView() {
   try {
     for (const parent of allBuilds) {
       if ((parent.failedCount || 0) === 0) continue;
-
       try {
         const file = parent.file || `Build_${parent.build}.json`;
         const url = `data/${parent.folder}/Builds/${file}?t=${Date.now()}`;
@@ -241,7 +251,6 @@ function filterFailedJobs() {
 function renderFailedJobs() {
   const tbody = document.getElementById('failed-jobs-tbody');
   tbody.innerHTML = '';
-
   const start = (failedPage - 1) * CONFIG.FAILED_PAGE_SIZE;
   const page = filteredFailedJobs.slice(start, start + CONFIG.FAILED_PAGE_SIZE);
 
@@ -279,12 +288,12 @@ function renderFailedJobs() {
   });
 }
 
-/* ========== JOB HISTORY (unique jobs) ========== */
+/* ========== JOB HISTORY ========== */
 async function openHistoryView() {
   if (isLoadingHistory) return;
   isLoadingHistory = true;
 
-  const map = new Map(); // jobName -> { times, orchestrators Set, lastSeen, lastSeenKey }
+  const map = new Map();
 
   try {
     for (const parent of allBuilds) {
@@ -306,21 +315,18 @@ async function openHistoryView() {
                       : parent.timestamp || '—';
           const timeKey = parseTimestamp(timeStr) || 0;
 
-          if (!map.has(name)) {
+          const existing = map.get(name);
+          if (!existing || timeKey >= existing._sortKey) {
             map.set(name, {
               job: name,
-              times: 0,
-              orchestrators: new Set(),
+              source: c.source || '—',
+              destination: c.destination || '—',
+              transferType: c.transferType || '—',
+              fileMask: c.fileMask || '—',
+              flags: c.flags || '—',
               lastSeen: timeStr,
-              lastSeenKey: timeKey
+              _sortKey: timeKey
             });
-          }
-          const entry = map.get(name);
-          entry.times += 1;
-          entry.orchestrators.add(parent.orchestratorName || parent.orchestratorId);
-          if (timeKey > entry.lastSeenKey) {
-            entry.lastSeen = timeStr;
-            entry.lastSeenKey = timeKey;
           }
         });
       } catch (e) {
@@ -331,14 +337,7 @@ async function openHistoryView() {
     isLoadingHistory = false;
   }
 
-  historyJobs = Array.from(map.values()).map(e => ({
-    job: e.job,
-    times: e.times,
-    orchestrators: Array.from(e.orchestrators).join(', '),
-    lastSeen: e.lastSeen,
-    _sortKey: e.lastSeenKey
-  })).sort((a, b) => b._sortKey - a._sortKey);
-
+  historyJobs = Array.from(map.values()).sort((a, b) => b._sortKey - a._sortKey);
   filteredHistoryJobs = [...historyJobs];
   historyPage = 1;
 
@@ -366,7 +365,11 @@ function filterHistoryJobs() {
   } else {
     filteredHistoryJobs = historyJobs.filter(h =>
       (h.job || '').toLowerCase().includes(q) ||
-      (h.orchestrators || '').toLowerCase().includes(q)
+      (h.source || '').toLowerCase().includes(q) ||
+      (h.destination || '').toLowerCase().includes(q) ||
+      (h.transferType || '').toLowerCase().includes(q) ||
+      (h.fileMask || '').toLowerCase().includes(q) ||
+      (h.flags || '').toLowerCase().includes(q)
     );
   }
   historyPage = 1;
@@ -383,16 +386,18 @@ function renderHistoryJobs() {
   const page = filteredHistoryJobs.slice(start, start + CONFIG.HISTORY_PAGE_SIZE);
 
   if (!page.length) {
-    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:40px;color:#94a3b8">No jobs found</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:40px;color:#94a3b8">No jobs found</td></tr>`;
   } else {
     page.forEach(h => {
       const tr = document.createElement('tr');
       tr.style.cursor = 'default';
       tr.innerHTML = `
         <td style="font-weight:500">${h.job}</td>
-        <td style="text-align:center">${h.times}</td>
-        <td>${h.orchestrators}</td>
-        <td>${h.lastSeen}</td>
+        <td style="max-width:220px;white-space:normal;word-break:break-all">${displayPath(h.source)}</td>
+        <td style="max-width:220px;white-space:normal;word-break:break-all">${displayPath(h.destination)}</td>
+        <td>${h.transferType || '—'}</td>
+        <td>${h.fileMask || '—'}</td>
+        <td style="max-width:160px;white-space:normal">${h.flags || '—'}</td>
       `;
       tbody.appendChild(tr);
     });
@@ -448,11 +453,9 @@ function renderOrchList() {
       showDashboardView();
       document.getElementById('filter-orch').value = o.id;
       applyFilters();
-
       selectedBuild = null;
       children = [];
       document.getElementById('detail-card').style.display = 'none';
-
       const latest = allBuilds.find(b => b.orchestratorId === o.id);
       if (latest) showDetails(latest);
     };
@@ -491,338 +494,4 @@ function updateStats() {
   const totalSuccessChildren = allBuilds.reduce((sum, b) => sum + (b.successCount || 0), 0);
   const totalFailedChildren  = allBuilds.reduce((sum, b) => sum + (b.failedCount || 0), 0);
   const totalUnstableChildren = allBuilds.reduce((sum, b) => sum + (b.unstableCount || 0), 0);
-  const totalChildren = totalSuccessChildren + totalFailedChildren + totalUnstableChildren || 1;
-
-  const failedLast24h = last24.reduce((s, b) => s + (b.failedCount || 0), 0);
-  if (failedLast24h > 0) {
-    updateBellBadge(failedLast24h);
-  } else {
-    updateBellBadge(0);
-    bellCleared = false;
-  }
-
-  const lastSuccess = last24.reduce((s, b) => s + (b.successCount || 0), 0);
-  const lastFailed  = last24.reduce((s, b) => s + (b.failedCount || 0), 0);
-  const lastUnstable = last24.reduce((s, b) => s + (b.unstableCount || 0), 0);
-
-  const prevSuccess = prev24.reduce((s, b) => s + (b.successCount || 0), 0);
-  const prevFailed  = prev24.reduce((s, b) => s + (b.failedCount || 0), 0);
-  const prevUnstable = prev24.reduce((s, b) => s + (b.unstableCount || 0), 0);
-
-  document.getElementById('stat-total').textContent = totalParents;
-  document.getElementById('stat-success').textContent = totalSuccessChildren;
-  document.getElementById('stat-failed').textContent = totalFailedChildren;
-  document.getElementById('stat-unstable').textContent = totalUnstableChildren;
-
-  const pct = (n, t) => t ? Math.round((n / t) * 1000) / 10 : 0;
-  const pctSuccess  = pct(totalSuccessChildren, totalChildren);
-  const pctFailed   = pct(totalFailedChildren, totalChildren);
-  const pctUnstable = pct(totalUnstableChildren, totalChildren);
-
-  document.getElementById('pct-success').textContent  = pctSuccess + '%';
-  document.getElementById('pct-failed').textContent   = pctFailed + '%';
-  document.getElementById('pct-unstable').textContent = pctUnstable + '%';
-
-  const circ = 113;
-  setRing('ring-success',  circ - (pctSuccess  / 100) * circ);
-  setRing('ring-failed',   circ - (pctFailed   / 100) * circ);
-  setRing('ring-unstable', circ - (pctUnstable / 100) * circ);
-
-  setTrend('trend-total',    last24.length - prev24.length);
-  setTrend('trend-success',  lastSuccess - prevSuccess);
-  setTrend('trend-failed',   lastFailed - prevFailed);
-  setTrend('trend-unstable', lastUnstable - prevUnstable);
-
-  renderMiniBars(last24.slice(0, 8).reverse());
-}
-
-function parseTimestamp(ts) {
-  if (!ts || ts === '—') return null;
-  const d = new Date(ts.replace(' ', 'T'));
-  return isNaN(d.getTime()) ? null : d.getTime();
-}
-
-function setRing(id, offset) {
-  const el = document.getElementById(id);
-  if (el) el.style.strokeDashoffset = offset;
-}
-
-function setTrend(id, diff) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  if (diff > 0) {
-    el.className = 'stat-trend up';
-    el.innerHTML = `↑ +${diff} <span style="color:#94a3b8">vs. last 24h</span>`;
-  } else if (diff < 0) {
-    el.className = 'stat-trend down';
-    el.innerHTML = `↓ ${diff} <span style="color:#94a3b8">vs. last 24h</span>`;
-  } else {
-    el.className = 'stat-trend same';
-    el.innerHTML = `— No change`;
-  }
-}
-
-function renderMiniBars(builds) {
-  const container = document.getElementById('mini-bars');
-  if (!container) return;
-  container.innerHTML = '';
-  if (!builds.length) {
-    for (let i = 0; i < 6; i++) {
-      const bar = document.createElement('div');
-      bar.className = 'bar';
-      bar.style.height = '4px';
-      container.appendChild(bar);
-    }
-    return;
-  }
-  builds.forEach(() => {
-    const bar = document.createElement('div');
-    bar.className = 'bar';
-    bar.style.height = (8 + Math.random() * 18) + 'px';
-    container.appendChild(bar);
-  });
-}
-
-function renderDonut() {
-  const success = allBuilds.reduce((s, b) => s + (b.successCount || 0), 0);
-  const failed  = allBuilds.reduce((s, b) => s + (b.failedCount || 0), 0);
-  const unstable = allBuilds.reduce((s, b) => s + (b.unstableCount || 0), 0);
-  const total = success + failed + unstable || 1;
-
-  document.getElementById('donut-total').textContent = success + failed + unstable;
-
-  const r = 48, cx = 60, cy = 60, circ = 2 * Math.PI * r;
-  const segs = [
-    { val: success, color: '#10b981' },
-    { val: failed, color: '#ef4444' },
-    { val: unstable, color: '#f59e0b' }
-  ];
-  let offset = 0, svg = '';
-  segs.forEach(s => {
-    const len = (s.val / total) * circ;
-    svg += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="14"
-              stroke-dasharray="${len} ${circ - len}" stroke-dashoffset="${-offset}"
-              transform="rotate(-90 ${cx} ${cy})"/>`;
-    offset += len;
-  });
-  document.getElementById('donut-chart').innerHTML = svg;
-
-  document.getElementById('status-legend').innerHTML = `
-    <div class="legend-row"><span class="legend-dot" style="background:#10b981"></span> Success ${success} (${Math.round(success/total*100)}%)</div>
-    <div class="legend-row" style="cursor:pointer" onclick="openFailedJobsView()">
-      <span class="legend-dot" style="background:#ef4444"></span> Failed ${failed} (${Math.round(failed/total*100)}%)
-    </div>
-    <div class="legend-row"><span class="legend-dot" style="background:#f59e0b"></span> Unstable ${unstable} (${Math.round(unstable/total*100)}%)</div>
-  `;
-}
-
-function renderOrchStatus() {
-  const el = document.getElementById('orch-status-list');
-  el.innerHTML = '';
-  orchestrators.forEach(o => {
-    const builds = allBuilds.filter(b => b.orchestratorId === o.id);
-    if (!builds.length) return;
-    const success = builds.reduce((s, b) => s + (b.successCount || 0), 0);
-    const failed  = builds.reduce((s, b) => s + (b.failedCount || 0), 0);
-    const unstable = builds.reduce((s, b) => s + (b.unstableCount || 0), 0);
-    const total = success + failed + unstable || 1;
-    const row = document.createElement('div');
-    row.className = 'orch-status-row';
-    row.innerHTML = `
-      <div class="orch-status-name">
-        <div class="left"><span class="orch-dot" style="background:${o.color || '#3b82f6'}"></span>${o.displayName || o.name}</div>
-        <span>${success}/${total}</span>
-      </div>
-      <div class="orch-status-bar">
-        <div class="seg success" style="width:${(success/total)*100}%"></div>
-        <div class="seg failed" style="width:${(failed/total)*100}%"></div>
-        <div class="seg unstable" style="width:${(unstable/total)*100}%"></div>
-      </div>
-    `;
-    el.appendChild(row);
-  });
-}
-
-/* Recent Activity: últimos 5 builds, se ven ~4 con scroll */
-function renderActivity() {
-  const ul = document.getElementById('activity-list');
-  ul.innerHTML = '';
-  allBuilds.slice(0, 5).forEach(b => {
-    const ok = (b.status || '').toUpperCase() === 'SUCCESS';
-    const li = document.createElement('li');
-    li.innerHTML = `
-      <div class="act-icon ${ok ? 'ok' : 'err'}">${ok ? '✓' : '✕'}</div>
-      <div class="act-text">
-        <div class="act-title">Build #${b.build} ${ok ? 'completed' : 'failed'}</div>
-        <div class="act-sub">${b.orchestratorName} · ${b.timestamp || ''}</div>
-      </div>
-    `;
-    ul.appendChild(li);
-  });
-}
-
-function applyFilters() {
-  const orch = document.getElementById('filter-orch').value;
-  const q = (document.getElementById('build-search').value || '').toLowerCase();
-  filteredBuilds = allBuilds.filter(b => {
-    if (orch !== 'all' && b.orchestratorId !== orch) return false;
-    if (q && !String(b.build).includes(q) && !(b.orchestratorName || '').toLowerCase().includes(q)) return false;
-    return true;
-  });
-  currentPage = 1;
-  document.getElementById('table-subtitle').textContent =
-    orch === 'all' ? 'Showing builds from all orchestrators' : 'Filtered by orchestrator';
-  document.getElementById('footer-info').textContent = `Showing ${filteredBuilds.length} of ${allBuilds.length} builds`;
-  renderTable();
-}
-
-function renderTable() {
-  const tbody = document.getElementById('builds-tbody');
-  tbody.innerHTML = '';
-  const start = (currentPage - 1) * CONFIG.PAGE_SIZE;
-  const rows = filteredBuilds.slice(start, start + CONFIG.PAGE_SIZE);
-
-  if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:40px;color:#94a3b8">No builds found</td></tr>`;
-  } else {
-    rows.forEach(b => {
-      const tr = document.createElement('tr');
-      if (selectedBuild && selectedBuild.build === b.build && selectedBuild.orchestratorId === b.orchestratorId) {
-        tr.classList.add('selected');
-      }
-      tr.onclick = () => showDetails(b);
-      const cls = badgeClass(b.status);
-      tr.innerHTML = `
-        <td class="build-id">${b.build}</td>
-        <td><div class="orch-cell"><span class="dot" style="background:${b.orchestratorColor}"></span>${b.orchestratorName}</div></td>
-        <td>${b.timestamp || '—'}</td>
-        <td>${b.endTime || '—'}</td>
-        <td><span class="badge ${cls}">${b.status || '—'}</span></td>
-        <td>${b.duration || '—'}</td>
-        <td style="text-align:center">${b.children ?? '—'}</td>
-        <td style="text-align:center;color:var(--green);font-weight:600">${b.successCount ?? 0}</td>
-        <td style="text-align:center;color:var(--red);font-weight:600">${b.failedCount ?? 0}</td>
-        <td style="text-align:center;color:var(--amber);font-weight:600">${b.unstableCount ?? 0}</td>
-        <td><button class="link">View →</button></td>
-      `;
-      tbody.appendChild(tr);
-    });
-  }
-  renderPager('builds-pager', filteredBuilds.length, currentPage, p => {
-    currentPage = p;
-    renderTable();
-  });
-}
-
-function badgeClass(s) {
-  if (!s) return 'badge-other';
-  s = s.toUpperCase();
-  if (s === 'SUCCESS') return 'badge-success';
-  if (s === 'FAILED' || s === 'FAILURE') return 'badge-failed';
-  if (s === 'UNSTABLE') return 'badge-unstable';
-  return 'badge-other';
-}
-
-function renderPager(id, total, current, cb) {
-  renderPagerCustom(id, total, current, CONFIG.PAGE_SIZE, cb);
-}
-
-function renderPagerCustom(id, total, current, pageSize, cb) {
-  const pages = Math.max(1, Math.ceil(total / pageSize));
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.innerHTML = '';
-
-  const prev = document.createElement('button');
-  prev.className = 'page-btn';
-  prev.textContent = '‹';
-  prev.disabled = current === 1;
-  prev.onclick = () => cb(current - 1);
-  el.appendChild(prev);
-
-  for (let i = 1; i <= pages; i++) {
-    const b = document.createElement('button');
-    b.className = 'page-btn' + (i === current ? ' active' : '');
-    b.textContent = i;
-    b.onclick = () => cb(i);
-    el.appendChild(b);
-  }
-
-  const next = document.createElement('button');
-  next.className = 'page-btn';
-  next.textContent = '›';
-  next.disabled = current === pages;
-  next.onclick = () => cb(current + 1);
-  el.appendChild(next);
-}
-
-async function showDetails(b) {
-  selectedBuild = b;
-  childrenPage = 1;
-  document.getElementById('detail-card').style.display = 'block';
-  document.getElementById('detail-id').textContent = '#' + b.build;
-  document.getElementById('detail-range').textContent =
-    `${b.timestamp || '—'} → ${b.endTime || '—'} (${b.duration || '—'})`;
-  const badge = document.getElementById('detail-badge');
-  badge.textContent = b.status || '—';
-  badge.className = 'badge ' + badgeClass(b.status);
-  renderTable();
-
-  try {
-    const file = b.file || `Build_${b.build}.json`;
-    const url = `data/${b.folder}/Builds/${file}?t=${Date.now()}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('Cannot load build details');
-    const data = await res.json();
-    children = data.children || [];
-    renderChildren();
-  } catch (e) {
-    document.getElementById('children-tbody').innerHTML =
-      `<tr><td colspan="8" style="text-align:center;padding:30px;color:#dc2626">${e.message}</td></tr>`;
-  }
-}
-
-function renderChildren() {
-  const tbody = document.getElementById('children-tbody');
-  tbody.innerHTML = '';
-
-  const start = (childrenPage - 1) * CONFIG.PAGE_SIZE;
-  const page = children.slice(start, start + CONFIG.PAGE_SIZE);
-
-  if (!page.length) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:30px;color:#94a3b8">No child builds</td></tr>`;
-  } else {
-    page.forEach(c => {
-      const tr = document.createElement('tr');
-      tr.style.cursor = 'default';
-      const isFailed = ['FAILED','FAILURE'].includes((c.status || '').toUpperCase());
-      if (isFailed) tr.style.background = '#fef2f2';
-
-      const hasBuild = c.build != null && c.build !== '';
-      let logCell = '—', action = '—';
-      if (c.logFile) {
-        logCell = `<span style="font-size:11px;color:#64748b">${c.logFile}</span>`;
-        action = `<button class="link" onclick="event.stopPropagation();alert('Log: ${c.logFile}')">View</button>`;
-      } else if (c.reason) {
-        logCell = `<span style="font-size:11px;color:#dc2626">${c.reason}</span>`;
-        action = `<span style="font-size:11px;color:#94a3b8">No log</span>`;
-      }
-      tr.innerHTML = `
-        <td style="font-weight:500">${c.job || '—'}</td>
-        <td class="build-id">${hasBuild ? c.build : '—'}</td>
-        <td>${c.startTime || '—'}</td>
-        <td>${c.endTime || '—'}</td>
-        <td><span class="badge ${badgeClass(c.status)}">${c.status || '—'}</span></td>
-        <td>${c.duration || '—'}</td>
-        <td>${logCell}</td>
-        <td>${action}</td>
-      `;
-      tbody.appendChild(tr);
-    });
-  }
-
-  renderPager('children-pager', children.length, childrenPage, p => {
-    childrenPage = p;
-    renderChildren();
-  });
-}
+  const totalChildren = totalSuccessChildren + totalFailedChildren + 
