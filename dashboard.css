@@ -61,7 +61,6 @@ body {
 }
 .icon-btn:hover { background: #334155; }
 
-/* Bell notification */
 .bell-btn { position: relative; }
 .bell-badge {
   position: absolute;
@@ -139,7 +138,7 @@ body {
 .orch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .orch-meta { font-size: 11px; color: var(--muted); flex-shrink: 0; }
 
-/* ========== NAVIGATION MENU ========== */
+/* Navigation */
 .nav-menu {
   display: flex;
   flex-direction: column;
@@ -162,29 +161,11 @@ body {
   width: 100%;
   transition: background 0.12s, color 0.12s;
 }
-.nav-item svg {
-  flex-shrink: 0;
-  color: #94a3b8;
-}
-.nav-item:hover {
-  background: #f1f5f9;
-  color: #1e293b;
-}
-.nav-item:hover svg {
-  color: #64748b;
-}
-.nav-item.active {
-  background: #eff6ff;
-  color: #2563eb;
-  font-weight: 600;
-}
-.nav-item.active svg {
-  color: #2563eb;
-}
-.nav-item:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
+.nav-item svg { flex-shrink: 0; color: #94a3b8; }
+.nav-item:hover { background: #f1f5f9; color: #1e293b; }
+.nav-item:hover svg { color: #64748b; }
+.nav-item.active { background: #eff6ff; color: #2563eb; font-weight: 600; }
+.nav-item.active svg { color: #2563eb; }
 
 /* Donut */
 .donut-wrap { position: relative; width: 120px; height: 120px; margin: 16px auto 8px; }
@@ -198,8 +179,13 @@ body {
 .legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
 
-/* Activity */
-.activity-list { list-style: none; padding: 8px 12px 12px; max-height: 200px; overflow-y: auto; }
+/* Activity – muestra ~4 y scroll, datos = últimos 5 */
+.activity-list {
+  list-style: none;
+  padding: 8px 12px 12px;
+  max-height: 210px;
+  overflow-y: auto;
+}
 .activity-list li {
   display: flex; align-items: flex-start; gap: 8px; padding: 7px 0;
   border-bottom: 1px solid #f1f5f9; font-size: 12px;
@@ -247,7 +233,6 @@ body {
 .stat-trend.down { color: #dc2626; }
 .stat-trend.same { color: #94a3b8; }
 
-/* Mini bars */
 .mini-bars {
   display: flex; align-items: flex-end; gap: 3px; height: 28px; margin-left: auto;
 }
@@ -255,7 +240,6 @@ body {
   width: 5px; background: #93c5fd; border-radius: 2px 2px 0 0; transition: height 0.3s;
 }
 
-/* Percentage rings */
 .ring-wrap {
   position: relative; width: 48px; height: 48px; flex-shrink: 0; margin-left: auto;
 }
@@ -273,7 +257,6 @@ body {
   justify-content: center; font-size: 11px; font-weight: 700; color: var(--text);
 }
 
-/* Card */
 .card {
   background: var(--card); border: 1px solid var(--border);
   border-radius: var(--radius); margin-bottom: 14px; overflow: hidden;
@@ -300,7 +283,6 @@ body {
 }
 .search-box input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
 
-/* Table */
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 thead { background: #1e293b; color: #f1f5f9; }
