@@ -26,7 +26,6 @@
       <span class="live-badge"><span class="pulse"></span> Live</span>
       <span class="updated">Last Updated: <strong id="last-updated">—</strong></span>
 
-      <!-- Bell notification -->
       <button class="icon-btn bell-btn" id="btn-bell" title="Failed jobs">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
@@ -48,6 +47,7 @@
     <!-- ===================== LEFT SIDEBAR ===================== -->
     <aside class="left-panel">
 
+      <!-- Orchestrators -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
@@ -71,23 +71,46 @@
         <ul class="orch-list" id="orch-list"></ul>
       </div>
 
+      <!-- ========== NAVIGATION (nuevo) ========== -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
-            Build Status
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+            </svg>
+            Navigation
           </span>
         </div>
-        <div class="donut-wrap">
-          <svg id="donut-chart" width="120" height="120" viewBox="0 0 120 120"></svg>
-          <div class="donut-center">
-            <div class="donut-total" id="donut-total">0</div>
-            <div class="donut-label">Total</div>
-          </div>
-        </div>
-        <div class="legend" id="status-legend"></div>
+        <nav class="nav-menu" id="nav-menu">
+          <button class="nav-item active" data-view="dashboard" id="nav-dashboard">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+              <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+            </svg>
+            Dashboard
+          </button>
+          <button class="nav-item" data-view="failed" id="nav-failed">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/>
+            </svg>
+            Failed Jobs
+          </button>
+          <button class="nav-item" data-view="history" id="nav-history">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+            </svg>
+            Job History
+          </button>
+          <button class="nav-item" data-view="reports" id="nav-reports">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/>
+            </svg>
+            Reports
+          </button>
+        </nav>
       </div>
 
+      <!-- Recent Activity -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
@@ -224,7 +247,7 @@
         <div class="pager" id="builds-pager"></div>
       </div>
 
-      <!-- ========== FAILED JOBS VIEW ========== -->
+      <!-- Failed Jobs View -->
       <div class="card" id="failed-jobs-card" style="display:none">
         <div class="card-head">
           <div class="card-title">
@@ -245,7 +268,7 @@
                 <th>Orchestrator</th>
                 <th>Status</th>
                 <th>Reason</th>
-                <th>Start Time</th>
+                <th>Failed At</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -301,21 +324,25 @@
     <!-- ===================== RIGHT PANEL ===================== -->
     <aside class="right-panel">
 
+      <!-- Build Status (movido aquí) -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 5-10"/></svg>
-            Builds Over Time
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+            Build Status
           </span>
         </div>
-        <div class="bars-legend">
-          <span><i class="dot green"></i> Success</span>
-          <span><i class="dot red"></i> Failed</span>
-          <span><i class="dot amber"></i> Unstable</span>
+        <div class="donut-wrap">
+          <svg id="donut-chart" width="120" height="120" viewBox="0 0 120 120"></svg>
+          <div class="donut-center">
+            <div class="donut-total" id="donut-total">0</div>
+            <div class="donut-label">Total</div>
+          </div>
         </div>
-        <div class="bars-chart" id="bars-chart"></div>
+        <div class="legend" id="status-legend"></div>
       </div>
 
+      <!-- Status by Orchestrator -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
@@ -326,6 +353,7 @@
         <div id="orch-status-list"></div>
       </div>
 
+      <!-- Quick Actions -->
       <div class="panel-card">
         <div class="panel-head">
           <span class="panel-title">
