@@ -1,7 +1,8 @@
 const CONFIG = {
   ORCHESTRATORS_URL: 'orchestrators.json',
   PAGE_SIZE: 6,
-  FAILED_PAGE_SIZE: 15
+  FAILED_PAGE_SIZE: 15,
+  HISTORY_PAGE_SIZE: 15
 };
 
 let orchestrators = [];
@@ -14,9 +15,15 @@ let childrenPage = 1;
 let activeOrchFilter = 'all';
 
 let failedJobs = [];
+let filteredFailedJobs = [];
 let failedPage = 1;
 let bellCleared = false;
 let isLoadingFailed = false;
+
+let historyJobs = [];
+let filteredHistoryJobs = [];
+let historyPage = 1;
+let isLoadingHistory = false;
 
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-refresh').onclick = loadAll;
@@ -26,6 +33,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('orch-search').oninput = filterOrchList;
   document.getElementById('btn-back-builds').onclick = closeFailedJobsView;
   document.getElementById('failed-stat-card').onclick = openFailedJobsView;
+  document.getElementById('failed-search').oninput = filterFailedJobs;
+
+  document.getElementById('btn-back-history').onclick = closeHistoryView;
+  document.getElementById('history-search').oninput = filterHistoryJobs;
 
   document.getElementById('btn-bell').onclick = () => {
     bellCleared = true;
@@ -36,14 +47,15 @@ document.addEventListener('DOMContentLoaded', () => {
   // Navigation
   document.getElementById('nav-dashboard').onclick = () => {
     setActiveNav('dashboard');
-    closeFailedJobsView();
+    showDashboardView();
   };
   document.getElementById('nav-failed').onclick = () => {
     setActiveNav('failed');
     openFailedJobsView();
   };
   document.getElementById('nav-history').onclick = () => {
-    alert('Job History – Coming soon');
+    setActiveNav('history');
+    openHistoryView();
   };
   document.getElementById('nav-reports').onclick = () => {
     alert('Reports – Coming soon');
@@ -71,6 +83,14 @@ function setActiveNav(view) {
   };
   const el = document.getElementById(map[view]);
   if (el) el.classList.add('active');
+}
+
+function showDashboardView() {
+  document.getElementById('builds-card').style.display = 'block';
+  document.getElementById('failed-jobs-card').style.display = 'none';
+  document.getElementById('history-card').style.display = 'none';
+  setActiveNav('dashboard');
+  renderTable();
 }
 
 async function loadAll() {
@@ -105,7 +125,7 @@ async function loadAll() {
     children = [];
     document.getElementById('detail-card').style.display = 'none';
 
-    closeFailedJobsView();
+    showDashboardView();
 
     renderOrchList();
     populateOrchFilter();
@@ -127,7 +147,7 @@ async function loadAll() {
   }
 }
 
-/* ========== FAILED JOBS VIEW ========== */
+/* ========== FAILED JOBS ========== */
 async function openFailedJobsView() {
   if (isLoadingFailed) return;
   isLoadingFailed = true;
@@ -181,12 +201,14 @@ async function openFailedJobsView() {
   }
 
   failedJobs.sort((a, b) => b._sortKey - a._sortKey);
-
+  filteredFailedJobs = [...failedJobs];
   failedPage = 1;
 
   document.getElementById('builds-card').style.display = 'none';
   document.getElementById('detail-card').style.display = 'none';
+  document.getElementById('history-card').style.display = 'none';
   document.getElementById('failed-jobs-card').style.display = 'block';
+  document.getElementById('failed-search').value = '';
 
   document.getElementById('failed-jobs-subtitle').textContent =
     `${failedJobs.length} failed job${failedJobs.length !== 1 ? 's' : ''} found`;
@@ -196,10 +218,24 @@ async function openFailedJobsView() {
 }
 
 function closeFailedJobsView() {
-  document.getElementById('failed-jobs-card').style.display = 'none';
-  document.getElementById('builds-card').style.display = 'block';
-  setActiveNav('dashboard');
-  renderTable();
+  showDashboardView();
+}
+
+function filterFailedJobs() {
+  const q = (document.getElementById('failed-search').value || '').toLowerCase().trim();
+  if (!q) {
+    filteredFailedJobs = [...failedJobs];
+  } else {
+    filteredFailedJobs = failedJobs.filter(f =>
+      (f.job || '').toLowerCase().includes(q) ||
+      String(f.parentBuild).includes(q) ||
+      (f.orchestrator || '').toLowerCase().includes(q)
+    );
+  }
+  failedPage = 1;
+  document.getElementById('failed-jobs-subtitle').textContent =
+    `${filteredFailedJobs.length} failed job${filteredFailedJobs.length !== 1 ? 's' : ''} found`;
+  renderFailedJobs();
 }
 
 function renderFailedJobs() {
@@ -207,7 +243,7 @@ function renderFailedJobs() {
   tbody.innerHTML = '';
 
   const start = (failedPage - 1) * CONFIG.FAILED_PAGE_SIZE;
-  const page = failedJobs.slice(start, start + CONFIG.FAILED_PAGE_SIZE);
+  const page = filteredFailedJobs.slice(start, start + CONFIG.FAILED_PAGE_SIZE);
 
   if (!page.length) {
     tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:40px;color:#94a3b8">No failed jobs found</td></tr>`;
@@ -237,9 +273,134 @@ function renderFailedJobs() {
     });
   }
 
-  renderPagerCustom('failed-jobs-pager', failedJobs.length, failedPage, CONFIG.FAILED_PAGE_SIZE, p => {
+  renderPagerCustom('failed-jobs-pager', filteredFailedJobs.length, failedPage, CONFIG.FAILED_PAGE_SIZE, p => {
     failedPage = p;
     renderFailedJobs();
+  });
+}
+
+/* ========== JOB HISTORY (unique jobs) ========== */
+async function openHistoryView() {
+  if (isLoadingHistory) return;
+  isLoadingHistory = true;
+
+  const map = new Map(); // jobName -> { times, orchestrators Set, lastSeen, lastSeenKey }
+
+  try {
+    for (const parent of allBuilds) {
+      try {
+        const file = parent.file || `Build_${parent.build}.json`;
+        const url = `data/${parent.folder}/Builds/${file}?t=${Date.now()}`;
+        const res = await fetch(url);
+        if (!res.ok) continue;
+        const data = await res.json();
+        const kids = data.children || [];
+
+        kids.forEach(c => {
+          const name = (c.job || '').trim();
+          if (!name || name === '—') return;
+
+          let timeStr = c.endTime && c.endTime !== '—' ? c.endTime
+                      : c.startTime && c.startTime !== '—' ? c.startTime
+                      : parent.endTime && parent.endTime !== '—' ? parent.endTime
+                      : parent.timestamp || '—';
+          const timeKey = parseTimestamp(timeStr) || 0;
+
+          if (!map.has(name)) {
+            map.set(name, {
+              job: name,
+              times: 0,
+              orchestrators: new Set(),
+              lastSeen: timeStr,
+              lastSeenKey: timeKey
+            });
+          }
+          const entry = map.get(name);
+          entry.times += 1;
+          entry.orchestrators.add(parent.orchestratorName || parent.orchestratorId);
+          if (timeKey > entry.lastSeenKey) {
+            entry.lastSeen = timeStr;
+            entry.lastSeenKey = timeKey;
+          }
+        });
+      } catch (e) {
+        console.warn('History load error for build', parent.build, e);
+      }
+    }
+  } finally {
+    isLoadingHistory = false;
+  }
+
+  historyJobs = Array.from(map.values()).map(e => ({
+    job: e.job,
+    times: e.times,
+    orchestrators: Array.from(e.orchestrators).join(', '),
+    lastSeen: e.lastSeen,
+    _sortKey: e.lastSeenKey
+  })).sort((a, b) => b._sortKey - a._sortKey);
+
+  filteredHistoryJobs = [...historyJobs];
+  historyPage = 1;
+
+  document.getElementById('builds-card').style.display = 'none';
+  document.getElementById('failed-jobs-card').style.display = 'none';
+  document.getElementById('detail-card').style.display = 'none';
+  document.getElementById('history-card').style.display = 'block';
+  document.getElementById('history-search').value = '';
+
+  document.getElementById('history-subtitle').textContent =
+    `${historyJobs.length} unique job${historyJobs.length !== 1 ? 's' : ''} found`;
+
+  setActiveNav('history');
+  renderHistoryJobs();
+}
+
+function closeHistoryView() {
+  showDashboardView();
+}
+
+function filterHistoryJobs() {
+  const q = (document.getElementById('history-search').value || '').toLowerCase().trim();
+  if (!q) {
+    filteredHistoryJobs = [...historyJobs];
+  } else {
+    filteredHistoryJobs = historyJobs.filter(h =>
+      (h.job || '').toLowerCase().includes(q) ||
+      (h.orchestrators || '').toLowerCase().includes(q)
+    );
+  }
+  historyPage = 1;
+  document.getElementById('history-subtitle').textContent =
+    `${filteredHistoryJobs.length} unique job${filteredHistoryJobs.length !== 1 ? 's' : ''} found`;
+  renderHistoryJobs();
+}
+
+function renderHistoryJobs() {
+  const tbody = document.getElementById('history-tbody');
+  tbody.innerHTML = '';
+
+  const start = (historyPage - 1) * CONFIG.HISTORY_PAGE_SIZE;
+  const page = filteredHistoryJobs.slice(start, start + CONFIG.HISTORY_PAGE_SIZE);
+
+  if (!page.length) {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:40px;color:#94a3b8">No jobs found</td></tr>`;
+  } else {
+    page.forEach(h => {
+      const tr = document.createElement('tr');
+      tr.style.cursor = 'default';
+      tr.innerHTML = `
+        <td style="font-weight:500">${h.job}</td>
+        <td style="text-align:center">${h.times}</td>
+        <td>${h.orchestrators}</td>
+        <td>${h.lastSeen}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  renderPagerCustom('history-pager', filteredHistoryJobs.length, historyPage, CONFIG.HISTORY_PAGE_SIZE, p => {
+    historyPage = p;
+    renderHistoryJobs();
   });
 }
 
@@ -284,7 +445,7 @@ function renderOrchList() {
       <span class="orch-meta">${builds.length} builds</span>
     `;
     li.onclick = () => {
-      closeFailedJobsView();
+      showDashboardView();
       document.getElementById('filter-orch').value = o.id;
       applyFilters();
 
@@ -482,10 +643,11 @@ function renderOrchStatus() {
   });
 }
 
+/* Recent Activity: últimos 5 builds, se ven ~4 con scroll */
 function renderActivity() {
   const ul = document.getElementById('activity-list');
   ul.innerHTML = '';
-  allBuilds.slice(0, 6).forEach(b => {
+  allBuilds.slice(0, 5).forEach(b => {
     const ok = (b.status || '').toUpperCase() === 'SUCCESS';
     const li = document.createElement('li');
     li.innerHTML = `
