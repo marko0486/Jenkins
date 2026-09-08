@@ -139,6 +139,53 @@ body {
 .orch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .orch-meta { font-size: 11px; color: var(--muted); flex-shrink: 0; }
 
+/* ========== NAVIGATION MENU ========== */
+.nav-menu {
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  gap: 2px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background 0.12s, color 0.12s;
+}
+.nav-item svg {
+  flex-shrink: 0;
+  color: #94a3b8;
+}
+.nav-item:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+.nav-item:hover svg {
+  color: #64748b;
+}
+.nav-item.active {
+  background: #eff6ff;
+  color: #2563eb;
+  font-weight: 600;
+}
+.nav-item.active svg {
+  color: #2563eb;
+}
+.nav-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* Donut */
 .donut-wrap { position: relative; width: 120px; height: 120px; margin: 16px auto 8px; }
 .donut-center {
@@ -303,29 +350,6 @@ td { padding: 9px 12px; white-space: nowrap; color: #334155; }
 
 /* ========== RIGHT PANEL ========== */
 .right-panel { overflow-y: auto; max-height: calc(100vh - 90px); }
-.bars-legend {
-  display: flex; gap: 12px; padding: 8px 14px 0; font-size: 11px; color: var(--muted);
-}
-.bars-legend .dot {
-  display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px;
-}
-.bars-legend .dot.green { background: var(--green); }
-.bars-legend .dot.red   { background: var(--red); }
-.bars-legend .dot.amber { background: var(--amber); }
-.bars-chart {
-  padding: 12px 14px 16px; height: 140px; display: flex; align-items: flex-end; gap: 6px;
-}
-.bar-group {
-  flex: 1; display: flex; flex-direction: column; align-items: center;
-  gap: 2px; height: 100%; justify-content: flex-end;
-}
-.bar {
-  width: 100%; border-radius: 3px 3px 0 0; min-height: 2px; transition: height 0.3s;
-}
-.bar.success { background: var(--green); }
-.bar.failed  { background: var(--red); }
-.bar.unstable{ background: var(--amber); }
-.bar-label { font-size: 9px; color: var(--muted); margin-top: 4px; }
 #orch-status-list { padding: 10px 14px 14px; }
 .orch-status-row { margin-bottom: 10px; }
 .orch-status-name {
