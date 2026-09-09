@@ -1,133 +1,118 @@
-SOURCE: \\FRDV02656.emea.zf-world.com\ToolShare\tmp\src
-DESTINATION: \\FRDV02656.emea.zf-world.com\ToolShare\tmp\dst
+import groovy.json.JsonSlurperClassic
+import groovy.json.JsonOutput
+
+// ============================================================================
+// Helpers
+// ============================================================================
+def formatTime(long millis) {
+    if (millis <= 0) return "—"
+    return new Date(millis).format('yyyy-MM-dd HH:mm:ss')
+}
+
+def formatDuration(long millis) {
+    if (millis <= 0) return "—"
+    long totalSeconds = (millis / 1000).longValue()
+    long minutes = totalSeconds / 60
+    long seconds = totalSeconds % 60
+    if (minutes > 0) return "${minutes} min ${seconds} sec"
+    return "${seconds} sec"
+}
+
+@NonCPS
+def prependHistoryAndTrim(List history, Map entry, int maxEntries) {
+    def out = new ArrayList()
+    out.add(entry)
+    history.each { h ->
+        if (out.size() >= maxEntries) return
+        out.add(h)
+    }
+    return out
+}
 
 pipeline {
-    // ========================================================================
-    // Agent: cualquier nodo Windows con capacidad de SMB + Robocopy
-    // ========================================================================
     agent {
         label 'Windows'
     }
 
-    // ========================================================================
-    // Parameters (enviados por el Orchestrator)
-    // ========================================================================
+    // Valores por defecto del transfer (puedes sobreescribirlos al lanzar el job)
     parameters {
-        string(name: 'JOB_NAME',        defaultValue: '', description: 'Logical transfer name from JSON')
-        string(name: 'SRC_CRED',        defaultValue: '', description: 'Jenkins credential ID for SMB')
-        string(name: 'SRC_PATH',        defaultValue: '', description: 'Full UNC source path')
-        string(name: 'DST_PATH',        defaultValue: '', description: 'Full UNC destination path')
-        string(name: 'FILE_MASK',       defaultValue: '*.*', description: 'Robocopy file mask')
-        string(name: 'ROBOCOPY_FLAGS',  defaultValue: '', description: 'Additional Robocopy flags')
-        string(name: 'PARENT_BUILD',    defaultValue: '', description: 'Build number of the parent Orchestrator job')
+        string(name: 'SRC_PATH',       defaultValue: '\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\src', description: 'UNC source path')
+        string(name: 'DST_PATH',       defaultValue: '\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\dst', description: 'UNC destination path')
+        string(name: 'FILE_MASK',      defaultValue: '*.*', description: 'Robocopy file mask')
+        string(name: 'ROBOCOPY_FLAGS', defaultValue: '/R:0 /W:0 /NP', description: 'Robocopy flags')
+        string(name: 'SRC_CRED',       defaultValue: 'WIN.SVC.UC4.BATCHUSER', description: 'Jenkins credential ID for SMB')
     }
 
-    // ========================================================================
-    // Options
-    // ========================================================================
     options {
         buildDiscarder(logRotator(numToKeepStr: '50'))
+        disableConcurrentBuilds()
     }
 
-    // ========================================================================
-    // Environment
-    // ========================================================================
     environment {
         START_TIME = "${System.currentTimeMillis()}"
     }
 
     stages {
-        stage('Transfer Definition') {
+        stage('File Transfer') {
             steps {
-                catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
-                    script {
-                        // ----------------------------------------------------
-                        // Jenkins UI
-                        // ----------------------------------------------------
-                        currentBuild.displayName = "#${env.BUILD_NUMBER} - ${params.JOB_NAME}"
-                        currentBuild.description = "${params.FILE_MASK} : ${params.SRC_PATH} → ${params.DST_PATH}"
+                script {
+                    def jobName = env.JOB_NAME
+                    currentBuild.displayName = "#${env.BUILD_NUMBER} - ${jobName}"
+                    currentBuild.description = "${params.FILE_MASK} : ${params.SRC_PATH} → ${params.DST_PATH}"
 
-                        // ----------------------------------------------------
-                        // Resolve credential
-                        // ----------------------------------------------------
-                        def creds = com.cloudbees.plugins.credentials.CredentialsProvider.lookupCredentials(
-                            com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredentials.class,
-                            jenkins.model.Jenkins.get(),
-                            null,
-                            null
+                    // Credential
+                    def creds = com.cloudbees.plugins.credentials.CredentialsProvider.lookupCredentials(
+                        com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredentials.class,
+                        jenkins.model.Jenkins.get(),
+                        null,
+                        null
+                    )
+                    def cred = creds.find { it.id == params.SRC_CRED }
+                    if (!cred) {
+                        writeFile file: 'robocopy.error', text: "Credential not found for ID: ${params.SRC_CRED}"
+                        error("Credential not found for ID: ${params.SRC_CRED}")
+                    }
+                    env.CREDENTIAL_ID = cred.id
+                    env.ROBOCOPY_OPTIONS = params.ROBOCOPY_FLAGS?.trim() ?: ""
+
+                    // Parse UNC → share roots
+                    def srcParts = params.SRC_PATH.replaceFirst('^\\\\\\\\', '').split('\\\\')
+                    if (srcParts.size() < 2) {
+                        writeFile file: 'robocopy.error', text: 'Invalid source UNC path.'
+                        error('Invalid source UNC path.')
+                    }
+                    env.SRC_SHARE_ROOT = "\\\\${srcParts[0]}\\${srcParts[1]}"
+
+                    def dstParts = params.DST_PATH.replaceFirst('^\\\\\\\\', '').split('\\\\')
+                    if (dstParts.size() < 2) {
+                        writeFile file: 'robocopy.error', text: 'Invalid destination UNC path.'
+                        error('Invalid destination UNC path.')
+                    }
+                    env.DST_SHARE_ROOT = "\\\\${dstParts[0]}\\${dstParts[1]}"
+                    env.SAME_SHARE = (env.SRC_SHARE_ROOT.equalsIgnoreCase(env.DST_SHARE_ROOT)) ? "YES" : "NO"
+
+                    echo "========================================"
+                    echo "Job Name      : ${jobName}"
+                    echo "Build         : #${env.BUILD_NUMBER}"
+                    echo "Source        : ${params.SRC_PATH}"
+                    echo "Destination   : ${params.DST_PATH}"
+                    echo "File Mask     : ${params.FILE_MASK}"
+                    echo "Flags         : ${env.ROBOCOPY_OPTIONS}"
+                    echo "Same Share    : ${env.SAME_SHARE}"
+                    echo "========================================"
+
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: env.CREDENTIAL_ID,
+                            usernameVariable: 'FT_USER',
+                            passwordVariable: 'FT_PASS'
                         )
-
-                        def cred = creds.find { it.id == params.SRC_CRED }
-
-                        env.FT_USERNAME   = cred ? cred.username : "UNKNOWN"
-                        env.CREDENTIAL_ID = cred ? cred.id : ""
-
-                        if (!env.CREDENTIAL_ID?.trim()) {
-                            writeFile file: 'robocopy.error', text: "Credential not found for ID: ${params.SRC_CRED}"
-                            unstable("Credential not found for ID: ${params.SRC_CRED}")
-                            return
-                        }
-
-                        // ----------------------------------------------------
-                        // Normalize flags
-                        // ----------------------------------------------------
-                        env.ROBOCOPY_OPTIONS = params.ROBOCOPY_FLAGS?.trim() ?: ""
-
-                        // ----------------------------------------------------
-                        // Parse UNC paths → share roots
-                        // ----------------------------------------------------
-                        def srcParts = params.SRC_PATH.replaceFirst('^\\\\\\\\', '').split('\\\\')
-                        if (srcParts.size() < 2) {
-                            writeFile file: 'robocopy.error', text: 'Invalid source UNC path.'
-                            unstable('Invalid source UNC path.')
-                            return
-                        }
-                        env.SRC_SHARE_ROOT = "\\\\${srcParts[0]}\\${srcParts[1]}"
-
-                        def dstParts = params.DST_PATH.replaceFirst('^\\\\\\\\', '').split('\\\\')
-                        if (dstParts.size() < 2) {
-                            writeFile file: 'robocopy.error', text: 'Invalid destination UNC path.'
-                            unstable('Invalid destination UNC path.')
-                            return
-                        }
-                        env.DST_SHARE_ROOT = "\\\\${dstParts[0]}\\${dstParts[1]}"
-
-                        // Same share? → only map once (performance)
-                        env.SAME_SHARE = (env.SRC_SHARE_ROOT.equalsIgnoreCase(env.DST_SHARE_ROOT)) ? "YES" : "NO"
-
-                        // ----------------------------------------------------
-                        // Console header
-                        // ----------------------------------------------------
-                        echo "========================================"
-                        echo "Job Name      : ${params.JOB_NAME}"
-                        echo "User          : ${env.FT_USERNAME}"
-                        echo "Credential ID : ${params.SRC_CRED}"
-                        echo "Source        : ${params.SRC_PATH}"
-                        echo "Destination   : ${params.DST_PATH}"
-                        echo "Source Share  : ${env.SRC_SHARE_ROOT}"
-                        echo "Dest Share    : ${env.DST_SHARE_ROOT}"
-                        echo "Same Share    : ${env.SAME_SHARE}"
-                        echo "File Mask     : ${params.FILE_MASK}"
-                        echo "Robocopy Flags: ${env.ROBOCOPY_OPTIONS}"
-                        echo "Parent Build  : POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV #${params.PARENT_BUILD}"
-                        echo "========================================"
-
-                        // ----------------------------------------------------
-                        // Execute transfer
-                        // ----------------------------------------------------
-                        withCredentials([
-                            usernamePassword(
-                                credentialsId: env.CREDENTIAL_ID,
-                                usernameVariable: 'FT_USER',
-                                passwordVariable: 'FT_PASS'
-                            )
-                        ]) {
-                            def rc = bat(
-                                returnStatus: true,
-                                script: """
+                    ]) {
+                        def rc = bat(
+                            returnStatus: true,
+                            script: """
 @echo off
 setlocal EnableDelayedExpansion
-
 if exist robocopy.error del robocopy.error
 if exist robocopy.rc    del robocopy.rc
 if exist robocopy.log   del robocopy.log
@@ -146,7 +131,7 @@ if errorlevel 1 (
 )
 
 if /I "%SAME_SHARE%"=="YES" (
-    echo [INFO] Source and Destination are on the SAME share - reusing connection
+    echo [INFO] Same share - reusing connection
 ) else (
     echo [INFO] Authenticating DESTINATION share: %DST_SHARE_ROOT%
     net use "%DST_SHARE_ROOT%" "%FT_PASS%" /user:"%FT_USER%" /persistent:no >nul 2>&1
@@ -157,7 +142,7 @@ if /I "%SAME_SHARE%"=="YES" (
     )
 )
 
-echo [INFO] Validating SOURCE path accessibility...
+echo [INFO] Validating SOURCE path...
 dir "${params.SRC_PATH}" >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] SOURCE path not accessible
@@ -166,7 +151,7 @@ if errorlevel 1 (
     exit /b 103
 )
 
-echo [INFO] Validating DESTINATION path accessibility...
+echo [INFO] Validating DESTINATION path...
 dir "${params.DST_PATH}" >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] DESTINATION path not accessible
@@ -189,32 +174,28 @@ if /I NOT "%SAME_SHARE%"=="YES" (
 echo [INFO] Robocopy finished with RC=!RC!
 exit /b !RC!
 """
-                            )
+                        )
 
-                            // ------------------------------------------------
-                            // Return code handling
-                            // ------------------------------------------------
-                            if (rc == 101) {
-                                writeFile file: 'robocopy.error', text: 'Unable to connect to SOURCE SMB share. Check credentials and permissions.'
-                                error('Unable to connect to SOURCE SMB share.')
-                            }
-                            if (rc == 102) {
-                                writeFile file: 'robocopy.error', text: 'Unable to connect to DESTINATION SMB share. Check credentials and permissions.'
-                                error('Unable to connect to DESTINATION SMB share.')
-                            }
-                            if (rc == 103) {
-                                writeFile file: 'robocopy.error', text: 'SOURCE path not accessible (missing path or insufficient permissions).'
-                                error('SOURCE path not accessible.')
-                            }
-                            if (rc == 104) {
-                                writeFile file: 'robocopy.error', text: 'DESTINATION path not accessible (missing path or insufficient permissions).'
-                                error('DESTINATION path not accessible.')
-                            }
-                            // Robocopy: 0-7 = success/info, >=8 = failure
-                            if (rc >= 8) {
-                                writeFile file: 'robocopy.error', text: "Robocopy failed with RC=${rc}. Most common cause: Access Denied (ERROR 5) - the account has no Read permission on source files or no Write permission on destination."
-                                error("Robocopy failed with RC=${rc}")
-                            }
+                        if (rc == 101) {
+                            writeFile file: 'robocopy.error', text: 'Unable to connect to SOURCE SMB share.'
+                            error('Unable to connect to SOURCE SMB share.')
+                        }
+                        if (rc == 102) {
+                            writeFile file: 'robocopy.error', text: 'Unable to connect to DESTINATION SMB share.'
+                            error('Unable to connect to DESTINATION SMB share.')
+                        }
+                        if (rc == 103) {
+                            writeFile file: 'robocopy.error', text: 'SOURCE path not accessible.'
+                            error('SOURCE path not accessible.')
+                        }
+                        if (rc == 104) {
+                            writeFile file: 'robocopy.error', text: 'DESTINATION path not accessible.'
+                            error('DESTINATION path not accessible.')
+                        }
+                        // Robocopy: 0-7 = OK, >=8 = failure
+                        if (rc >= 8) {
+                            writeFile file: 'robocopy.error', text: "Robocopy failed with RC=${rc}."
+                            error("Robocopy failed with RC=${rc}")
                         }
                     }
                 }
@@ -222,55 +203,102 @@ exit /b !RC!
         }
     }
 
-    // ========================================================================
-    // Post – always write the detailed log
-    // ========================================================================
     post {
         always {
             script {
-                long elapsed = (System.currentTimeMillis() - env.START_TIME.toLong()) / 1000
+                long startMs   = env.START_TIME.toLong()
+                long endMs     = System.currentTimeMillis()
+                long durationMs = endMs - startMs
+
+                String startTime = formatTime(startMs)
+                String endTime   = formatTime(endMs)
+                String duration  = formatDuration(durationMs)
 
                 def errorMsg = fileExists('robocopy.error') ? readFile('robocopy.error').trim() : ''
                 def rc       = fileExists('robocopy.rc')    ? readFile('robocopy.rc').trim()    : ''
                 def fullLog  = fileExists('robocopy.log')   ? readFile('robocopy.log')          : 'No Robocopy log generated.'
 
+                def status = (currentBuild.currentResult == 'SUCCESS' || currentBuild.currentResult == null)
+                             ? 'SUCCESS'
+                             : (currentBuild.currentResult ?: 'FAILED')
+
+                def jobName = env.JOB_NAME
+                def logName = "${jobName}_BuildID_${env.BUILD_NUMBER}.txt"
+                def logDir  = 'C:\\Jenkins\\Jobs\\Log'
+                def logPath = "${logDir}\\${logName}"
+
+                // ---------- Text log ----------
                 def logContent = """SUMMARY
 ================================================================================
-Job Name     : ${params.JOB_NAME}
+Job Name     : ${jobName}
+Build        : #${env.BUILD_NUMBER}
 File Mask    : ${params.FILE_MASK}
-SRC_CRED     : ${params.SRC_CRED}
-Duration     : ${elapsed} seconds
-Timestamp    : ${new Date().format('yyyy-MM-dd HH:mm:ss')}
-Build Parent : POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV #${params.PARENT_BUILD}
+Source       : ${params.SRC_PATH}
+Destination  : ${params.DST_PATH}
+Flags        : ${env.ROBOCOPY_OPTIONS ?: params.ROBOCOPY_FLAGS}
+Status       : ${status}${errorMsg ? " - ${errorMsg}" : (rc ? " (RC=${rc})" : "")}
+Start Time   : ${startTime}
+End Time     : ${endTime}
+Duration     : ${duration}
 -------------------------------------------------------------------------------
 ${fullLog}
 ================================================================================
 END OF LOG
 """
-
-                // Log name = JOB_NAME del JSON + BuildID del job actual
-                def logDir  = 'C:\\Jenkins\\Jobs\\Log'
-                def logName = "${params.JOB_NAME}_BuildID_${env.BUILD_NUMBER}.txt"
-                def logPath = "${logDir}\\${logName}"
-
                 bat """
 @echo off
 if not exist "${logDir}" mkdir "${logDir}"
 """
-
                 writeFile file: logPath, text: logContent
-                echo "Detailed Robocopy log written to: ${logPath}"
+                echo "Log written to: ${logPath}"
 
-                echo """
-SUMMARY
-================================================================================
-Job Name  : ${params.JOB_NAME}
-Flags     : ${env.ROBOCOPY_OPTIONS}
-File Mask : ${params.FILE_MASK}
-Status    : ${errorMsg ? errorMsg : "SUCCESS (RC=${rc})"}
-Duration  : ${elapsed} seconds
-================================================================================
+                // ---------- Dashboard history.json (Scheduled Jobs) ----------
+                def histDir  = "C:\\Jenkins\\Jobs\\Dashboard\\data\\scheduled\\${jobName}"
+                def histFile = "${histDir}\\history.json"
+                def histWork = "${env.WORKSPACE}\\scheduled_history_temp.json"
+
+                bat """
+@echo off
+if not exist "${histDir}" mkdir "${histDir}"
+if exist "${histFile}" (
+    copy /Y "${histFile}" "${histWork}" >nul
+) else (
+    echo []> "${histWork}"
+)
 """
+
+                def history = []
+                try {
+                    def raw = readFile(file: histWork).trim()
+                    if (raw && raw != '[]') {
+                        def parsed = new JsonSlurperClassic().parseText(raw)
+                        if (parsed instanceof List) {
+                            history = new ArrayList(parsed)
+                        }
+                    }
+                } catch (Exception e) {
+                    echo "WARNING: could not parse history, starting fresh: ${e.message}"
+                    history = []
+                }
+
+                def entry = [
+                    build     : env.BUILD_NUMBER.toInteger(),
+                    startTime : startTime,
+                    endTime   : endTime,
+                    duration  : duration,
+                    status    : status,
+                    logFile   : logName
+                ]
+
+                history = prependHistoryAndTrim(history, entry, 20)
+
+                writeFile file: histWork, text: JsonOutput.prettyPrint(JsonOutput.toJson(history))
+                bat """
+@echo off
+copy /Y "${histWork}" "${histFile}" >nul
+"""
+                echo "Scheduled history updated: ${histFile}"
+                echo "History entries: ${history.size()}"
             }
         }
     }
