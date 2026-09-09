@@ -1,20 +1,11 @@
-[
-  {
-    "id": "br-sd-wfltp1-005",
-    "job": "BR.SD.#WFLTP1.005_EOD_DELIVERIES.EV",
-    "scheduleType": "Daily",
-    "schedule": "02:30 AM",
-    "cron": "30 2 * * *",
-    "timezone": "America/New_York",
-    "enabled": true
-  },
-  {
-    "id": "fin-month-end",
-    "job": "FIN.MONTH_END_REPORT.EV",
-    "scheduleType": "Daily",
-    "schedule": "03:00 AM",
-    "cron": "0 3 * * *",
-    "timezone": "America/New_York",
-    "enabled": true
-  }
-]
+{
+  "id": "zf-tmp-copy",
+  "job": "NOMBRE_EXACTO_DEL_JOB_EN_JENKINS",
+  "folder": "NOMBRE_EXACTO_DEL_JOB_EN_JENKINS",
+  "scheduleType": "Daily",
+  "schedule": "02:30 AM",
+  "cron": "30 2 * * *",
+  "timezone": "America/New_York",
+  "nextRun": "09/10/2026 02:30:00",
+  "enabled": true
+}
