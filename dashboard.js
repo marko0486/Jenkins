@@ -956,25 +956,54 @@ function renderPagerCustom(id, total, current, pageSize, cb) {
   const el = document.getElementById(id);
   if (!el) return;
   el.innerHTML = '';
-  const prev = document.createElement('button');
-  prev.className = 'page-btn';
-  prev.textContent = '‹';
-  prev.disabled = current === 1;
-  prev.onclick = () => cb(current - 1);
-  el.appendChild(prev);
-  for (let i = 1; i <= pages; i++) {
+
+  const WINDOW = 10;
+
+  function addBtn(label, page, opts = {}) {
     const b = document.createElement('button');
-    b.className = 'page-btn' + (i === current ? ' active' : '');
-    b.textContent = i;
-    b.onclick = () => cb(i);
+    b.className = 'page-btn' + (opts.active ? ' active' : '');
+    b.textContent = label;
+    b.disabled = !!opts.disabled;
+    if (!opts.disabled && page != null) {
+      b.onclick = () => cb(page);
+    }
     el.appendChild(b);
   }
-  const next = document.createElement('button');
-  next.className = 'page-btn';
-  next.textContent = '›';
-  next.disabled = current === pages;
-  next.onclick = () => cb(current + 1);
-  el.appendChild(next);
+
+  addBtn('‹', current - 1, { disabled: current <= 1 });
+
+  let start = Math.max(1, current - Math.floor(WINDOW / 2));
+  let end = start + WINDOW - 1;
+  if (end > pages) {
+    end = pages;
+    start = Math.max(1, end - WINDOW + 1);
+  }
+
+  if (start > 1) {
+    addBtn('1', 1);
+    if (start > 2) {
+      const dots = document.createElement('span');
+      dots.textContent = '…';
+      dots.style.cssText = 'padding:0 4px;color:#94a3b8;font-size:12px;align-self:center';
+      el.appendChild(dots);
+    }
+  }
+
+  for (let i = start; i <= end; i++) {
+    addBtn(String(i), i, { active: i === current });
+  }
+
+  if (end < pages) {
+    if (end < pages - 1) {
+      const dots = document.createElement('span');
+      dots.textContent = '…';
+      dots.style.cssText = 'padding:0 4px;color:#94a3b8;font-size:12px;align-self:center';
+      el.appendChild(dots);
+    }
+    addBtn(String(pages), pages);
+  }
+
+  addBtn('›', current + 1, { disabled: current >= pages });
 }
 
 async function showDetails(b) {
