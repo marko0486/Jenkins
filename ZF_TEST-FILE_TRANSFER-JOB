@@ -34,18 +34,19 @@ pipeline {
         label 'Windows'
     }
 
-    // Valores por defecto del transfer (puedes sobreescribirlos al lanzar el job)
     parameters {
+        string(name: 'JOB_NAME',       defaultValue: '', description: 'Logical job name from scheduled-jobs.json')
         string(name: 'SRC_PATH',       defaultValue: '\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\src', description: 'UNC source path')
         string(name: 'DST_PATH',       defaultValue: '\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\dst', description: 'UNC destination path')
         string(name: 'FILE_MASK',      defaultValue: '*.*', description: 'Robocopy file mask')
         string(name: 'ROBOCOPY_FLAGS', defaultValue: '/R:0 /W:0 /NP', description: 'Robocopy flags')
         string(name: 'SRC_CRED',       defaultValue: 'WIN.SVC.UC4.BATCHUSER', description: 'Jenkins credential ID for SMB')
+        string(name: 'PARENT_BUILD',   defaultValue: '', description: 'Dispatcher or parent build reference')
     }
 
     options {
         buildDiscarder(logRotator(numToKeepStr: '50'))
-        disableConcurrentBuilds()
+        // Allow parallel runs when dispatcher triggers several jobs at once
     }
 
     environment {
@@ -56,7 +57,9 @@ pipeline {
         stage('File Transfer') {
             steps {
                 script {
-                    def jobName = env.JOB_NAME
+                    // Logical name from schedule (Dispatcher). Fallback: Jenkins job name.
+                    def jobName = (params.JOB_NAME?.trim()) ? params.JOB_NAME.trim() : env.JOB_NAME
+
                     currentBuild.displayName = "#${env.BUILD_NUMBER} - ${jobName}"
                     currentBuild.description = "${params.FILE_MASK} : ${params.SRC_PATH} → ${params.DST_PATH}"
 
@@ -92,8 +95,10 @@ pipeline {
                     env.SAME_SHARE = (env.SRC_SHARE_ROOT.equalsIgnoreCase(env.DST_SHARE_ROOT)) ? "YES" : "NO"
 
                     echo "========================================"
-                    echo "Job Name      : ${jobName}"
+                    echo "Logical Job   : ${jobName}"
+                    echo "Jenkins Job   : ${env.JOB_NAME}"
                     echo "Build         : #${env.BUILD_NUMBER}"
+                    echo "Parent/Sched  : ${params.PARENT_BUILD ?: '—'}"
                     echo "Source        : ${params.SRC_PATH}"
                     echo "Destination   : ${params.DST_PATH}"
                     echo "File Mask     : ${params.FILE_MASK}"
@@ -206,8 +211,8 @@ exit /b !RC!
     post {
         always {
             script {
-                long startMs   = env.START_TIME.toLong()
-                long endMs     = System.currentTimeMillis()
+                long startMs    = env.START_TIME.toLong()
+                long endMs      = System.currentTimeMillis()
                 long durationMs = endMs - startMs
 
                 String startTime = formatTime(startMs)
@@ -222,7 +227,9 @@ exit /b !RC!
                              ? 'SUCCESS'
                              : (currentBuild.currentResult ?: 'FAILED')
 
-                def jobName = env.JOB_NAME
+                // Same logical name as in the stage
+                def jobName = (params.JOB_NAME?.trim()) ? params.JOB_NAME.trim() : env.JOB_NAME
+
                 def logName = "${jobName}_BuildID_${env.BUILD_NUMBER}.txt"
                 def logDir  = 'C:\\Jenkins\\Jobs\\Log'
                 def logPath = "${logDir}\\${logName}"
@@ -231,7 +238,9 @@ exit /b !RC!
                 def logContent = """SUMMARY
 ================================================================================
 Job Name     : ${jobName}
+Jenkins Job  : ${env.JOB_NAME}
 Build        : #${env.BUILD_NUMBER}
+Parent/Sched : ${params.PARENT_BUILD ?: '—'}
 File Mask    : ${params.FILE_MASK}
 Source       : ${params.SRC_PATH}
 Destination  : ${params.DST_PATH}
