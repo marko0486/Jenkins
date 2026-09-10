@@ -326,8 +326,8 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
               </svg>
-              Jobs without Orchestrator
-              <span class="sub" id="scheduled-subtitle">Jobs scheduled directly in Jenkins (no orchestrator)</span>
+              Global Schedule
+              <span class="sub" id="scheduled-subtitle">Standalone jobs (no orchestrator)</span>
             </div>
             <div class="card-actions">
               <div class="search-box">
@@ -335,10 +335,20 @@
                 <input type="text" id="scheduled-search" placeholder="Search job name..." />
               </div>
               <select id="scheduled-filter-type">
-                <option value="all">All Schedules</option>
-                <option value="Daily">Daily</option>
-                <option value="Weekly">Weekly</option>
-                <option value="Monthly">Monthly</option>
+                <option value="all">All Calendars</option>
+                <option value="DAILY">DAILY</option>
+                <option value="WEEKDAYS">WEEKDAYS</option>
+                <option value="WEEKENDS">WEEKENDS</option>
+                <option value="WEEKLY_MON">WEEKLY_MON</option>
+                <option value="WEEKLY_TUE">WEEKLY_TUE</option>
+                <option value="WEEKLY_WED">WEEKLY_WED</option>
+                <option value="WEEKLY_THU">WEEKLY_THU</option>
+                <option value="WEEKLY_FRI">WEEKLY_FRI</option>
+                <option value="WEEKLY_SAT">WEEKLY_SAT</option>
+                <option value="WEEKLY_SUN">WEEKLY_SUN</option>
+                <option value="MONTHLY_1">MONTHLY_1</option>
+                <option value="MONTHLY_15">MONTHLY_15</option>
+                <option value="MONTHLY_LAST">MONTHLY_LAST</option>
               </select>
             </div>
           </div>
@@ -347,8 +357,10 @@
               <thead>
                 <tr>
                   <th>Job Name</th>
-                  <th>Schedule Type</th>
-                  <th>Schedule</th>
+                  <th>Active</th>
+                  <th>Start Time</th>
+                  <th>Calendar</th>
+                  <th>Type</th>
                   <th>Next Run</th>
                   <th>Last Run</th>
                   <th>Last Status</th>
