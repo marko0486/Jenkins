@@ -41,6 +41,32 @@ def filterOutBuild(List data, int buildNum) {
     }
 }
 
+@NonCPS
+def mergeJobsCatalog(List existing, List children, String parentJob, int parentBuild, String seenAt) {
+    def map = [:]
+    existing.each { e ->
+        def key = (e.job ?: '').toString()
+        if (key) map[key] = e
+    }
+    children.each { c ->
+        def key = (c.job ?: '').toString()
+        if (!key) return
+        map[key] = [
+            job             : key,
+            source          : c.source ?: (map[key]?.source ?: '—'),
+            destination     : c.destination ?: (map[key]?.destination ?: '—'),
+            transferType    : c.transferType ?: (map[key]?.transferType ?: '—'),
+            fileMask        : c.fileMask ?: (map[key]?.fileMask ?: '—'),
+            flags           : c.flags ?: (map[key]?.flags ?: '—'),
+            lastStatus      : c.status ?: (map[key]?.lastStatus ?: '—'),
+            lastSeen        : seenAt,
+            lastParentBuild : parentBuild,
+            orchestrator    : parentJob
+        ]
+    }
+    return map.values().toList().sort { a, b -> (a.job ?: '').toString() <=> (b.job ?: '').toString() }
+}
+
 // ============================================================================
 // Time formatting helpers
 // ============================================================================
@@ -74,7 +100,6 @@ pipeline {
                     def jsonText = new File('C:/Jenkins/Jobs/file-transfers_15m.json').text
                     def transfers = new JsonSlurperClassic().parseText(jsonText)
                     TOTAL = transfers.size()
-
                     withCredentials([
                         usernamePassword(
                             credentialsId: 'WIN.SVC.UC4.BATCHUSER',
@@ -84,15 +109,12 @@ pipeline {
                     ]) {
                         try {
                             transfers.each { transfer ->
-
-                                // Skip disabled transfers
                                 if (transfer.containsKey('enabled') && !transfer.enabled) {
                                     DISABLED++
                                     DISABLED_JOBS << transfer.job?.toString()
                                     echo "[DISABLED] ${transfer.job}"
                                     return
                                 }
-
                                 String jobName       = transfer.job?.toString()
                                 String credentialId  = transfer.credentialId?.toString()
                                 String source        = transfer.source?.toString()
@@ -100,16 +122,12 @@ pipeline {
                                 String fileMask      = transfer.fileMask?.toString() ?: '*.*'
                                 String transferType  = transfer.transferType?.toString()?.trim()?.toUpperCase() ?: 'ROBOCOPY'
                                 String roboFlags     = ''
-
                                 if (transfer.flags instanceof List) {
                                     roboFlags = transfer.flags.collect { it.toString() }.join(' ')
                                 } else {
                                     roboFlags = transfer.flags?.toString() ?: ''
                                 }
 
-                                // ============================================================
-                                // Light PRE-CHECK (path accessibility)
-                                // ============================================================
                                 if (transferType == 'ROBOCOPY' && credentialId == 'WIN.SVC.UC4.BATCHUSER') {
                                     CHECKED++
                                     int checkResult = bat(
@@ -139,9 +157,7 @@ net use "!SHARE!" /delete /y >nul 2>&1
 exit /b 0
 """
                                     )
-
                                     if (checkResult == 100) {
-                                        // Virtual child – pre-check failed (no real build created)
                                         CHILDREN << [
                                             job          : jobName,
                                             build        : null,
@@ -167,12 +183,8 @@ exit /b 0
                                     }
                                 }
 
-                                // ============================================================
-                                // Execute the real transfer job
-                                // ============================================================
                                 echo "[EXEC] ${jobName} (${transferType})"
                                 def result
-
                                 if (transferType == 'SHAREPOINT') {
                                     result = build(
                                         job: 'POC_SHAREPOINT_TRANSFER',
@@ -207,11 +219,9 @@ exit /b 0
                                     )
                                 }
 
-                                // Capture child timing
                                 long childStartMs  = result.startTimeInMillis ?: 0L
                                 long childDuration = result.duration ?: 0L
                                 long childEndMs    = (childStartMs > 0 && childDuration > 0) ? (childStartMs + childDuration) : 0L
-
                                 EXECUTED++
                                 CHILDREN << [
                                     job          : jobName,
@@ -228,7 +238,6 @@ exit /b 0
                                     fileMask     : fileMask,
                                     flags        : roboFlags
                                 ]
-
                                 if (result.result != 'SUCCESS') {
                                     FAILURES << [
                                         job    : jobName,
@@ -247,38 +256,26 @@ exit /b 0
                             // Optional cleanup
                         }
                     }
-
                     currentBuild.displayName = "#${env.BUILD_NUMBER} D:${DISABLED} X:${EXECUTED} S:${SKIPPED} F:${FAILURES.size()}"
                     currentBuild.description = "Total=${TOTAL} | Disabled=${DISABLED} | Checked=${CHECKED} | Executed=${EXECUTED} | Skipped=${SKIPPED} | Failed=${FAILURES.size()}"
                 }
             }
         }
     }
-
     post {
         always {
             script {
-                // ============================================================
-                // Parent timing
-                // ============================================================
                 long parentStartMs  = currentBuild.startTimeInMillis ?: 0L
                 long parentDuration = currentBuild.duration ?: (System.currentTimeMillis() - parentStartMs)
                 long parentEndMs    = parentStartMs + parentDuration
-
                 String parentStartTime   = formatTime(parentStartMs)
                 String parentEndTime     = formatTime(parentEndMs)
                 String parentDurationStr = formatDuration(parentDuration)
 
-                // ============================================================
-                // Real children counters
-                // ============================================================
                 def successCount  = CHILDREN.count { it.status == 'SUCCESS' }
                 def failedCount   = CHILDREN.count { it.status == 'FAILED' || it.status == 'FAILURE' || it.status == 'PRECHECK_FAILED' }
                 def unstableCount = CHILDREN.count { it.status == 'UNSTABLE' }
 
-                // ============================================================
-                // Console summary
-                // ============================================================
                 def summary = """
 FT SUMMARY
 ========================================
@@ -309,18 +306,13 @@ REASON : ${f.reason}
                 }
                 echo(summary)
 
-                // ============================================================
-                // Detailed text log
-                // ============================================================
                 def logDir = 'C:\\Jenkins\\Jobs\\Log'
                 def logFileName = "${env.JOB_NAME}_BuildID_${env.BUILD_NUMBER}.txt"
                 def logFilePath = "${logDir}\\${logFileName}"
-
                 bat """
 @echo off
 if not exist "${logDir}" mkdir "${logDir}"
 """
-
                 def logContent = """
 ================================================================================
 FILE TRANSFER ORCHESTRATOR - DETAILED EXECUTION LOG
@@ -349,7 +341,6 @@ DISABLED JOBS (${DISABLED})
                 } else {
                     DISABLED_JOBS.each { job -> logContent += "  - ${job}\n" }
                 }
-
                 logContent += """
 SKIPPED JOBS (${SKIPPED})
 --------------------------------------------------------------------------------
@@ -359,7 +350,6 @@ SKIPPED JOBS (${SKIPPED})
                 } else {
                     SKIPPED_JOBS.each { job -> logContent += "  - ${job}\n" }
                 }
-
                 logContent += """
 SUCCESSFULLY EXECUTED JOBS (${SUCCESS_JOBS.size()})
 --------------------------------------------------------------------------------
@@ -369,7 +359,6 @@ SUCCESSFULLY EXECUTED JOBS (${SUCCESS_JOBS.size()})
                 } else {
                     SUCCESS_JOBS.each { job -> logContent += "  - ${job}\n" }
                 }
-
                 logContent += """
 FAILED JOBS (${FAILURES.size()})
 --------------------------------------------------------------------------------
@@ -388,7 +377,6 @@ FAILED JOBS (${FAILURES.size()})
                         logContent += "  ----------------------------------------\n"
                     }
                 }
-
                 logContent += """
 ================================================================================
 END OF LOG
@@ -397,24 +385,17 @@ END OF LOG
                 writeFile file: logFilePath, text: logContent
                 echo "Detailed log written to: ${logFilePath}"
 
-                // ============================================================
-                // Determine Parent status for Dashboard
-                // ============================================================
-                // SUCCESS  → pipeline finished normally (even if some pre-checks failed)
-                // FAILED   → unhandled exception or real pipeline failure
-                def overallStatus = (currentBuild.currentResult == 'SUCCESS' || currentBuild.currentResult == null) 
-                                    ? "SUCCESS" 
+                def overallStatus = (currentBuild.currentResult == 'SUCCESS' || currentBuild.currentResult == null)
+                                    ? "SUCCESS"
                                     : currentBuild.currentResult
 
-                // ============================================================
-                // MULTI-ORCHESTRATOR PATHS
-                // Each orchestrator writes into its own folder
-                // ============================================================
                 def orchestratorName = env.JOB_NAME
                 def baseDashboardDir = "C:\\Jenkins\\Jobs\\Dashboard\\data\\${orchestratorName}"
                 def dashboardDir     = "${baseDashboardDir}\\Builds"
                 def indexFile        = "${baseDashboardDir}\\index.json"
+                def catalogFile      = "${baseDashboardDir}\\jobs-catalog.json"
                 def workspaceIndex   = "${env.WORKSPACE}\\dashboard_index_temp.json"
+                def workspaceCatalog = "${env.WORKSPACE}\\jobs_catalog_temp.json"
 
                 bat """
 @echo off
@@ -422,11 +403,8 @@ if not exist "${baseDashboardDir}" mkdir "${baseDashboardDir}"
 if not exist "${dashboardDir}" mkdir "${dashboardDir}"
 """
 
-                // ============================================================
-                // Dashboard JSON (Build_XXX.json)
-                // ============================================================
+                // Build_XXX.json
                 def dashboardFile = "${dashboardDir}\\Build_${env.BUILD_NUMBER}.json"
-
                 def dashboardJson = [
                     parentJob     : env.JOB_NAME,
                     parentBuild   : env.BUILD_NUMBER as Integer,
@@ -448,14 +426,10 @@ if not exist "${dashboardDir}" mkdir "${dashboardDir}"
                     failedCount   : failedCount,
                     unstableCount : unstableCount
                 ]
-
-                def jsonText = JsonOutput.prettyPrint(JsonOutput.toJson(dashboardJson))
-                writeFile file: dashboardFile, text: jsonText
+                writeFile file: dashboardFile, text: JsonOutput.prettyPrint(JsonOutput.toJson(dashboardJson))
                 echo "Dashboard JSON written to: ${dashboardFile}"
 
-                // ============================================================
-                // Dashboard INDEX (index.json)
-                // ============================================================
+                // index.json
                 def indexRecord = [
                     build         : env.BUILD_NUMBER.toInteger(),
                     job           : env.JOB_NAME,
@@ -469,7 +443,6 @@ if not exist "${dashboardDir}" mkdir "${dashboardDir}"
                     unstableCount : unstableCount,
                     file          : "Build_${env.BUILD_NUMBER}.json"
                 ]
-
                 bat """
 @echo off
 if exist "${indexFile}" (
@@ -478,7 +451,6 @@ if exist "${indexFile}" (
     echo []> "${workspaceIndex}"
 )
 """
-
                 def indexData = []
                 try {
                     def raw = readFile(file: workspaceIndex).trim()
@@ -492,22 +464,59 @@ if exist "${indexFile}" (
                     echo "WARNING: Failed to parse index, starting fresh: ${e.message}"
                     indexData = []
                 }
-
                 def currentBuildNum = env.BUILD_NUMBER.toInteger()
                 indexData = filterOutBuild(indexData, currentBuildNum)
                 indexData.add(0, indexRecord)
                 indexData = sortIndexDesc(indexData)
-
-                def prettyIndex = JsonOutput.prettyPrint(JsonOutput.toJson(indexData))
-                writeFile file: workspaceIndex, text: prettyIndex
-
+                writeFile file: workspaceIndex, text: JsonOutput.prettyPrint(JsonOutput.toJson(indexData))
                 bat """
 @echo off
 copy /Y "${workspaceIndex}" "${indexFile}" >nul
 """
-
                 echo "Dashboard index updated: ${indexFile}"
-                echo "Total builds in index: ${indexData.size()}"
+
+                // ============================================================
+                // jobs-catalog.json (unique jobs for Job History – fast path)
+                // ============================================================
+                bat """
+@echo off
+if exist "${catalogFile}" (
+    copy /Y "${catalogFile}" "${workspaceCatalog}" >nul
+) else (
+    echo []> "${workspaceCatalog}"
+)
+"""
+                def catalogData = []
+                try {
+                    def rawCat = readFile(file: workspaceCatalog).trim()
+                    if (rawCat && rawCat != '[]') {
+                        def parsedCat = new JsonSlurperClassic().parseText(rawCat)
+                        if (parsedCat instanceof List) {
+                            catalogData = new ArrayList(parsedCat)
+                        }
+                    }
+                } catch (Exception e) {
+                    echo "WARNING: Failed to parse jobs-catalog, starting fresh: ${e.message}"
+                    catalogData = []
+                }
+
+                // Prefer child endTime; fallback to parent end
+                def seenAt = parentEndTime
+                catalogData = mergeJobsCatalog(
+                    catalogData,
+                    CHILDREN,
+                    env.JOB_NAME,
+                    env.BUILD_NUMBER.toInteger(),
+                    seenAt
+                )
+
+                writeFile file: workspaceCatalog, text: JsonOutput.prettyPrint(JsonOutput.toJson(catalogData))
+                bat """
+@echo off
+copy /Y "${workspaceCatalog}" "${catalogFile}" >nul
+"""
+                echo "Jobs catalog updated: ${catalogFile}"
+                echo "Unique jobs in catalog: ${catalogData.size()}"
             }
         }
     }
