@@ -4,7 +4,8 @@ const CONFIG = {
   PAGE_SIZE: 6,
   FAILED_PAGE_SIZE: 15,
   HISTORY_PAGE_SIZE: 15,
-  SCHEDULED_PAGE_SIZE: 10
+  SCHEDULED_PAGE_SIZE: 10,
+  HISTORY_MAX_BUILDS_PER_ORCH: 20
 };
 
 let orchestrators = [];
@@ -26,6 +27,7 @@ let historyJobs = [];
 let filteredHistoryJobs = [];
 let historyPage = 1;
 let isLoadingHistory = false;
+let historyCache = null;
 
 let scheduledJobs = [];
 let filteredScheduled = [];
@@ -92,7 +94,8 @@ function hideAllCenterCards() {
   document.getElementById('history-card').style.display = 'none';
   document.getElementById('scheduled-view').style.display = 'none';
   document.getElementById('detail-card').style.display = 'none';
-  document.getElementById('scheduled-detail-card').style.display = 'none';
+  const schedDetail = document.getElementById('scheduled-detail-card');
+  if (schedDetail) schedDetail.style.display = 'none';
 }
 
 function showDashboardView() {
@@ -124,7 +127,9 @@ async function loadAll() {
             orchestratorColor: o.color || '#3b82f6',
             folder: o.folder
           }));
-        } catch { return []; }
+        } catch {
+          return [];
+        }
       })
     );
 
@@ -133,6 +138,7 @@ async function loadAll() {
     currentPage = 1;
     selectedBuild = null;
     children = [];
+    historyCache = null;
     document.getElementById('detail-card').style.display = 'none';
 
     showDashboardView();
@@ -222,9 +228,13 @@ async function openFailedJobsView() {
             _sortKey: parseTimestamp(failTime) || 0
           });
         });
-      } catch (e) { console.warn(e); }
+      } catch (e) {
+        console.warn(e);
+      }
     }
-  } finally { isLoadingFailed = false; }
+  } finally {
+    isLoadingFailed = false;
+  }
 
   failedJobs.sort((a, b) => b._sortKey - a._sortKey);
   filteredFailedJobs = [...failedJobs];
@@ -242,15 +252,19 @@ async function openFailedJobsView() {
   renderFailedJobs();
 }
 
-function closeFailedJobsView() { showDashboardView(); }
+function closeFailedJobsView() {
+  showDashboardView();
+}
 
 function filterFailedJobs() {
   const q = (document.getElementById('failed-search').value || '').toLowerCase().trim();
-  filteredFailedJobs = !q ? [...failedJobs] : failedJobs.filter(f =>
-    (f.job || '').toLowerCase().includes(q) ||
-    String(f.parentBuild).includes(q) ||
-    (f.orchestrator || '').toLowerCase().includes(q)
-  );
+  filteredFailedJobs = !q
+    ? [...failedJobs]
+    : failedJobs.filter(f =>
+        (f.job || '').toLowerCase().includes(q) ||
+        String(f.parentBuild).includes(q) ||
+        (f.orchestrator || '').toLowerCase().includes(q)
+      );
   failedPage = 1;
   document.getElementById('failed-jobs-subtitle').textContent =
     `${filteredFailedJobs.length} failed job${filteredFailedJobs.length !== 1 ? 's' : ''} found`;
@@ -275,12 +289,15 @@ function renderFailedJobs() {
         <td><span class="badge badge-failed">${f.status}</span></td>
         <td style="color:#dc2626;max-width:260px;white-space:normal">${f.reason}</td>
         <td>${f.startTime}</td>
-        <td>${f.logFile ? `<button class="link" onclick="alert('Log: ${f.logFile}')">View Log</button>` : `<span style="color:#94a3b8;font-size:12px">No log</span>`}</td>`;
+        <td>${f.logFile
+          ? `<button class="link" onclick="alert('Log: ${f.logFile}')">View Log</button>`
+          : `<span style="color:#94a3b8;font-size:12px">No log</span>`}</td>`;
       tbody.appendChild(tr);
     });
   }
   renderPagerCustom('failed-jobs-pager', filteredFailedJobs.length, failedPage, CONFIG.FAILED_PAGE_SIZE, p => {
-    failedPage = p; renderFailedJobs();
+    failedPage = p;
+    renderFailedJobs();
   });
 }
 
@@ -288,43 +305,81 @@ function renderFailedJobs() {
 async function openHistoryView() {
   if (isLoadingHistory) return;
   isLoadingHistory = true;
-  const map = new Map();
+
   try {
-    for (const parent of allBuilds) {
-      try {
-        const file = parent.file || `Build_${parent.build}.json`;
-        const res = await fetch(`data/${parent.folder}/Builds/${file}?t=${Date.now()}`);
-        if (!res.ok) continue;
-        const data = await res.json();
-        (data.children || []).forEach(c => {
-          const name = (c.job || '').trim();
-          if (!name || name === '—') return;
-          let timeStr = c.endTime && c.endTime !== '—' ? c.endTime
-                      : c.startTime && c.startTime !== '—' ? c.startTime
-                      : parent.endTime && parent.endTime !== '—' ? parent.endTime
-                      : parent.timestamp || '—';
-          const timeKey = parseTimestamp(timeStr) || 0;
-          const existing = map.get(name);
-          if (!existing || timeKey >= existing._sortKey) {
-            map.set(name, {
-              job: name,
-              source: c.source || '—',
-              destination: c.destination || '—',
-              transferType: c.transferType || '—',
-              fileMask: c.fileMask || '—',
-              flags: c.flags || '—',
-              _sortKey: timeKey
-            });
-          }
-        });
-      } catch (e) { console.warn(e); }
+    if (historyCache) {
+      historyJobs = historyCache;
+      filteredHistoryJobs = [...historyJobs];
+      historyPage = 1;
+      showHistoryUI();
+      return;
     }
-  } finally { isLoadingHistory = false; }
 
-  historyJobs = Array.from(map.values()).sort((a, b) => b._sortKey - a._sortKey);
-  filteredHistoryJobs = [...historyJobs];
-  historyPage = 1;
+    const MAX = CONFIG.HISTORY_MAX_BUILDS_PER_ORCH;
+    const byOrch = new Map();
+    allBuilds.forEach(b => {
+      const key = b.orchestratorId || b.folder || 'default';
+      if (!byOrch.has(key)) byOrch.set(key, []);
+      byOrch.get(key).push(b);
+    });
 
+    const buildsToScan = [];
+    byOrch.forEach(list => {
+      list
+        .sort((a, b) => Number(b.build) - Number(a.build))
+        .slice(0, MAX)
+        .forEach(b => buildsToScan.push(b));
+    });
+
+    const results = await Promise.all(
+      buildsToScan.map(async parent => {
+        try {
+          const file = parent.file || `Build_${parent.build}.json`;
+          const res = await fetch(`data/${parent.folder}/Builds/${file}?t=${Date.now()}`);
+          if (!res.ok) return [];
+          const data = await res.json();
+          return (data.children || []).map(c => ({ c, parent }));
+        } catch {
+          return [];
+        }
+      })
+    );
+
+    const map = new Map();
+    results.flat().forEach(({ c, parent }) => {
+      const name = (c.job || '').trim();
+      if (!name || name === '—') return;
+
+      let timeStr = c.endTime && c.endTime !== '—' ? c.endTime
+                  : c.startTime && c.startTime !== '—' ? c.startTime
+                  : parent.endTime && parent.endTime !== '—' ? parent.endTime
+                  : parent.timestamp || '—';
+      const timeKey = parseTimestamp(timeStr) || 0;
+      const existing = map.get(name);
+      if (!existing || timeKey >= existing._sortKey) {
+        map.set(name, {
+          job: name,
+          source: c.source || '—',
+          destination: c.destination || '—',
+          transferType: c.transferType || '—',
+          fileMask: c.fileMask || '—',
+          flags: c.flags || '—',
+          _sortKey: timeKey
+        });
+      }
+    });
+
+    historyJobs = Array.from(map.values()).sort((a, b) => b._sortKey - a._sortKey);
+    historyCache = historyJobs;
+    filteredHistoryJobs = [...historyJobs];
+    historyPage = 1;
+    showHistoryUI();
+  } finally {
+    isLoadingHistory = false;
+  }
+}
+
+function showHistoryUI() {
   hideAllCenterCards();
   document.getElementById('stats-row').style.display = 'none';
   document.getElementById('right-dashboard').style.display = 'block';
@@ -337,18 +392,22 @@ async function openHistoryView() {
   renderHistoryJobs();
 }
 
-function closeHistoryView() { showDashboardView(); }
+function closeHistoryView() {
+  showDashboardView();
+}
 
 function filterHistoryJobs() {
   const q = (document.getElementById('history-search').value || '').toLowerCase().trim();
-  filteredHistoryJobs = !q ? [...historyJobs] : historyJobs.filter(h =>
-    (h.job || '').toLowerCase().includes(q) ||
-    (h.source || '').toLowerCase().includes(q) ||
-    (h.destination || '').toLowerCase().includes(q) ||
-    (h.transferType || '').toLowerCase().includes(q) ||
-    (h.fileMask || '').toLowerCase().includes(q) ||
-    (h.flags || '').toLowerCase().includes(q)
-  );
+  filteredHistoryJobs = !q
+    ? [...historyJobs]
+    : historyJobs.filter(h =>
+        (h.job || '').toLowerCase().includes(q) ||
+        (h.source || '').toLowerCase().includes(q) ||
+        (h.destination || '').toLowerCase().includes(q) ||
+        (h.transferType || '').toLowerCase().includes(q) ||
+        (h.fileMask || '').toLowerCase().includes(q) ||
+        (h.flags || '').toLowerCase().includes(q)
+      );
   historyPage = 1;
   document.getElementById('history-subtitle').textContent =
     `${filteredHistoryJobs.length} unique job${filteredHistoryJobs.length !== 1 ? 's' : ''} found`;
@@ -377,7 +436,8 @@ function renderHistoryJobs() {
     });
   }
   renderPagerCustom('history-pager', filteredHistoryJobs.length, historyPage, CONFIG.HISTORY_PAGE_SIZE, p => {
-    historyPage = p; renderHistoryJobs();
+    historyPage = p;
+    renderHistoryJobs();
   });
 }
 
@@ -395,26 +455,27 @@ async function openScheduledView(forceReload) {
       scheduledJobs = [];
     }
 
-    // Enrich with history (last run / status) if available
-    await Promise.all(scheduledJobs.map(async (job) => {
-      try {
-        const folder = job.folder || job.job;
-        const r = await fetch(`data/scheduled/${encodeURIComponent(folder)}/history.json?t=${Date.now()}`);
-        if (!r.ok) {
+    await Promise.all(
+      scheduledJobs.map(async job => {
+        try {
+          const folder = job.folder || job.job;
+          const r = await fetch(`data/scheduled/${encodeURIComponent(folder)}/history.json?t=${Date.now()}`);
+          if (!r.ok) {
+            job._history = [];
+            return;
+          }
+          const hist = await r.json();
+          job._history = Array.isArray(hist) ? hist : [];
+          if (job._history.length) {
+            const last = job._history[0];
+            job.lastRun = last.startTime || last.endTime || job.lastRun || '—';
+            job.lastStatus = last.status || job.lastStatus || '—';
+          }
+        } catch {
           job._history = [];
-          return;
         }
-        const hist = await r.json();
-        job._history = Array.isArray(hist) ? hist : [];
-        if (job._history.length) {
-          const last = job._history[0];
-          job.lastRun = last.startTime || last.endTime || job.lastRun || '—';
-          job.lastStatus = last.status || job.lastStatus || '—';
-        }
-      } catch {
-        job._history = [];
-      }
-    }));
+      })
+    );
   } catch (e) {
     console.warn('scheduled-jobs.json not found yet', e);
     scheduledJobs = [];
@@ -431,14 +492,14 @@ async function openScheduledView(forceReload) {
   document.getElementById('right-dashboard').style.display = 'none';
   document.getElementById('right-scheduled').style.display = 'block';
   document.getElementById('scheduled-view').style.display = 'block';
-  document.getElementById('scheduled-detail-card').style.display = 'none';
+  const schedDetail = document.getElementById('scheduled-detail-card');
+  if (schedDetail) schedDetail.style.display = 'none';
   document.getElementById('scheduled-search').value = '';
   document.getElementById('scheduled-filter-type').value = 'all';
 
-  document.getElementById('scheduled-subtitle').textContent =
-    scheduledJobs.length
-      ? `${scheduledJobs.length} scheduled job${scheduledJobs.length !== 1 ? 's' : ''}`
-      : 'No scheduled-jobs.json found yet — add the file to populate this view';
+  document.getElementById('scheduled-subtitle').textContent = scheduledJobs.length
+    ? `${scheduledJobs.length} scheduled job${scheduledJobs.length !== 1 ? 's' : ''}`
+    : 'No scheduled-jobs.json found yet — add the file to populate this view';
 
   setActiveNav('scheduled');
   renderScheduledTable();
@@ -484,7 +545,8 @@ function renderScheduledTable() {
   }
 
   renderPagerCustom('scheduled-pager', filteredScheduled.length, scheduledPage, CONFIG.SCHEDULED_PAGE_SIZE, p => {
-    scheduledPage = p; renderScheduledTable();
+    scheduledPage = p;
+    renderScheduledTable();
   });
 }
 
@@ -499,8 +561,9 @@ function showScheduledDetails(j) {
     j.timezone ? `Time zone: ${j.timezone}` : '—';
   document.getElementById('sched-detail-next').textContent = j.nextRun || '—';
   document.getElementById('sched-detail-last').textContent = j.lastRun || '—';
-  document.getElementById('sched-detail-last-status').innerHTML =
-    j.lastStatus ? `<span class="badge ${badgeClass(j.lastStatus)}" style="margin-top:4px;display:inline-block">${j.lastStatus}</span>` : '';
+  document.getElementById('sched-detail-last-status').innerHTML = j.lastStatus
+    ? `<span class="badge ${badgeClass(j.lastStatus)}" style="margin-top:4px;display:inline-block">${j.lastStatus}</span>`
+    : '';
 
   const hist = (j._history || []).slice(0, 10);
   const tbody = document.getElementById('sched-history-tbody');
@@ -549,26 +612,21 @@ function renderScheduleSummary() {
   });
   document.getElementById('sched-donut').innerHTML = svg;
 
-  const pct = (n) => scheduledJobs.length ? Math.round((n / scheduledJobs.length) * 100) : 0;
+  const pct = n => (scheduledJobs.length ? Math.round((n / scheduledJobs.length) * 100) : 0);
   document.getElementById('sched-legend').innerHTML = `
     <div class="legend-row"><span class="legend-dot" style="background:#2563eb"></span> Daily ${counts.Daily} (${pct(counts.Daily)}%)</div>
     <div class="legend-row"><span class="legend-dot" style="background:#8b5cf6"></span> Weekly ${counts.Weekly} (${pct(counts.Weekly)}%)</div>
-    <div class="legend-row"><span class="legend-dot" style="background:#f59e0b"></span> Monthly ${counts.Monthly} (${pct(counts.Monthly)}%)</div>
-  `;
+    <div class="legend-row"><span class="legend-dot" style="background:#f59e0b"></span> Monthly ${counts.Monthly} (${pct(counts.Monthly)}%)</div>`;
 }
 
 function renderNextRuns() {
   const ul = document.getElementById('next-runs-list');
   ul.innerHTML = '';
-  const list = [...scheduledJobs]
-    .filter(j => j.nextRun && j.nextRun !== '—')
-    .slice(0, 6);
-
+  const list = [...scheduledJobs].filter(j => j.nextRun && j.nextRun !== '—').slice(0, 6);
   if (!list.length) {
     ul.innerHTML = `<li style="color:#94a3b8;font-size:12px;padding:12px 0">No upcoming runs defined</li>`;
     return;
   }
-
   list.forEach(j => {
     const li = document.createElement('li');
     li.innerHTML = `
@@ -594,7 +652,7 @@ function updateBellBadge(count) {
   }
 }
 
-/* ========== ORCHESTRATORS / STATS / TABLE (same as before) ========== */
+/* ========== ORCHESTRATORS / STATS / TABLE ========== */
 function renderOrchList() {
   const ul = document.getElementById('orch-list');
   ul.innerHTML = '';
@@ -609,7 +667,10 @@ function renderOrchList() {
   } else if (activeOrchFilter === 'issues') {
     list = list.filter(o => {
       const builds = allBuilds.filter(b => b.orchestratorId === o.id);
-      return builds.some(b => (b.failedCount || 0) > 0 || ['FAILED','FAILURE','UNSTABLE'].includes((b.status || '').toUpperCase()));
+      return builds.some(b =>
+        (b.failedCount || 0) > 0 ||
+        ['FAILED', 'FAILURE', 'UNSTABLE'].includes((b.status || '').toUpperCase())
+      );
     });
   }
   list.forEach(o => {
@@ -635,7 +696,9 @@ function renderOrchList() {
   });
 }
 
-function filterOrchList() { renderOrchList(); }
+function filterOrchList() {
+  renderOrchList();
+}
 
 function populateOrchFilter() {
   const sel = document.getElementById('filter-orch');
@@ -651,25 +714,34 @@ function populateOrchFilter() {
 function updateStats() {
   const now = Date.now();
   const h24 = 24 * 60 * 60 * 1000;
-  const last24 = allBuilds.filter(b => { const t = parseTimestamp(b.timestamp); return t && (now - t) <= h24; });
-  const prev24 = allBuilds.filter(b => { const t = parseTimestamp(b.timestamp); return t && (now - t) > h24 && (now - t) <= h24 * 2; });
+  const last24 = allBuilds.filter(b => {
+    const t = parseTimestamp(b.timestamp);
+    return t && now - t <= h24;
+  });
+  const prev24 = allBuilds.filter(b => {
+    const t = parseTimestamp(b.timestamp);
+    return t && now - t > h24 && now - t <= h24 * 2;
+  });
 
   const totalParents = allBuilds.length;
   const totalSuccessChildren = allBuilds.reduce((s, b) => s + (b.successCount || 0), 0);
-  const totalFailedChildren  = allBuilds.reduce((s, b) => s + (b.failedCount || 0), 0);
+  const totalFailedChildren = allBuilds.reduce((s, b) => s + (b.failedCount || 0), 0);
   const totalUnstableChildren = allBuilds.reduce((s, b) => s + (b.unstableCount || 0), 0);
   const totalChildren = totalSuccessChildren + totalFailedChildren + totalUnstableChildren || 1;
 
   const failedLast24h = last24.reduce((s, b) => s + (b.failedCount || 0), 0);
   if (failedLast24h > 0) updateBellBadge(failedLast24h);
-  else { updateBellBadge(0); bellCleared = false; }
+  else {
+    updateBellBadge(0);
+    bellCleared = false;
+  }
 
   document.getElementById('stat-total').textContent = totalParents;
   document.getElementById('stat-success').textContent = totalSuccessChildren;
   document.getElementById('stat-failed').textContent = totalFailedChildren;
   document.getElementById('stat-unstable').textContent = totalUnstableChildren;
 
-  const pct = (n, t) => t ? Math.round((n / t) * 1000) / 10 : 0;
+  const pct = (n, t) => (t ? Math.round((n / t) * 1000) / 10 : 0);
   const pctSuccess = pct(totalSuccessChildren, totalChildren);
   const pctFailed = pct(totalFailedChildren, totalChildren);
   const pctUnstable = pct(totalUnstableChildren, totalChildren);
@@ -682,16 +754,10 @@ function updateStats() {
   setRing('ring-failed', circ - (pctFailed / 100) * circ);
   setRing('ring-unstable', circ - (pctUnstable / 100) * circ);
 
-  const lastSuccess = last24.reduce((s, b) => s + (b.successCount || 0), 0);
-  const lastFailed = last24.reduce((s, b) => s + (b.failedCount || 0), 0);
-  const lastUnstable = last24.reduce((s, b) => s + (b.unstableCount || 0), 0);
-  const prevSuccess = prev24.reduce((s, b) => s + (b.successCount || 0), 0);
-  const prevFailed = prev24.reduce((s, b) => s + (b.failedCount || 0), 0);
-  const prevUnstable = prev24.reduce((s, b) => s + (b.unstableCount || 0), 0);
   setTrend('trend-total', last24.length - prev24.length);
-  setTrend('trend-success', lastSuccess - prevSuccess);
-  setTrend('trend-failed', lastFailed - prevFailed);
-  setTrend('trend-unstable', lastUnstable - prevUnstable);
+  setTrend('trend-success', last24.reduce((s, b) => s + (b.successCount || 0), 0) - prev24.reduce((s, b) => s + (b.successCount || 0), 0));
+  setTrend('trend-failed', last24.reduce((s, b) => s + (b.failedCount || 0), 0) - prev24.reduce((s, b) => s + (b.failedCount || 0), 0));
+  setTrend('trend-unstable', last24.reduce((s, b) => s + (b.unstableCount || 0), 0) - prev24.reduce((s, b) => s + (b.unstableCount || 0), 0));
   renderMiniBars(last24.slice(0, 8).reverse());
 }
 
@@ -731,7 +797,7 @@ function renderMiniBars(builds) {
   builds.forEach(() => {
     const bar = document.createElement('div');
     bar.className = 'bar';
-    bar.style.height = (8 + Math.random() * 18) + 'px';
+    bar.style.height = 8 + Math.random() * 18 + 'px';
     container.appendChild(bar);
   });
 }
@@ -758,11 +824,11 @@ function renderDonut() {
   });
   document.getElementById('donut-chart').innerHTML = svg;
   document.getElementById('status-legend').innerHTML = `
-    <div class="legend-row"><span class="legend-dot" style="background:#10b981"></span> Success ${success} (${Math.round(success/total*100)}%)</div>
+    <div class="legend-row"><span class="legend-dot" style="background:#10b981"></span> Success ${success} (${Math.round((success / total) * 100)}%)</div>
     <div class="legend-row" style="cursor:pointer" onclick="openFailedJobsView()">
-      <span class="legend-dot" style="background:#ef4444"></span> Failed ${failed} (${Math.round(failed/total*100)}%)
+      <span class="legend-dot" style="background:#ef4444"></span> Failed ${failed} (${Math.round((failed / total) * 100)}%)
     </div>
-    <div class="legend-row"><span class="legend-dot" style="background:#f59e0b"></span> Unstable ${unstable} (${Math.round(unstable/total*100)}%)</div>`;
+    <div class="legend-row"><span class="legend-dot" style="background:#f59e0b"></span> Unstable ${unstable} (${Math.round((unstable / total) * 100)}%)</div>`;
 }
 
 function renderOrchStatus() {
@@ -783,9 +849,9 @@ function renderOrchStatus() {
         <span>${success}/${total}</span>
       </div>
       <div class="orch-status-bar">
-        <div class="seg success" style="width:${(success/total)*100}%"></div>
-        <div class="seg failed" style="width:${(failed/total)*100}%"></div>
-        <div class="seg unstable" style="width:${(unstable/total)*100}%"></div>
+        <div class="seg success" style="width:${(success / total) * 100}%"></div>
+        <div class="seg failed" style="width:${(failed / total) * 100}%"></div>
+        <div class="seg unstable" style="width:${(unstable / total) * 100}%"></div>
       </div>`;
     el.appendChild(row);
   });
@@ -832,7 +898,9 @@ function renderTable() {
   } else {
     rows.forEach(b => {
       const tr = document.createElement('tr');
-      if (selectedBuild && selectedBuild.build === b.build && selectedBuild.orchestratorId === b.orchestratorId) tr.classList.add('selected');
+      if (selectedBuild && selectedBuild.build === b.build && selectedBuild.orchestratorId === b.orchestratorId) {
+        tr.classList.add('selected');
+      }
       tr.onclick = () => showDetails(b);
       tr.innerHTML = `
         <td class="build-id">${b.build}</td>
@@ -849,7 +917,10 @@ function renderTable() {
       tbody.appendChild(tr);
     });
   }
-  renderPager('builds-pager', filteredBuilds.length, currentPage, p => { currentPage = p; renderTable(); });
+  renderPager('builds-pager', filteredBuilds.length, currentPage, p => {
+    currentPage = p;
+    renderTable();
+  });
 }
 
 function renderPager(id, total, current, cb) {
@@ -862,16 +933,24 @@ function renderPagerCustom(id, total, current, pageSize, cb) {
   if (!el) return;
   el.innerHTML = '';
   const prev = document.createElement('button');
-  prev.className = 'page-btn'; prev.textContent = '‹'; prev.disabled = current === 1;
-  prev.onclick = () => cb(current - 1); el.appendChild(prev);
+  prev.className = 'page-btn';
+  prev.textContent = '‹';
+  prev.disabled = current === 1;
+  prev.onclick = () => cb(current - 1);
+  el.appendChild(prev);
   for (let i = 1; i <= pages; i++) {
     const b = document.createElement('button');
     b.className = 'page-btn' + (i === current ? ' active' : '');
-    b.textContent = i; b.onclick = () => cb(i); el.appendChild(b);
+    b.textContent = i;
+    b.onclick = () => cb(i);
+    el.appendChild(b);
   }
   const next = document.createElement('button');
-  next.className = 'page-btn'; next.textContent = '›'; next.disabled = current === pages;
-  next.onclick = () => cb(current + 1); el.appendChild(next);
+  next.className = 'page-btn';
+  next.textContent = '›';
+  next.disabled = current === pages;
+  next.onclick = () => cb(current + 1);
+  el.appendChild(next);
 }
 
 async function showDetails(b) {
@@ -909,7 +988,7 @@ function renderChildren() {
     page.forEach(c => {
       const tr = document.createElement('tr');
       tr.style.cursor = 'default';
-      if (['FAILED','FAILURE'].includes((c.status || '').toUpperCase())) tr.style.background = '#fef2f2';
+      if (['FAILED', 'FAILURE'].includes((c.status || '').toUpperCase())) tr.style.background = '#fef2f2';
       const hasBuild = c.build != null && c.build !== '';
       let logCell = '—', action = '—';
       if (c.logFile) {
@@ -931,5 +1010,8 @@ function renderChildren() {
       tbody.appendChild(tr);
     });
   }
-  renderPager('children-pager', children.length, childrenPage, p => { childrenPage = p; renderChildren(); });
+  renderPager('children-pager', children.length, childrenPage, p => {
+    childrenPage = p;
+    renderChildren();
+  });
 }
