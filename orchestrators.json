@@ -1,30 +1,18 @@
 [
   {
-    "id": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-    "name": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-    "displayName": "POC_AUTOMIC_FT",
-    "folder": "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV",
-    "color": "#3b82f6"
-  },
-  {
-    "id": "ORCH_UAT",
-    "name": "ORCH_UAT",
-    "displayName": "ORCH_UAT",
-    "folder": "ORCH_UAT",
-    "color": "#8b5cf6"
-  },
-  {
-    "id": "ORCH_PROD",
-    "name": "ORCH_PROD",
-    "displayName": "ORCH_PROD",
-    "folder": "ORCH_PROD",
-    "color": "#10b981"
-  },
-  {
-    "id": "ORCH_DEV",
-    "name": "ORCH_DEV",
-    "displayName": "ORCH_DEV",
-    "folder": "ORCH_DEV",
-    "color": "#f59e0b"
+    "id": "zf-test-file-transfer",
+    "name": "ZF_TEST-FILE_TRANSFER-JOB",
+    "folder": "ZF_TEST-FILE_TRANSFER-JOB",
+    "enabled": true,
+    "startTime": "02:30",
+    "calendar": "DAILY",
+    "type": "TRANSFER",
+    "transferType": "ROBOCOPY",
+    "source": "\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\src",
+    "destination": "\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\dst",
+    "fileMask": "*.*",
+    "flags": "/R:0 /W:0 /NP",
+    "credentialId": "WIN.SVC.UC4.BATCHUSER",
+    "timezone": "America/New_York"
   }
 ]
