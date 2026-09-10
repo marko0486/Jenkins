@@ -27,6 +27,7 @@ let filteredHistoryJobs = [];
 let historyPage = 1;
 let isLoadingHistory = false;
 let historyCache = null;
+let selectedHistoryJob = null;
 
 let scheduledJobs = [];
 let filteredScheduled = [];
@@ -138,6 +139,7 @@ async function loadAll() {
     selectedBuild = null;
     children = [];
     historyCache = null;
+    selectedHistoryJob = null;
     document.getElementById('detail-card').style.display = 'none';
 
     showDashboardView();
@@ -300,7 +302,7 @@ function renderFailedJobs() {
   });
 }
 
-/* ========== JOB HISTORY (jobs-catalog.json – 1 request per orchestrator) ========== */
+/* ========== JOB HISTORY ========== */
 async function openHistoryView() {
   if (isLoadingHistory) return;
   isLoadingHistory = true;
@@ -310,6 +312,7 @@ async function openHistoryView() {
       historyJobs = historyCache;
       filteredHistoryJobs = [...historyJobs];
       historyPage = 1;
+      selectedHistoryJob = null;
       showHistoryUI();
       return;
     }
@@ -350,6 +353,7 @@ async function openHistoryView() {
     historyCache = historyJobs;
     filteredHistoryJobs = [...historyJobs];
     historyPage = 1;
+    selectedHistoryJob = null;
     showHistoryUI();
   } finally {
     isLoadingHistory = false;
@@ -365,6 +369,8 @@ function showHistoryUI() {
   document.getElementById('history-search').value = '';
   document.getElementById('history-subtitle').textContent =
     `${historyJobs.length} unique job${historyJobs.length !== 1 ? 's' : ''} found`;
+  const panel = document.getElementById('history-detail-panel');
+  if (panel) panel.style.display = 'none';
   setActiveNav('history');
   renderHistoryJobs();
 }
@@ -386,8 +392,11 @@ function filterHistoryJobs() {
         (h.flags || '').toLowerCase().includes(q)
       );
   historyPage = 1;
+  selectedHistoryJob = null;
   document.getElementById('history-subtitle').textContent =
     `${filteredHistoryJobs.length} unique job${filteredHistoryJobs.length !== 1 ? 's' : ''} found`;
+  const panel = document.getElementById('history-detail-panel');
+  if (panel) panel.style.display = 'none';
   renderHistoryJobs();
 }
 
@@ -396,12 +405,19 @@ function renderHistoryJobs() {
   tbody.innerHTML = '';
   const start = (historyPage - 1) * CONFIG.HISTORY_PAGE_SIZE;
   const page = filteredHistoryJobs.slice(start, start + CONFIG.HISTORY_PAGE_SIZE);
+
   if (!page.length) {
     tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:40px;color:#94a3b8">No jobs found</td></tr>`;
+    const panel = document.getElementById('history-detail-panel');
+    if (panel) panel.style.display = 'none';
   } else {
     page.forEach(h => {
       const tr = document.createElement('tr');
-      tr.style.cursor = 'default';
+      tr.style.cursor = 'pointer';
+      if (selectedHistoryJob && selectedHistoryJob.job === h.job) {
+        tr.classList.add('selected');
+      }
+      tr.onclick = () => showHistoryJobDetails(h);
       tr.innerHTML = `
         <td style="font-weight:500">${h.job}</td>
         <td style="max-width:220px;white-space:normal;word-break:break-all">${displayPath(h.source)}</td>
@@ -412,10 +428,32 @@ function renderHistoryJobs() {
       tbody.appendChild(tr);
     });
   }
+
   renderPagerCustom('history-pager', filteredHistoryJobs.length, historyPage, CONFIG.HISTORY_PAGE_SIZE, p => {
     historyPage = p;
+    selectedHistoryJob = null;
+    const panel = document.getElementById('history-detail-panel');
+    if (panel) panel.style.display = 'none';
     renderHistoryJobs();
   });
+}
+
+function showHistoryJobDetails(h) {
+  selectedHistoryJob = h;
+  renderHistoryJobs();
+
+  const panel = document.getElementById('history-detail-panel');
+  if (!panel) return;
+
+  panel.style.display = 'block';
+  document.getElementById('history-detail-title').textContent = h.job || '—';
+  document.getElementById('hd-source').textContent = displayPath(h.source);
+  document.getElementById('hd-destination').textContent = displayPath(h.destination);
+  document.getElementById('hd-type').textContent = h.transferType || '—';
+  document.getElementById('hd-mask').textContent = h.fileMask || '—';
+  document.getElementById('hd-flags').textContent = h.flags || '—';
+
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 /* ========== SCHEDULED JOBS ========== */
