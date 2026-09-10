@@ -71,7 +71,7 @@ pipeline {
         stage('File Transfers') {
             steps {
                 script {
-                    def jsonText = new File('C:/Jenkins/Jobs/tmp.json').text
+                    def jsonText = new File('C:/Jenkins/Jobs/file-transfers_15m.json').text
                     def transfers = new JsonSlurperClassic().parseText(jsonText)
                     TOTAL = transfers.size()
 
@@ -155,7 +155,7 @@ exit /b 0
                                             destination  : destination,
                                             transferType : transferType,
                                             fileMask     : fileMask,
-                                            flags        : flags
+                                            flags        : roboFlags
                                         ]
                                         FAILURES << [
                                             job    : jobName,
@@ -192,7 +192,7 @@ exit /b 0
                                     )
                                 } else {
                                     result = build(
-                                        job: 'POC_AUTOMIC_FILE_TRANSFER_IMPROVED_PEFORMANCE',
+                                        job: 'POC_ROBOCOPY_FILE_TRANSFER',
                                         wait: true,
                                         propagate: false,
                                         parameters: [
@@ -226,7 +226,7 @@ exit /b 0
                                     destination  : destination,
                                     transferType : transferType,
                                     fileMask     : fileMask,
-                                    flags        : flags
+                                    flags        : roboFlags
                                 ]
 
                                 if (result.result != 'SUCCESS') {
