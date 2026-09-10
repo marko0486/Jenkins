@@ -41,7 +41,6 @@
 
   <div class="layout">
 
-    <!-- LEFT -->
     <aside class="left-panel">
       <div class="panel-card">
         <div class="panel-head">
@@ -121,10 +120,7 @@
       </div>
     </aside>
 
-    <!-- CENTER -->
     <main class="center-panel">
-
-      <!-- Stats (Dashboard only) -->
       <div class="stats-row" id="stats-row">
         <div class="stat-card">
           <div class="stat-icon blue">
@@ -199,7 +195,6 @@
         </div>
       </div>
 
-      <!-- Builds -->
       <div class="card" id="builds-card">
         <div class="card-head">
           <div class="card-title">
@@ -233,7 +228,6 @@
         <div class="pager" id="builds-pager"></div>
       </div>
 
-      <!-- Failed Jobs -->
       <div class="card" id="failed-jobs-card" style="display:none">
         <div class="card-head">
           <div class="card-title">
@@ -265,7 +259,6 @@
         <div class="pager" id="failed-jobs-pager"></div>
       </div>
 
-      <!-- Job History -->
       <div class="card" id="history-card" style="display:none">
         <div class="card-head">
           <div class="card-title">
@@ -287,17 +280,45 @@
           <table>
             <thead>
               <tr>
-                <th>Job Name</th><th>Source</th><th>Destination</th>
-                <th>Transfer Type</th><th>File Mask</th><th>Flags</th>
+                <th>Job Name</th>
+                <th>Source</th>
+                <th>Destination</th>
+                <th>Transfer Type</th>
+                <th>File Mask</th>
+                <th>Flags</th>
               </tr>
             </thead>
             <tbody id="history-tbody"></tbody>
           </table>
         </div>
         <div class="pager" id="history-pager"></div>
+        <div id="history-detail-panel" class="history-detail-panel" style="display:none">
+          <div class="history-detail-title" id="history-detail-title">—</div>
+          <div class="history-detail-grid">
+            <div>
+              <div class="history-detail-label">Source</div>
+              <div class="history-detail-value" id="hd-source">—</div>
+            </div>
+            <div>
+              <div class="history-detail-label">Destination</div>
+              <div class="history-detail-value" id="hd-destination">—</div>
+            </div>
+            <div>
+              <div class="history-detail-label">Transfer Type</div>
+              <div class="history-detail-value" id="hd-type">—</div>
+            </div>
+            <div>
+              <div class="history-detail-label">File Mask</div>
+              <div class="history-detail-value" id="hd-mask">—</div>
+            </div>
+            <div>
+              <div class="history-detail-label">Flags</div>
+              <div class="history-detail-value" id="hd-flags">—</div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <!-- ========== SCHEDULED JOBS ========== -->
       <div id="scheduled-view" style="display:none">
         <div class="card" id="scheduled-card">
           <div class="card-head">
@@ -339,7 +360,6 @@
           <div class="pager" id="scheduled-pager"></div>
         </div>
 
-        <!-- Job Details -->
         <div class="card" id="scheduled-detail-card" style="display:none">
           <div class="card-head">
             <div class="card-title">
@@ -392,7 +412,6 @@
         </div>
       </div>
 
-      <!-- Orchestrator Details -->
       <div class="card" id="detail-card" style="display:none">
         <div class="card-head">
           <div class="card-title">
@@ -423,10 +442,7 @@
       </div>
     </main>
 
-    <!-- RIGHT -->
     <aside class="right-panel">
-
-      <!-- Dashboard right panels -->
       <div id="right-dashboard">
         <div class="panel-card">
           <div class="panel-head">
@@ -444,7 +460,6 @@
           </div>
           <div class="legend" id="status-legend"></div>
         </div>
-
         <div class="panel-card">
           <div class="panel-head">
             <span class="panel-title">
@@ -454,7 +469,6 @@
           </div>
           <div id="orch-status-list"></div>
         </div>
-
         <div class="panel-card">
           <div class="panel-head">
             <span class="panel-title">
@@ -483,7 +497,6 @@
         </div>
       </div>
 
-      <!-- Scheduled Jobs right panels -->
       <div id="right-scheduled" style="display:none">
         <div class="panel-card">
           <div class="panel-head">
@@ -501,7 +514,6 @@
           </div>
           <div class="legend" id="sched-legend"></div>
         </div>
-
         <div class="panel-card">
           <div class="panel-head">
             <span class="panel-title">
@@ -511,7 +523,6 @@
           </div>
           <ul class="next-runs-list" id="next-runs-list"></ul>
         </div>
-
         <div class="panel-card">
           <div class="panel-head">
             <span class="panel-title">
