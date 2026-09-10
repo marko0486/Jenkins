@@ -296,6 +296,37 @@ td { padding: 9px 12px; white-space: nowrap; color: #334155; }
 .page-btn.active { background: var(--blue); color: #fff; border-color: var(--blue); }
 .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* Job History detail panel */
+.history-detail-panel {
+  border-top: 1px solid var(--border);
+  padding: 16px;
+  background: #f8fafc;
+}
+.history-detail-title {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 12px;
+  color: var(--text);
+}
+.history-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 24px;
+  font-size: 12.5px;
+}
+.history-detail-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+.history-detail-value {
+  font-weight: 500;
+  word-break: break-all;
+  white-space: normal;
+  color: var(--text);
+}
+
 /* Scheduled detail */
 .sched-detail-header {
   padding: 16px;
@@ -369,4 +400,5 @@ td { padding: 9px 12px; white-space: nowrap; color: #334155; }
   .layout { grid-template-columns: 1fr; }
   .left-panel, .right-panel { max-height: none; }
   .stats-row { grid-template-columns: 1fr 1fr; }
+  .history-detail-grid { grid-template-columns: 1fr; }
 }
