@@ -1,0 +1,112 @@
+const DEFAULT_SCHEDULE_TZ = 'Europe/Berlin';
+
+function getZonedParts(date, timeZone) {
+  const parts = {};
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+    weekday: 'short'
+  });
+  for (const p of dtf.formatToParts(date)) {
+    if (p.type !== 'literal') parts[p.type] = p.value;
+  }
+  const dowMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  let hour = parseInt(parts.hour, 10);
+  if (hour === 24) hour = 0;
+  return {
+    year: parseInt(parts.year, 10),
+    month: parseInt(parts.month, 10),
+    day: parseInt(parts.day, 10),
+    hour,
+    minute: parseInt(parts.minute, 10),
+    second: parseInt(parts.second, 10),
+    dow: dowMap[parts.weekday] ?? 0
+  };
+}
+
+/** Wall-clock in timeZone → UTC Date (approx, refined) */
+function wallTimeToUtcDate(y, month, d, h, min, sec, timeZone) {
+  let guess = Date.UTC(y, month - 1, d, h, min, sec);
+  for (let i = 0; i < 4; i++) {
+    const p = getZonedParts(new Date(guess), timeZone);
+    const asIfUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+    const target = Date.UTC(y, month - 1, d, h, min, sec);
+    guess += target - asIfUtc;
+  }
+  return new Date(guess);
+}
+
+function formatNextRunBerlin(y, month, d, h, min) {
+  return `${String(month).padStart(2, '0')}/${String(d).padStart(2, '0')}/${y} ${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}:00`;
+}
+
+function calendarMatchesParts(cal, parts) {
+  const c = (cal || 'DAILY').toString().toUpperCase();
+  const dow = parts.dow;
+  const dom = parts.day;
+  const lastDom = new Date(Date.UTC(parts.year, parts.month, 0)).getUTCDate();
+  switch (c) {
+    case 'DAILY': return true;
+    case 'WEEKDAYS': return dow >= 1 && dow <= 5;
+    case 'WEEKENDS': return dow === 0 || dow === 6;
+    case 'WEEKLY_SUN': return dow === 0;
+    case 'WEEKLY_MON': return dow === 1;
+    case 'WEEKLY_TUE': return dow === 2;
+    case 'WEEKLY_WED': return dow === 3;
+    case 'WEEKLY_THU': return dow === 4;
+    case 'WEEKLY_FRI': return dow === 5;
+    case 'WEEKLY_SAT': return dow === 6;
+    case 'MONTHLY_1': return dom === 1;
+    case 'MONTHLY_15': return dom === 15;
+    case 'MONTHLY_LAST': return dom === lastDom;
+    default: return true;
+  }
+}
+
+function addDaysToYmd(y, month, d, days) {
+  const dt = new Date(Date.UTC(y, month - 1, d + days));
+  return {
+    year: dt.getUTCFullYear(),
+    month: dt.getUTCMonth() + 1,
+    day: dt.getUTCDate()
+  };
+}
+
+/** Next run always in job timezone (default Europe/Berlin), independent of browser TZ */
+function computeNextRun(job) {
+  const timeZone = (job.timezone || DEFAULT_SCHEDULE_TZ).toString();
+  const start = (job.startTime || job.schedule || '').toString().trim();
+  const m = start.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return job.nextRun || '—';
+
+  const hour = parseInt(m[1], 10);
+  const minute = parseInt(m[2], 10);
+  const cal = (job.calendar || job.scheduleType || 'DAILY').toString().toUpperCase();
+
+  const now = new Date();
+  const nowZ = getZonedParts(now, timeZone);
+
+  for (let i = 0; i < 400; i++) {
+    const ymd = addDaysToYmd(nowZ.year, nowZ.month, nowZ.day, i);
+    // weekday for that calendar day in zone: use noon UTC-ish wall convert
+    const noon = wallTimeToUtcDate(ymd.year, ymd.month, ymd.day, 12, 0, 0, timeZone);
+    const dayParts = getZonedParts(noon, timeZone);
+    dayParts.day = ymd.day;
+    dayParts.month = ymd.month;
+    dayParts.year = ymd.year;
+
+    if (!calendarMatchesParts(cal, dayParts)) continue;
+
+    const runAt = wallTimeToUtcDate(ymd.year, ymd.month, ymd.day, hour, minute, 0, timeZone);
+    if (runAt.getTime() > now.getTime()) {
+      return formatNextRunBerlin(ymd.year, ymd.month, ymd.day, hour, minute);
+    }
+  }
+  return job.nextRun || '—';
+}
