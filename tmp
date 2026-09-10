@@ -1,34 +1,306 @@
-[
-  {
-    "id": "zf-test-file-transfer",
-    "name": "ZF_TEST-FILE_TRANSFER-JOB",
-    "folder": "ZF_TEST-FILE_TRANSFER-JOB",
-    "enabled": true,
-    "startTime": "23:30",
-    "calendar": "DAILY",
-    "type": "TRANSFER",
-    "transferType": "ROBOCOPY",
-    "source": "\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\src",
-    "destination": "\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\dst",
-    "fileMask": "*.*",
-    "flags": "/R:0 /W:0 /NP",
-    "credentialId": "WIN.SVC.UC4.BATCHUSER",
-    "timezone": "Europe/Berlin"
-  },
-  {
-    "id": "zf-test-file-transfer2",
-    "name": "ZF_TEST-FILE_TRANSFER-JOB_2",
-    "folder": "ZF_TEST-FILE_TRANSFER-JOB_2",
-    "enabled": true,
-    "startTime": "00:20",
-    "calendar": "WEEKLY_FRI",
-    "type": "TRANSFER",
-    "transferType": "ROBOCOPY",
-    "source": "\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\src",
-    "destination": "\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\dst",
-    "fileMask": "*.*",
-    "flags": "/R:0 /W:0 /NP",
-    "credentialId": "WIN.SVC.UC4.BATCHUSER",
-    "timezone": "Europe/Berlin"
-  }
-]
+import groovy.json.JsonSlurperClassic
+import groovy.json.JsonOutput
+
+// ============================================================================
+// Helpers
+// ============================================================================
+def formatTime(long millis) {
+    if (millis <= 0) return "—"
+    return new Date(millis).format('yyyy-MM-dd HH:mm:ss')
+}
+
+def formatDuration(long millis) {
+    if (millis <= 0) return "—"
+    long totalSeconds = (millis / 1000).longValue()
+    long minutes = totalSeconds / 60
+    long seconds = totalSeconds % 60
+    if (minutes > 0) return "${minutes} min ${seconds} sec"
+    return "${seconds} sec"
+}
+
+@NonCPS
+def prependHistoryAndTrim(List history, Map entry, int maxEntries) {
+    def out = new ArrayList()
+    out.add(entry)
+    history.each { h ->
+        if (out.size() >= maxEntries) return
+        out.add(h)
+    }
+    return out
+}
+
+pipeline {
+    agent {
+        label 'Windows'
+    }
+
+    parameters {
+        string(name: 'LOGICAL_JOB_NAME', defaultValue: '', description: 'Logical name from scheduled-jobs.json')
+        string(name: 'SRC_PATH',         defaultValue: '\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\src', description: 'UNC source path')
+        string(name: 'DST_PATH',         defaultValue: '\\\\FRDV02656.emea.zf-world.com\\ToolShare\\tmp\\dst', description: 'UNC destination path')
+        string(name: 'FILE_MASK',        defaultValue: '*.*', description: 'Robocopy file mask')
+        string(name: 'ROBOCOPY_FLAGS',   defaultValue: '/R:0 /W:0 /NP', description: 'Robocopy flags')
+        string(name: 'SRC_CRED',         defaultValue: 'WIN.SVC.UC4.BATCHUSER', description: 'Jenkins credential ID for SMB')
+        string(name: 'PARENT_BUILD',     defaultValue: '', description: 'Dispatcher or parent build reference')
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '50'))
+    }
+
+    environment {
+        START_TIME = "${System.currentTimeMillis()}"
+    }
+
+    stages {
+        stage('File Transfer') {
+            steps {
+                script {
+                    def jobName = (params.LOGICAL_JOB_NAME?.trim()) ? params.LOGICAL_JOB_NAME.trim() : env.JOB_NAME
+
+                    currentBuild.displayName = "#${env.BUILD_NUMBER} - ${jobName}"
+                    currentBuild.description = "${params.FILE_MASK} : ${params.SRC_PATH} → ${params.DST_PATH}"
+
+                    def creds = com.cloudbees.plugins.credentials.CredentialsProvider.lookupCredentials(
+                        com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredentials.class,
+                        jenkins.model.Jenkins.get(),
+                        null,
+                        null
+                    )
+                    def cred = creds.find { it.id == params.SRC_CRED }
+                    if (!cred) {
+                        writeFile file: 'robocopy.error', text: "Credential not found for ID: ${params.SRC_CRED}"
+                        error("Credential not found for ID: ${params.SRC_CRED}")
+                    }
+                    env.CREDENTIAL_ID = cred.id
+                    env.ROBOCOPY_OPTIONS = params.ROBOCOPY_FLAGS?.trim() ?: ""
+
+                    def srcParts = params.SRC_PATH.replaceFirst('^\\\\\\\\', '').split('\\\\')
+                    if (srcParts.size() < 2) {
+                        writeFile file: 'robocopy.error', text: 'Invalid source UNC path.'
+                        error('Invalid source UNC path.')
+                    }
+                    env.SRC_SHARE_ROOT = "\\\\${srcParts[0]}\\${srcParts[1]}"
+
+                    def dstParts = params.DST_PATH.replaceFirst('^\\\\\\\\', '').split('\\\\')
+                    if (dstParts.size() < 2) {
+                        writeFile file: 'robocopy.error', text: 'Invalid destination UNC path.'
+                        error('Invalid destination UNC path.')
+                    }
+                    env.DST_SHARE_ROOT = "\\\\${dstParts[0]}\\${dstParts[1]}"
+                    env.SAME_SHARE = (env.SRC_SHARE_ROOT.equalsIgnoreCase(env.DST_SHARE_ROOT)) ? "YES" : "NO"
+
+                    echo "========================================"
+                    echo "Logical Job   : ${jobName}"
+                    echo "Jenkins Job   : ${env.JOB_NAME}"
+                    echo "Build         : #${env.BUILD_NUMBER}"
+                    echo "Parent/Sched  : ${params.PARENT_BUILD ?: '—'}"
+                    echo "Source        : ${params.SRC_PATH}"
+                    echo "Destination   : ${params.DST_PATH}"
+                    echo "File Mask     : ${params.FILE_MASK}"
+                    echo "Flags         : ${env.ROBOCOPY_OPTIONS}"
+                    echo "Same Share    : ${env.SAME_SHARE}"
+                    echo "========================================"
+
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: env.CREDENTIAL_ID,
+                            usernameVariable: 'FT_USER',
+                            passwordVariable: 'FT_PASS'
+                        )
+                    ]) {
+                        def rc = bat(
+                            returnStatus: true,
+                            script: """
+@echo off
+setlocal EnableDelayedExpansion
+if exist robocopy.error del robocopy.error
+if exist robocopy.rc    del robocopy.rc
+if exist robocopy.log   del robocopy.log
+
+echo [INFO] Cleaning previous connections...
+net use "%SRC_SHARE_ROOT%" /delete /y >nul 2>&1
+if /I NOT "%SAME_SHARE%"=="YES" (
+    net use "%DST_SHARE_ROOT%" /delete /y >nul 2>&1
+)
+
+echo [INFO] Authenticating SOURCE share: %SRC_SHARE_ROOT%
+net use "%SRC_SHARE_ROOT%" "%FT_PASS%" /user:"%FT_USER%" /persistent:no >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Failed to authenticate SOURCE share
+    exit /b 101
+)
+
+if /I "%SAME_SHARE%"=="YES" (
+    echo [INFO] Same share - reusing connection
+) else (
+    echo [INFO] Authenticating DESTINATION share: %DST_SHARE_ROOT%
+    net use "%DST_SHARE_ROOT%" "%FT_PASS%" /user:"%FT_USER%" /persistent:no >nul 2>&1
+    if errorlevel 1 (
+        echo [ERROR] Failed to authenticate DESTINATION share
+        net use "%SRC_SHARE_ROOT%" /delete /y >nul 2>&1
+        exit /b 102
+    )
+)
+
+echo [INFO] Validating SOURCE path...
+dir "${params.SRC_PATH}" >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] SOURCE path not accessible
+    net use "%SRC_SHARE_ROOT%" /delete /y >nul 2>&1
+    if /I NOT "%SAME_SHARE%"=="YES" net use "%DST_SHARE_ROOT%" /delete /y >nul 2>&1
+    exit /b 103
+)
+
+echo [INFO] Validating DESTINATION path...
+dir "${params.DST_PATH}" >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] DESTINATION path not accessible
+    net use "%SRC_SHARE_ROOT%" /delete /y >nul 2>&1
+    if /I NOT "%SAME_SHARE%"=="YES" net use "%DST_SHARE_ROOT%" /delete /y >nul 2>&1
+    exit /b 104
+)
+
+echo [INFO] Starting Robocopy...
+robocopy "${params.SRC_PATH}" "${params.DST_PATH}" "${params.FILE_MASK}" ${env.ROBOCOPY_OPTIONS} > robocopy.log
+set RC=!ERRORLEVEL!
+echo !RC! > robocopy.rc
+
+echo [INFO] Cleaning up connections...
+net use "%SRC_SHARE_ROOT%" /delete /y >nul 2>&1
+if /I NOT "%SAME_SHARE%"=="YES" (
+    net use "%DST_SHARE_ROOT%" /delete /y >nul 2>&1
+)
+
+echo [INFO] Robocopy finished with RC=!RC!
+exit /b !RC!
+"""
+                        )
+
+                        if (rc == 101) {
+                            writeFile file: 'robocopy.error', text: 'Unable to connect to SOURCE SMB share.'
+                            error('Unable to connect to SOURCE SMB share.')
+                        }
+                        if (rc == 102) {
+                            writeFile file: 'robocopy.error', text: 'Unable to connect to DESTINATION SMB share.'
+                            error('Unable to connect to DESTINATION SMB share.')
+                        }
+                        if (rc == 103) {
+                            writeFile file: 'robocopy.error', text: 'SOURCE path not accessible.'
+                            error('SOURCE path not accessible.')
+                        }
+                        if (rc == 104) {
+                            writeFile file: 'robocopy.error', text: 'DESTINATION path not accessible.'
+                            error('DESTINATION path not accessible.')
+                        }
+                        if (rc >= 8) {
+                            writeFile file: 'robocopy.error', text: "Robocopy failed with RC=${rc}."
+                            error("Robocopy failed with RC=${rc}")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                long startMs    = env.START_TIME.toLong()
+                long endMs      = System.currentTimeMillis()
+                long durationMs = endMs - startMs
+
+                String startTime = formatTime(startMs)
+                String endTime   = formatTime(endMs)
+                String duration  = formatDuration(durationMs)
+
+                def errorMsg = fileExists('robocopy.error') ? readFile('robocopy.error').trim() : ''
+                def rc       = fileExists('robocopy.rc')    ? readFile('robocopy.rc').trim()    : ''
+                def fullLog  = fileExists('robocopy.log')   ? readFile('robocopy.log')          : 'No Robocopy log generated.'
+
+                def status = (currentBuild.currentResult == 'SUCCESS' || currentBuild.currentResult == null)
+                             ? 'SUCCESS'
+                             : (currentBuild.currentResult ?: 'FAILED')
+
+                def jobName = (params.LOGICAL_JOB_NAME?.trim()) ? params.LOGICAL_JOB_NAME.trim() : env.JOB_NAME
+
+                def logName = "${jobName}_BuildID_${env.BUILD_NUMBER}.txt"
+                def logDir  = 'C:\\Jenkins\\Jobs\\Log'
+                def logPath = "${logDir}\\${logName}"
+
+                def logContent = """SUMMARY
+================================================================================
+Job Name     : ${jobName}
+Jenkins Job  : ${env.JOB_NAME}
+Build        : #${env.BUILD_NUMBER}
+Parent/Sched : ${params.PARENT_BUILD ?: '—'}
+File Mask    : ${params.FILE_MASK}
+Source       : ${params.SRC_PATH}
+Destination  : ${params.DST_PATH}
+Flags        : ${env.ROBOCOPY_OPTIONS ?: params.ROBOCOPY_FLAGS}
+Status       : ${status}${errorMsg ? " - ${errorMsg}" : (rc ? " (RC=${rc})" : "")}
+Start Time   : ${startTime}
+End Time     : ${endTime}
+Duration     : ${duration}
+-------------------------------------------------------------------------------
+${fullLog}
+================================================================================
+END OF LOG
+"""
+                bat """
+@echo off
+if not exist "${logDir}" mkdir "${logDir}"
+"""
+                writeFile file: logPath, text: logContent
+                echo "Log written to: ${logPath}"
+
+                def histDir  = "C:\\Jenkins\\Jobs\\Dashboard\\data\\scheduled\\${jobName}"
+                def histFile = "${histDir}\\history.json"
+                def histWork = "${env.WORKSPACE}\\scheduled_history_temp.json"
+
+                bat """
+@echo off
+if not exist "${histDir}" mkdir "${histDir}"
+if exist "${histFile}" (
+    copy /Y "${histFile}" "${histWork}" >nul
+) else (
+    echo []> "${histWork}"
+)
+"""
+
+                def history = []
+                try {
+                    def raw = readFile(file: histWork).trim()
+                    if (raw && raw != '[]') {
+                        def parsed = new JsonSlurperClassic().parseText(raw)
+                        if (parsed instanceof List) {
+                            history = new ArrayList(parsed)
+                        }
+                    }
+                } catch (Exception e) {
+                    echo "WARNING: could not parse history, starting fresh: ${e.message}"
+                    history = []
+                }
+
+                def entry = [
+                    build     : env.BUILD_NUMBER.toInteger(),
+                    startTime : startTime,
+                    endTime   : endTime,
+                    duration  : duration,
+                    status    : status,
+                    logFile   : logName
+                ]
+
+                history = prependHistoryAndTrim(history, entry, 20)
+
+                writeFile file: histWork, text: JsonOutput.prettyPrint(JsonOutput.toJson(history))
+                bat """
+@echo off
+copy /Y "${histWork}" "${histFile}" >nul
+"""
+                echo "Scheduled history updated: ${histFile}"
+                echo "History entries: ${history.size()}"
+            }
+        }
+    }
+}
