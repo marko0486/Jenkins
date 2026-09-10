@@ -4,8 +4,7 @@ const CONFIG = {
   PAGE_SIZE: 6,
   FAILED_PAGE_SIZE: 15,
   HISTORY_PAGE_SIZE: 15,
-  SCHEDULED_PAGE_SIZE: 10,
-  HISTORY_MAX_BUILDS_PER_ORCH: 20
+  SCHEDULED_PAGE_SIZE: 10
 };
 
 let orchestrators = [];
@@ -301,7 +300,7 @@ function renderFailedJobs() {
   });
 }
 
-/* ========== JOB HISTORY ========== */
+/* ========== JOB HISTORY (jobs-catalog.json – 1 request per orchestrator) ========== */
 async function openHistoryView() {
   if (isLoadingHistory) return;
   isLoadingHistory = true;
@@ -315,30 +314,13 @@ async function openHistoryView() {
       return;
     }
 
-    const MAX = CONFIG.HISTORY_MAX_BUILDS_PER_ORCH;
-    const byOrch = new Map();
-    allBuilds.forEach(b => {
-      const key = b.orchestratorId || b.folder || 'default';
-      if (!byOrch.has(key)) byOrch.set(key, []);
-      byOrch.get(key).push(b);
-    });
-
-    const buildsToScan = [];
-    byOrch.forEach(list => {
-      list
-        .sort((a, b) => Number(b.build) - Number(a.build))
-        .slice(0, MAX)
-        .forEach(b => buildsToScan.push(b));
-    });
-
     const results = await Promise.all(
-      buildsToScan.map(async parent => {
+      orchestrators.map(async o => {
         try {
-          const file = parent.file || `Build_${parent.build}.json`;
-          const res = await fetch(`data/${parent.folder}/Builds/${file}?t=${Date.now()}`);
+          const res = await fetch(`data/${o.folder}/jobs-catalog.json?t=${Date.now()}`);
           if (!res.ok) return [];
           const data = await res.json();
-          return (data.children || []).map(c => ({ c, parent }));
+          return Array.isArray(data) ? data : [];
         } catch {
           return [];
         }
@@ -346,24 +328,19 @@ async function openHistoryView() {
     );
 
     const map = new Map();
-    results.flat().forEach(({ c, parent }) => {
-      const name = (c.job || '').trim();
-      if (!name || name === '—') return;
-
-      let timeStr = c.endTime && c.endTime !== '—' ? c.endTime
-                  : c.startTime && c.startTime !== '—' ? c.startTime
-                  : parent.endTime && parent.endTime !== '—' ? parent.endTime
-                  : parent.timestamp || '—';
-      const timeKey = parseTimestamp(timeStr) || 0;
+    results.flat().forEach(e => {
+      const name = (e.job || '').trim();
+      if (!name) return;
+      const timeKey = parseTimestamp(e.lastSeen) || 0;
       const existing = map.get(name);
       if (!existing || timeKey >= existing._sortKey) {
         map.set(name, {
           job: name,
-          source: c.source || '—',
-          destination: c.destination || '—',
-          transferType: c.transferType || '—',
-          fileMask: c.fileMask || '—',
-          flags: c.flags || '—',
+          source: e.source || '—',
+          destination: e.destination || '—',
+          transferType: e.transferType || '—',
+          fileMask: e.fileMask || '—',
+          flags: e.flags || '—',
           _sortKey: timeKey
         });
       }
@@ -755,9 +732,18 @@ function updateStats() {
   setRing('ring-unstable', circ - (pctUnstable / 100) * circ);
 
   setTrend('trend-total', last24.length - prev24.length);
-  setTrend('trend-success', last24.reduce((s, b) => s + (b.successCount || 0), 0) - prev24.reduce((s, b) => s + (b.successCount || 0), 0));
-  setTrend('trend-failed', last24.reduce((s, b) => s + (b.failedCount || 0), 0) - prev24.reduce((s, b) => s + (b.failedCount || 0), 0));
-  setTrend('trend-unstable', last24.reduce((s, b) => s + (b.unstableCount || 0), 0) - prev24.reduce((s, b) => s + (b.unstableCount || 0), 0));
+  setTrend(
+    'trend-success',
+    last24.reduce((s, b) => s + (b.successCount || 0), 0) - prev24.reduce((s, b) => s + (b.successCount || 0), 0)
+  );
+  setTrend(
+    'trend-failed',
+    last24.reduce((s, b) => s + (b.failedCount || 0), 0) - prev24.reduce((s, b) => s + (b.failedCount || 0), 0)
+  );
+  setTrend(
+    'trend-unstable',
+    last24.reduce((s, b) => s + (b.unstableCount || 0), 0) - prev24.reduce((s, b) => s + (b.unstableCount || 0), 0)
+  );
   renderMiniBars(last24.slice(0, 8).reverse());
 }
 
