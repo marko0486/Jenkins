@@ -1,5 +1,59 @@
-Sustituye el stage('File Transfer') / script por esto:
+import groovy.json.JsonSlurperClassic
+import groovy.json.JsonOutput
 
+// ============================================================================
+// Helpers
+// ============================================================================
+def formatTime(long millis) {
+    if (millis <= 0) return "-"
+    return new Date(millis).format('yyyy-MM-dd HH:mm:ss')
+}
+
+def formatDuration(long millis) {
+    if (millis <= 0) return "-"
+    long totalSeconds = (millis / 1000).longValue()
+    long minutes = totalSeconds / 60
+    long seconds = totalSeconds % 60
+    if (minutes > 0) return "${minutes} min ${seconds} sec"
+    return "${seconds} sec"
+}
+
+@NonCPS
+def prependHistoryAndTrim(List history, Map entry, int maxEntries) {
+    def out = new ArrayList()
+    out.add(entry)
+    history.each { h ->
+        if (out.size() >= maxEntries) return
+        out.add(h)
+    }
+    return out
+}
+
+// ============================================================================
+// Pipeline
+// ============================================================================
+pipeline {
+    agent {
+        label 'Windows'
+    }
+
+    parameters {
+        string(name: 'LOGICAL_JOB_NAME', defaultValue: '', description: 'Logical scheduled job name (folder for history)')
+        string(name: 'SRC_CRED',         defaultValue: 'WIN.SVC.UC4.BATCHUSER', description: 'Jenkins credential ID for SMB')
+        string(name: 'SRC_PATH',         defaultValue: '', description: 'UNC source path')
+        string(name: 'DST_PATH',         defaultValue: '', description: 'UNC destination path')
+        string(name: 'FILE_MASK',        defaultValue: '*.*', description: 'Robocopy file mask')
+        string(name: 'ROBOCOPY_FLAGS',   defaultValue: '/R:0 /W:0 /NP', description: 'Additional Robocopy flags')
+        string(name: 'PARENT_BUILD',     defaultValue: '', description: 'Parent dispatcher / orchestrator build id')
+    }
+
+    options {
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+        timeout(time: 60, unit: 'MINUTES')
+    }
+
+    stages {
         stage('File Transfer') {
             steps {
                 script {
@@ -28,23 +82,25 @@ Sustituye el stage('File Transfer') / script por esto:
                     if (!srcPath) {
                         status = 'FAILED'
                         failReason = 'Source path is empty'
+                        fullLog = "Skipped Robocopy.\nREASON: ${failReason}"
                     } else if (!dstPath) {
                         status = 'FAILED'
                         failReason = 'Destination path is empty'
+                        fullLog = "Skipped Robocopy.\nREASON: ${failReason}"
                     } else {
                         withCredentials([usernamePassword(
                             credentialsId: credId,
                             usernameVariable: 'FT_USER',
                             passwordVariable: 'FT_PASS'
                         )]) {
-                            // 1) Authenticate SMB session FIRST (required for UNC)
+                            // 1) SMB auth FIRST (required for UNC)
                             bat """
 @echo off
 net use "${srcPath}" /user:%FT_USER% %FT_PASS% >nul 2>&1
 net use "${dstPath}" /user:%FT_USER% %FT_PASS% >nul 2>&1
 """
 
-                            // 2) Path check AFTER net use (dir is more reliable than "if not exist" on UNC)
+                            // 2) Path check AFTER net use (dir is more reliable on UNC)
                             def checkSrc = bat(
                                 returnStatus: true,
                                 script: """
@@ -122,6 +178,7 @@ exit /b %ERRORLEVEL%
 if not exist "${logDir}" mkdir "${logDir}"
 """
 
+                    def reasonText = (failReason != null) ? failReason : '-'
                     def logContent = """SUMMARY
 ================================================================================
 Job Name     : ${jobName}
@@ -130,10 +187,10 @@ SRC_PATH     : ${srcPath}
 DST_PATH     : ${dstPath}
 SRC_CRED     : ${credId}
 Status       : ${status}
-Reason       : ${failReason ?: '—'}
+Reason       : ${reasonText}
 Duration     : ${elapsedSec} seconds
 Timestamp    : ${endTime}
-Parent       : ${params.PARENT_BUILD ?: '—'}
+Parent       : ${params.PARENT_BUILD ?: '-'}
 Robocopy RC  : ${rc}
 -------------------------------------------------------------------------------
 ${fullLog}
@@ -197,3 +254,5 @@ copy /Y "${histWork}" "${histFile}" >nul
                 }
             }
         }
+    }
+}
