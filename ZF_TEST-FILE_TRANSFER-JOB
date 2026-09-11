@@ -1,0 +1,267 @@
+import groovy.json.JsonSlurperClassic
+import groovy.json.JsonOutput
+
+// ============================================================================
+// Helpers
+// ============================================================================
+def formatTime(long millis) {
+    if (millis <= 0) return "—"
+    return new Date(millis).format('yyyy-MM-dd HH:mm:ss')
+}
+
+def formatDuration(long millis) {
+    if (millis <= 0) return "—"
+    long totalSeconds = (millis / 1000).longValue()
+    long minutes = totalSeconds / 60
+    long seconds = totalSeconds % 60
+    if (minutes > 0) return "${minutes} min ${seconds} sec"
+    return "${seconds} sec"
+}
+
+@NonCPS
+def prependHistoryAndTrim(List history, Map entry, int maxEntries) {
+    def out = new ArrayList()
+    out.add(entry)
+    history.each { h ->
+        if (out.size() >= maxEntries) return
+        out.add(h)
+    }
+    return out
+}
+
+// ============================================================================
+// Pipeline
+// ============================================================================
+pipeline {
+    agent {
+        label 'Windows'
+    }
+
+    parameters {
+        string(name: 'LOGICAL_JOB_NAME', defaultValue: '', description: 'Logical scheduled job name (folder for history)')
+        string(name: 'SRC_CRED',         defaultValue: 'WIN.SVC.UC4.BATCHUSER', description: 'Jenkins credential ID for SMB')
+        string(name: 'SRC_PATH',         defaultValue: '', description: 'UNC source path')
+        string(name: 'DST_PATH',         defaultValue: '', description: 'UNC destination path')
+        string(name: 'FILE_MASK',        defaultValue: '*.*', description: 'Robocopy file mask')
+        string(name: 'ROBOCOPY_FLAGS',   defaultValue: '/R:0 /W:0 /NP', description: 'Additional Robocopy flags')
+        string(name: 'PARENT_BUILD',     defaultValue: '', description: 'Parent dispatcher / orchestrator build id')
+    }
+
+    options {
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+        timeout(time: 60, unit: 'MINUTES')
+    }
+
+    stages {
+        stage('File Transfer') {
+            steps {
+                script {
+                    def startMs = System.currentTimeMillis()
+                    def startTime = formatTime(startMs)
+
+                    def jobName = (params.LOGICAL_JOB_NAME?.trim()) ? params.LOGICAL_JOB_NAME.trim() : env.JOB_NAME
+                    def srcPath = (params.SRC_PATH ?: '').toString().trim()
+                    def dstPath = (params.DST_PATH ?: '').toString().trim()
+                    def fileMask = (params.FILE_MASK ?: '*.*').toString().trim()
+                    def roboFlags = (params.ROBOCOPY_FLAGS ?: '/R:0 /W:0 /NP').toString().trim()
+                    def credId = (params.SRC_CRED ?: 'WIN.SVC.UC4.BATCHUSER').toString().trim()
+
+                    echo "LOGICAL_JOB_NAME : ${jobName}"
+                    echo "SRC_PATH         : ${srcPath}"
+                    echo "DST_PATH         : ${dstPath}"
+                    echo "FILE_MASK        : ${fileMask}"
+                    echo "ROBOCOPY_FLAGS   : ${roboFlags}"
+                    echo "PARENT_BUILD     : ${params.PARENT_BUILD}"
+
+                    def status = 'SUCCESS'
+                    def failReason = null
+                    def fullLog = ''
+                    def rc = 0
+
+                    // --------------------------------------------------------
+                    // Pre-check paths (missing path => FAILED, not SUCCESS)
+                    // --------------------------------------------------------
+                    if (!srcPath) {
+                        status = 'FAILED'
+                        failReason = 'Source path is empty'
+                    } else if (!dstPath) {
+                        status = 'FAILED'
+                        failReason = 'Destination path is empty'
+                    } else {
+                        def checkSrc = bat(
+                            returnStatus: true,
+                            script: """
+@echo off
+if not exist "${srcPath}" exit /b 1
+exit /b 0
+"""
+                        )
+                        def checkDst = bat(
+                            returnStatus: true,
+                            script: """
+@echo off
+if not exist "${dstPath}" exit /b 1
+exit /b 0
+"""
+                        )
+
+                        if (checkSrc != 0) {
+                            status = 'FAILED'
+                            failReason = "Source path not found or access denied: ${srcPath}"
+                            echo "PATH CHECK FAILED: ${failReason}"
+                        } else if (checkDst != 0) {
+                            status = 'FAILED'
+                            failReason = "Destination path not found or access denied: ${dstPath}"
+                            echo "PATH CHECK FAILED: ${failReason}"
+                        }
+                    }
+
+                    // --------------------------------------------------------
+                    // Robocopy (only if path check passed)
+                    // --------------------------------------------------------
+                    if (status == 'SUCCESS') {
+                        withCredentials([usernamePassword(
+                            credentialsId: credId,
+                            usernameVariable: 'FT_USER',
+                            passwordVariable: 'FT_PASS'
+                        )]) {
+                            // Map drive letters optional; net use for UNC auth
+                            bat """
+@echo off
+net use "${srcPath}" /user:%FT_USER% %FT_PASS% >nul 2>&1
+net use "${dstPath}" /user:%FT_USER% %FT_PASS% >nul 2>&1
+"""
+
+                            def cmd = "robocopy \"${srcPath}\" \"${dstPath}\" ${fileMask} ${roboFlags}"
+                            echo "EXEC: ${cmd}"
+
+                            // Capture output + RC
+                            def outFile = "${env.WORKSPACE}\\robocopy_out.txt"
+                            rc = bat(
+                                returnStatus: true,
+                                script: """
+@echo off
+${cmd} > "${outFile}" 2>&1
+exit /b %ERRORLEVEL%
+"""
+                            )
+
+                            try {
+                                fullLog = readFile(file: outFile)
+                            } catch (Exception e) {
+                                fullLog = "(could not read robocopy output: ${e.message})"
+                            }
+
+                            // Robocopy RC: 0-7 = success-ish, >=8 error
+                            if (rc >= 8) {
+                                status = 'FAILED'
+                                failReason = "Robocopy failed with RC=${rc}"
+                                echo "ROBOCOPY FAILED: RC=${rc}"
+                            } else {
+                                status = 'SUCCESS'
+                                echo "ROBOCOPY OK: RC=${rc}"
+                            }
+                        }
+                    } else {
+                        fullLog = "Skipped Robocopy.\nREASON: ${failReason}"
+                    }
+
+                    def endMs = System.currentTimeMillis()
+                    def endTime = formatTime(endMs)
+                    def duration = formatDuration(endMs - startMs)
+                    def elapsedSec = ((endMs - startMs) / 1000).longValue()
+
+                    // --------------------------------------------------------
+                    // Write detailed log
+                    // --------------------------------------------------------
+                    def logDir  = 'C:\\Jenkins\\Jobs\\Log'
+                    def logName = "${jobName}_BuildID_${env.BUILD_NUMBER}.txt"
+                    def logPath = "${logDir}\\${logName}"
+
+                    bat """
+@echo off
+if not exist "${logDir}" mkdir "${logDir}"
+"""
+
+                    def logContent = """SUMMARY
+================================================================================
+Job Name     : ${jobName}
+File Mask    : ${fileMask}
+SRC_PATH     : ${srcPath}
+DST_PATH     : ${dstPath}
+SRC_CRED     : ${credId}
+Status       : ${status}
+Reason       : ${failReason ?: '—'}
+Duration     : ${elapsedSec} seconds
+Timestamp    : ${endTime}
+Parent       : ${params.PARENT_BUILD ?: '—'}
+Robocopy RC  : ${rc}
+-------------------------------------------------------------------------------
+${fullLog}
+================================================================================
+END OF LOG
+"""
+                    writeFile file: logPath, text: logContent
+                    echo "Detailed log written to: ${logPath}"
+
+                    // --------------------------------------------------------
+                    // Update history.json under logical job folder
+                    // --------------------------------------------------------
+                    def histDir  = "C:\\Jenkins\\Jobs\\Dashboard\\data\\scheduled\\${jobName}"
+                    def histFile = "${histDir}\\history.json"
+                    def histWork = "${env.WORKSPACE}\\history_temp.json"
+
+                    bat """
+@echo off
+if not exist "${histDir}" mkdir "${histDir}"
+if exist "${histFile}" (
+    copy /Y "${histFile}" "${histWork}" >nul
+) else (
+    echo []> "${histWork}"
+)
+"""
+
+                    def history = []
+                    try {
+                        def raw = readFile(file: histWork).trim()
+                        if (raw && raw != '[]') {
+                            def parsed = new JsonSlurperClassic().parseText(raw)
+                            if (parsed instanceof List) {
+                                history = new ArrayList(parsed)
+                            }
+                        }
+                    } catch (Exception e) {
+                        echo "WARNING: could not parse history, starting fresh: ${e.message}"
+                        history = []
+                    }
+
+                    def entry = [
+                        build     : env.BUILD_NUMBER.toInteger(),
+                        startTime : startTime,
+                        endTime   : endTime,
+                        duration  : duration,
+                        status    : status,
+                        logFile   : logName,
+                        reason    : failReason
+                    ]
+                    history = prependHistoryAndTrim(history, entry, 20)
+
+                    writeFile file: histWork, text: JsonOutput.prettyPrint(JsonOutput.toJson(history))
+                    bat """
+@echo off
+copy /Y "${histWork}" "${histFile}" >nul
+"""
+                    echo "Scheduled history updated: ${histFile}"
+                    echo "History entries: ${history.size()}"
+                    echo "Final status: ${status}"
+
+                    // Fail the Jenkins build if transfer failed (optional but recommended)
+                    if (status == 'FAILED') {
+                        error("Transfer FAILED: ${failReason ?: 'see log'}")
+                    }
+                }
+            }
+        }
+    }
+}
