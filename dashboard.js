@@ -182,7 +182,6 @@ async function loadAll() {
     renderActivity();
     renderTable();
 
-    // Bell: orchestrator failures + scheduled failures (last 24h)
     await refreshBellCount();
 
     const now = new Date().toLocaleString('en-GB');
@@ -218,7 +217,7 @@ function badgeClass(s) {
   return 'badge-other';
 }
 
-/* ========== TIMEZONE + CALENDAR (preset + valid-from) ========== */
+/* ========== TIMEZONE + CALENDAR ========== */
 function getZonedParts(date, timeZone) {
   const parts = {};
   const dtf = new Intl.DateTimeFormat('en-US', {
@@ -280,7 +279,6 @@ function afterOrOnFromDate(parts, fromDate) {
 function jobMatchesDay(job, parts) {
   if (!afterOrOnFromDate(parts, job.fromDate)) return false;
 
-  // Legacy CUSTOM still supported if present in JSON
   const cal = (job.calendar || 'DAILY').toString().toUpperCase();
   if (cal === 'CUSTOM' && job.custom) {
     const custom = job.custom;
@@ -391,13 +389,7 @@ function scheduleTypeBadge(t) {
   return 'badge-other';
 }
 
-function calendarLabel(j) {
-  const cal = j.calendar || '—';
-  if (j.fromDate) return `${cal} (from ${j.fromDate})`;
-  return cal;
-}
-
-/* ========== BELL + FAILED (orchestrator + scheduled) ========== */
+/* ========== BELL + FAILED ========== */
 async function loadScheduledJobsRaw() {
   try {
     const res = await fetch(CONFIG.SCHEDULED_URL + '?t=' + Date.now());
@@ -733,20 +725,37 @@ async function openScheduledView(forceReload) {
     } else {
       scheduledJobs = [];
     }
+
     await Promise.all(scheduledJobs.map(async job => {
       try {
-        const folder = job.folder || job.job || job.name;
+        const folder = (job.folder || job.name || job.job || '').toString();
+        if (!folder) {
+          job._history = [];
+          job.lastRun = '—';
+          job.lastStatus = '—';
+          return;
+        }
         const r = await fetch(`data/scheduled/${encodeURIComponent(folder)}/history.json?t=${Date.now()}`);
-        if (!r.ok) { job._history = []; return; }
+        if (!r.ok) {
+          job._history = [];
+          job.lastRun = '—';
+          job.lastStatus = '—';
+          return;
+        }
         const hist = await r.json();
         job._history = Array.isArray(hist) ? hist : [];
         if (job._history.length) {
           const last = job._history[0];
           job.lastRun = last.startTime || last.endTime || '—';
           job.lastStatus = last.status || '—';
+        } else {
+          job.lastRun = '—';
+          job.lastStatus = '—';
         }
       } catch {
         job._history = [];
+        job.lastRun = '—';
+        job.lastStatus = '—';
       }
     }));
   } catch (e) {
@@ -765,8 +774,12 @@ async function openScheduledView(forceReload) {
   document.getElementById('right-dashboard').style.display = 'none';
   document.getElementById('right-scheduled').style.display = 'block';
   document.getElementById('scheduled-view').style.display = 'block';
+
   const schedDetail = document.getElementById('scheduled-detail-card');
   if (schedDetail) schedDetail.style.display = 'none';
+  const histBody = document.getElementById('sched-history-tbody');
+  if (histBody) histBody.innerHTML = '';
+
   document.getElementById('scheduled-search').value = '';
   document.getElementById('scheduled-filter-type').value = 'all';
   document.getElementById('scheduled-subtitle').textContent = scheduledJobs.length
@@ -841,12 +854,19 @@ function renderScheduledTable() {
 function showScheduledDetails(j) {
   selectedScheduled = j;
   renderScheduledTable();
-  document.getElementById('scheduled-detail-card').style.display = 'block';
+
+  const card = document.getElementById('scheduled-detail-card');
+  card.style.display = 'block';
+
   document.getElementById('sched-detail-name').textContent = j.name || j.job || '—';
-  document.getElementById('sched-detail-schedule').textContent = `${j.calendar || '—'} at ${j.startTime || '—'}`;
-  document.getElementById('sched-detail-tz').textContent = `Time zone: ${j.timezone || DEFAULT_SCHEDULE_TZ}`;
+  document.getElementById('sched-detail-schedule').textContent =
+    `${j.calendar || '—'} at ${j.startTime || '—'}`;
+  document.getElementById('sched-detail-tz').textContent =
+    `Time zone: ${j.timezone || DEFAULT_SCHEDULE_TZ}`;
   const fromEl = document.getElementById('sched-detail-from');
-  if (fromEl) fromEl.textContent = j.fromDate ? `Valid from: ${j.fromDate}` : 'Valid from: immediately';
+  if (fromEl) {
+    fromEl.textContent = j.fromDate ? `Valid from: ${j.fromDate}` : 'Valid from: immediately';
+  }
   document.getElementById('sched-detail-next').textContent = j.nextRunDisplay || '—';
   document.getElementById('sched-detail-last').textContent = j.lastRun || '—';
   document.getElementById('sched-detail-last-status').innerHTML = j.lastStatus
@@ -863,14 +883,15 @@ function showScheduledDetails(j) {
   document.getElementById('sched-detail-destination').textContent = displayPath(j.destination);
   document.getElementById('sched-detail-mask').textContent = j.fileMask || '—';
   document.getElementById('sched-detail-flags').textContent = j.flags || '—';
-  document.getElementById('sched-detail-transfer').textContent = j.transferType || '—';
-  document.getElementById('sched-detail-cred').textContent = j.credentialId || '—';
 
-  const hist = (j._history || []).slice(0, 10);
+  // Always rebuild history for THIS job only (never keep previous job rows)
   const tbody = document.getElementById('sched-history-tbody');
   tbody.innerHTML = '';
+
+  const hist = Array.isArray(j._history) ? j._history.slice(0, 2) : [];
+
   if (!hist.length) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:30px;color:#94a3b8">No execution history yet</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:20px;color:#94a3b8">No execution history yet</td></tr>`;
   } else {
     hist.forEach((h, idx) => {
       const tr = document.createElement('tr');
@@ -923,13 +944,18 @@ function renderScheduleSummary() {
 function renderNextRuns() {
   const ul = document.getElementById('next-runs-list');
   ul.innerHTML = '';
+
+  // Only the next 8 upcoming runs, sorted by next run time
   const list = [...scheduledJobs]
     .filter(j => j.enabled !== false && j.nextRunDisplay && j.nextRunDisplay !== '—')
-    .slice(0, 6);
+    .sort((a, b) => String(a.nextRunDisplay).localeCompare(String(b.nextRunDisplay)))
+    .slice(0, 8);
+
   if (!list.length) {
     ul.innerHTML = `<li style="color:#94a3b8;font-size:12px;padding:12px 0">No upcoming runs</li>`;
     return;
   }
+
   list.forEach(j => {
     const li = document.createElement('li');
     li.innerHTML = `
@@ -945,7 +971,7 @@ function renderNextRuns() {
   });
 }
 
-/* ========== SCHEDULE MODAL (simple calendar + valid from) ========== */
+/* ========== SCHEDULE MODAL ========== */
 function initScheduleModalUi() {
   ['sf-start', 'sf-tz', 'sf-calendar', 'sf-from-date'].forEach(id => {
     const el = document.getElementById(id);
