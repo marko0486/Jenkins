@@ -53,7 +53,7 @@ def parseStartTime(String hhmm) {
 }
 
 /**
- * job = full Map from scheduled-jobs.json (must include calendar + optional custom)
+ * job = full Map from scheduled-jobs.json (calendar, fromDate, optional custom)
  * cal = Calendar in the job timezone
  */
 @NonCPS
@@ -65,6 +65,19 @@ def calendarMatches(Map job, Calendar cal) {
     // Align with JS: 0=Sun .. 6=Sat
     int jsDow = (dow == Calendar.SUNDAY) ? 0 : (dow - 1)
 
+    // Optional "Valid from" (YYYY-MM-DD) — never run before this day
+    if (job.fromDate) {
+        def from = job.fromDate.toString()
+        if (from ==~ /\d{4}-\d{2}-\d{2}/) {
+            def y = cal.get(Calendar.YEAR)
+            def m = String.format('%02d', cal.get(Calendar.MONTH) + 1)
+            def d = String.format('%02d', cal.get(Calendar.DAY_OF_MONTH))
+            def key = "${y}-${m}-${d}"
+            if (key < from) return false
+        }
+    }
+
+    // Legacy CUSTOM block (if still present in JSON)
     if (c == 'CUSTOM') {
         def custom = job.custom
         if (!(custom instanceof Map)) return false
@@ -79,7 +92,7 @@ def calendarMatches(Map job, Calendar cal) {
         }
         if (kind == 'every_x_days') {
             int x = (custom.everyXDays ?: 0) as int
-            def from = (custom.fromDate ?: '').toString()
+            def from = (custom.fromDate ?: job.fromDate ?: '').toString()
             if (x < 1 || !(from ==~ /\d{4}-\d{2}-\d{2}/)) return false
             def parts = from.split('-')
             def fromCal = Calendar.getInstance(cal.getTimeZone())
@@ -197,9 +210,9 @@ pipeline {
                         def tz = TimeZone.getTimeZone(tzName)
                         def cal = Calendar.getInstance(tz)
 
-                        // Must pass the full job Map (calendar + custom)
+                        // Full job Map (calendar + fromDate + optional custom)
                         if (!calendarMatches(job, cal)) {
-                            skipped << [name: name, reason: "calendar ${job.calendar} not today"]
+                            skipped << [name: name, reason: "calendar ${job.calendar} / fromDate not today"]
                             return
                         }
 
@@ -222,7 +235,7 @@ pipeline {
                             return
                         }
 
-                        echo "TRIGGER → ${name} | calendar=${job.calendar} | start=${startTime} | window=${wKey}"
+                        echo "TRIGGER → ${name} | calendar=${job.calendar} | fromDate=${job.fromDate ?: '-'} | start=${startTime} | window=${wKey}"
 
                         def transferType = (job.transferType ?: 'ROBOCOPY').toString().toUpperCase()
                         if (transferType == 'SHAREPOINT') {
