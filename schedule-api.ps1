@@ -1,12 +1,12 @@
-# schedule-api.ps1
-# Run as service or: powershell -ExecutionPolicy Bypass -File schedule-api.ps1
+Sustituye Remove-JobFolders: 
 
-$ListenPrefix = 'http://+:8091/'
-$JsonPath     = 'C:\Jenkins\Jobs\Dashboard\scheduled-jobs.json'
-$ScheduledRoot = 'C:\Jenkins\Jobs\Dashboard\data\scheduled'
-$LogRoot      = 'C:\Jenkins\Jobs\Log'
+$ListenPrefix   = 'http://+:8091/'
+$JsonPath       = 'C:\Jenkins\Jobs\Dashboard\scheduled-jobs.json'
+$ScheduledRoot  = 'C:\Jenkins\Jobs\Dashboard\data\scheduled'
+$SchedulerDir   = 'C:\Jenkins\Jobs\Dashboard\data\scheduler'
+$LastRunFile    = 'C:\Jenkins\Jobs\Dashboard\data\scheduler\last-run.json'
+$LogRoot        = 'C:\Jenkins\Jobs\Log'
 
-# Windows forbidden filename characters: \ / : * ? " < > |
 function Test-ValidWindowsName([string]$name) {
     if ([string]::IsNullOrWhiteSpace($name)) { return $false }
     if ($name -match '[\\/:*?"<>|]') { return $false }
@@ -27,87 +27,76 @@ function Read-Jobs {
 function Write-Jobs($list) {
     $dir = Split-Path $JsonPath -Parent
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-    $backup = "$JsonPath.bak"
-    if (Test-Path $JsonPath) { Copy-Item $JsonPath $backup -Force }
-    $json = ($list | ConvertTo-Json -Depth 20)
+    if (Test-Path $JsonPath) { Copy-Item $JsonPath "$JsonPath.bak" -Force }
+    $json = if ($null -eq $list -or @($list).Count -eq 0) { '[]' } else { (@($list) | ConvertTo-Json -Depth 20) }
     [System.IO.File]::WriteAllText($JsonPath, $json, [System.Text.UTF8Encoding]::new($false))
 }
 
-function Remove-JobFolders([string]$folder) {
+function Remove-JobTraces([string]$jobName, [string]$folder) {
+    if (-not (Test-ValidWindowsName $jobName)) { return }
+    if ([string]::IsNullOrWhiteSpace($folder)) { $folder = $jobName }
     if (-not (Test-ValidWindowsName $folder)) { return }
+
+    # 1) data/scheduled/<folder>  (history.json, etc.)
     $histDir = Join-Path $ScheduledRoot $folder
-    if (Test-Path $histDir) {
+    if (Test-Path -LiteralPath $histDir) {
         Remove-Item -LiteralPath $histDir -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "Removed folder: $histDir"
     }
-    # Optional: remove matching log files JOB_*_BuildID_*.txt
+
+    # Also try job name if different from folder
+    if ($folder -ne $jobName) {
+        $alt = Join-Path $ScheduledRoot $jobName
+        if (Test-Path -LiteralPath $alt) {
+            Remove-Item -LiteralPath $alt -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "Removed folder: $alt"
+        }
+    }
+
+    # 2) Remove entry from data/scheduler/last-run.json
+    if (Test-Path $LastRunFile) {
+        try {
+            $raw = Get-Content -Path $LastRunFile -Raw -Encoding UTF8
+            if ($raw -and $raw.Trim() -ne '' -and $raw.Trim() -ne '{}') {
+                $map = $raw | ConvertFrom-Json
+                # Convert to hashtable we can mutate
+                $ht = @{}
+                if ($map -ne $null) {
+                    $map.PSObject.Properties | ForEach-Object {
+                        if ($_.Name -ne $jobName -and $_.Name -ne $folder) {
+                            $ht[$_.Name] = $_.Value
+                        }
+                    }
+                }
+                $out = if ($ht.Count -eq 0) { '{}' } else { ($ht | ConvertTo-Json -Depth 10) }
+                [System.IO.File]::WriteAllText($LastRunFile, $out, [System.Text.UTF8Encoding]::new($false))
+                Write-Host "Cleaned last-run.json for: $jobName"
+            }
+        } catch {
+            Write-Host "WARNING last-run.json: $($_.Exception.Message)"
+        }
+    }
+
+    # 3) Logs: C:\Jenkins\Jobs\Log\<name>_BuildID_*.txt
     if (Test-Path $LogRoot) {
-        Get-ChildItem -Path $LogRoot -Filter ($folder + '_BuildID_*.txt') -ErrorAction SilentlyContinue |
-            Remove-Item -Force -ErrorAction SilentlyContinue
+        Get-ChildItem -Path $LogRoot -File -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.Name -like ($folder + '_BuildID_*.txt') -or
+                $_.Name -like ($jobName + '_BuildID_*.txt')
+            } |
+            ForEach-Object {
+                Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
+                Write-Host "Removed log: $($_.FullName)"
+            }
     }
 }
 
-$listener = New-Object System.Net.HttpListener
-$listener.Prefixes.Add($ListenPrefix)
-$listener.Start()
-Write-Host "Schedule API listening on $ListenPrefix"
-Write-Host "JSON: $JsonPath"
 
-while ($listener.IsListening) {
-    $ctx = $listener.GetContext()
-    $req = $ctx.Request
-    $res = $ctx.Response
 
-    # CORS
-    $res.Headers.Add('Access-Control-Allow-Origin', '*')
-    $res.Headers.Add('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
-    $res.Headers.Add('Access-Control-Allow-Headers', 'Content-Type')
 
-    if ($req.HttpMethod -eq 'OPTIONS') {
-        $res.StatusCode = 204
-        $res.Close()
-        continue
-    }
+En el handler DELETE, llama así:
 
-    try {
-        $path = $req.Url.AbsolutePath.TrimEnd('/')
-
-        if ($req.HttpMethod -eq 'GET' -and ($path -eq '/api/scheduled-jobs' -or $path -eq '/api/scheduled-jobs/')) {
-            $jobs = Read-Jobs
-            $body = ($jobs | ConvertTo-Json -Depth 20)
-            if ([string]::IsNullOrWhiteSpace($body)) { $body = '[]' }
-            $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
-            $res.ContentType = 'application/json; charset=utf-8'
-            $res.StatusCode = 200
-            $res.OutputStream.Write($bytes, 0, $bytes.Length)
-        }
-        elseif ($req.HttpMethod -eq 'POST' -and ($path -eq '/api/scheduled-jobs' -or $path -eq '/api/scheduled-jobs/')) {
-            $reader = New-Object System.IO.StreamReader($req.InputStream, $req.ContentEncoding)
-            $raw = $reader.ReadToEnd()
-            $reader.Close()
-            $list = $raw | ConvertFrom-Json
-            if ($null -eq $list) { $list = @() }
-            if ($list -isnot [System.Array]) { $list = @($list) }
-
-            foreach ($j in $list) {
-                $n = [string]$j.name
-                $f = if ($j.folder) { [string]$j.folder } else { $n }
-                if (-not (Test-ValidWindowsName $n)) {
-                    throw "Invalid job name (Windows forbidden characters): $n"
-                }
-                if (-not (Test-ValidWindowsName $f)) {
-                    throw "Invalid folder name (Windows forbidden characters): $f"
-                }
-            }
-
-            Write-Jobs @($list)
-            $ok = '{"ok":true}'
-            $bytes = [System.Text.Encoding]::UTF8.GetBytes($ok)
-            $res.ContentType = 'application/json; charset=utf-8'
-            $res.StatusCode = 200
-            $res.OutputStream.Write($bytes, 0, $bytes.Length)
-        }
         elseif ($req.HttpMethod -eq 'DELETE' -and $path -eq '/api/scheduled-jobs') {
-            # Body: { "name": "JOB_NAME" }  or query ?name=
             $name = $req.QueryString['name']
             if ([string]::IsNullOrWhiteSpace($name)) {
                 $reader = New-Object System.IO.StreamReader($req.InputStream, $req.ContentEncoding)
@@ -134,7 +123,7 @@ while ($listener.IsListening) {
             }
 
             Write-Jobs $remaining
-            Remove-JobFolders $folder
+            Remove-JobTraces -jobName $name -folder $folder
 
             $ok = (@{ ok = $true; deleted = $name; folder = $folder } | ConvertTo-Json)
             $bytes = [System.Text.Encoding]::UTF8.GetBytes($ok)
@@ -142,21 +131,14 @@ while ($listener.IsListening) {
             $res.StatusCode = 200
             $res.OutputStream.Write($bytes, 0, $bytes.Length)
         }
-        else {
-            $res.StatusCode = 404
-            $msg = [System.Text.Encoding]::UTF8.GetBytes('{"error":"not found"}')
-            $res.ContentType = 'application/json'
-            $res.OutputStream.Write($msg, 0, $msg.Length)
-        }
-    }
-    catch {
-        $res.StatusCode = 400
-        $err = (@{ error = $_.Exception.Message } | ConvertTo-Json)
-        $bytes = [System.Text.Encoding]::UTF8.GetBytes($err)
-        $res.ContentType = 'application/json; charset=utf-8'
-        $res.OutputStream.Write($bytes, 0, $bytes.Length)
-    }
-    finally {
-        $res.Close()
-    }
-}
+
+
+
+
+        
+
+
+
+
+
+
