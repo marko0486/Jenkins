@@ -1,7 +1,6 @@
 const CONFIG = {
   ORCHESTRATORS_URL: 'orchestrators.json',
   SCHEDULED_URL: 'scheduled-jobs.json',
-  // PowerShell schedule-api.ps1 (adjust host/port if needed)
   SCHEDULE_SAVE_URL: 'http://10.59.234.217:8091/api/scheduled-jobs',
   PAGE_SIZE: 6,
   FAILED_PAGE_SIZE: 15,
@@ -88,6 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const sfSave = document.getElementById('sf-save');
   if (sfSave) sfSave.onclick = saveScheduleFromModal;
 
+  initScheduleModalUi();
   loadAll();
 });
 
@@ -200,15 +200,7 @@ function badgeClass(s) {
   return 'badge-other';
 }
 
-function scheduleTypeBadge(t) {
-  const v = (t || '').toUpperCase();
-  if (v === 'DAILY' || v === 'WEEKDAYS') return 'badge-daily';
-  if (v.startsWith('WEEKLY') || v === 'WEEKENDS') return 'badge-weekly';
-  if (v.startsWith('MONTHLY')) return 'badge-monthly';
-  return 'badge-other';
-}
-
-/* ========== TIMEZONE (Europe/Berlin by default) ========== */
+/* ========== TIMEZONE + CALENDAR ========== */
 function getZonedParts(date, timeZone) {
   const parts = {};
   const dtf = new Intl.DateTimeFormat('en-US', {
@@ -254,12 +246,57 @@ function formatNextRunBerlin(y, month, d, h, min) {
   return `${String(month).padStart(2, '0')}/${String(d).padStart(2, '0')}/${y} ${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}:00`;
 }
 
-function calendarMatchesParts(cal, parts) {
-  const c = (cal || 'DAILY').toString().toUpperCase();
+function addDaysToYmd(y, month, d, days) {
+  const dt = new Date(Date.UTC(y, month - 1, d + days));
+  return { year: dt.getUTCFullYear(), month: dt.getUTCMonth() + 1, day: dt.getUTCDate() };
+}
+
+function lastDayOfMonth(y, month) {
+  return new Date(Date.UTC(y, month, 0)).getUTCDate();
+}
+
+function ymdKey(y, m, d) {
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+function jobMatchesDay(job, parts) {
+  const cal = (job.calendar || 'DAILY').toString().toUpperCase();
+  const custom = job.custom || null;
+
+  if (cal === 'CUSTOM' && custom) {
+    const kind = custom.kind || '';
+    if (kind === 'monthly_days') {
+      const days = (custom.daysOfMonth || []).map(Number);
+      return days.includes(parts.day);
+    }
+    if (kind === 'monthly_last') {
+      return parts.day === lastDayOfMonth(parts.year, parts.month);
+    }
+    if (kind === 'every_x_days') {
+      const x = Number(custom.everyXDays || 0);
+      const from = (custom.fromDate || '').toString();
+      if (!x || !/^\d{4}-\d{2}-\d{2}$/.test(from)) return false;
+      const [fy, fm, fd] = from.split('-').map(Number);
+      const fromUtc = Date.UTC(fy, fm - 1, fd);
+      const curUtc = Date.UTC(parts.year, parts.month - 1, parts.day);
+      if (curUtc < fromUtc) return false;
+      const diffDays = Math.round((curUtc - fromUtc) / 86400000);
+      return diffDays % x === 0;
+    }
+    if (kind === 'weekly_days') {
+      const w = (custom.weekDays || []).map(Number);
+      return w.includes(parts.dow);
+    }
+    if (kind === 'specific_dates') {
+      const key = ymdKey(parts.year, parts.month, parts.day);
+      return (custom.specificDates || []).includes(key);
+    }
+    return false;
+  }
+
   const dow = parts.dow;
   const dom = parts.day;
-  const lastDom = new Date(Date.UTC(parts.year, parts.month, 0)).getUTCDate();
-  switch (c) {
+  switch (cal) {
     case 'DAILY': return true;
     case 'WEEKDAYS': return dow >= 1 && dow <= 5;
     case 'WEEKENDS': return dow === 0 || dow === 6;
@@ -272,72 +309,85 @@ function calendarMatchesParts(cal, parts) {
     case 'WEEKLY_SAT': return dow === 6;
     case 'MONTHLY_1': return dom === 1;
     case 'MONTHLY_15': return dom === 15;
-    case 'MONTHLY_LAST': return dom === lastDom;
-    default: return true;
+    case 'MONTHLY_LAST': return dom === lastDayOfMonth(parts.year, parts.month);
+    default: {
+      const m = cal.match(/^MONTHLY_(\d{1,2})$/);
+      if (m) return dom === parseInt(m[1], 10);
+      return true;
+    }
   }
-}
-
-function addDaysToYmd(y, month, d, days) {
-  const dt = new Date(Date.UTC(y, month - 1, d + days));
-  return {
-    year: dt.getUTCFullYear(),
-    month: dt.getUTCMonth() + 1,
-    day: dt.getUTCDate()
-  };
 }
 
 function computeNextRun(job) {
   const timeZone = (job.timezone || DEFAULT_SCHEDULE_TZ).toString();
-  const start = (job.startTime || job.schedule || '').toString().trim();
+  const start = (job.startTime || '').toString().trim();
   const m = start.match(/^(\d{1,2}):(\d{2})$/);
-  if (!m) return job.nextRun || '—';
-
+  if (!m) return '—';
   const hour = parseInt(m[1], 10);
   const minute = parseInt(m[2], 10);
-  const cal = (job.calendar || job.scheduleType || 'DAILY').toString().toUpperCase();
-
   const now = new Date();
   const nowZ = getZonedParts(now, timeZone);
 
-  for (let i = 0; i < 400; i++) {
+  for (let i = 0; i < 800; i++) {
     const ymd = addDaysToYmd(nowZ.year, nowZ.month, nowZ.day, i);
     const noon = wallTimeToUtcDate(ymd.year, ymd.month, ymd.day, 12, 0, 0, timeZone);
     const dayParts = getZonedParts(noon, timeZone);
-    dayParts.day = ymd.day;
-    dayParts.month = ymd.month;
     dayParts.year = ymd.year;
-
-    if (!calendarMatchesParts(cal, dayParts)) continue;
-
+    dayParts.month = ymd.month;
+    dayParts.day = ymd.day;
+    if (!jobMatchesDay(job, dayParts)) continue;
     const runAt = wallTimeToUtcDate(ymd.year, ymd.month, ymd.day, hour, minute, 0, timeZone);
     if (runAt.getTime() > now.getTime()) {
       return formatNextRunBerlin(ymd.year, ymd.month, ymd.day, hour, minute);
     }
   }
-  return job.nextRun || '—';
+  return '—';
 }
 
 function normalizeScheduledJob(j) {
   const name = j.name || j.job || '—';
-  const calendar = (j.calendar || j.scheduleType || 'DAILY').toString().toUpperCase();
-  const startTime = j.startTime || j.schedule || '—';
-  const type = j.type || j.transferType || 'TRANSFER';
-  const enabled = j.enabled !== false;
+  const calendar = (j.calendar || 'DAILY').toString().toUpperCase();
+  const startTime = j.startTime || '—';
   return {
     ...j,
     name,
     job: name,
     calendar,
     startTime,
-    type,
-    enabled,
+    transferType: j.transferType || 'ROBOCOPY',
+    type: 'TRANSFER',
+    enabled: j.enabled !== false,
+    timezone: j.timezone || DEFAULT_SCHEDULE_TZ,
     nextRunDisplay: computeNextRun({
       ...j,
       calendar,
       startTime: startTime === '—' ? '' : startTime,
-      timezone: j.timezone || DEFAULT_SCHEDULE_TZ
+      timezone: j.timezone || DEFAULT_SCHEDULE_TZ,
+      custom: j.custom || null
     })
   };
+}
+
+function scheduleTypeBadge(t) {
+  const v = (t || '').toUpperCase();
+  if (v === 'CUSTOM') return 'badge-monthly';
+  if (v === 'DAILY' || v === 'WEEKDAYS') return 'badge-daily';
+  if (v.startsWith('WEEKLY') || v === 'WEEKENDS') return 'badge-weekly';
+  if (v.startsWith('MONTHLY')) return 'badge-monthly';
+  return 'badge-other';
+}
+
+function calendarLabel(j) {
+  if ((j.calendar || '').toUpperCase() === 'CUSTOM' && j.custom) {
+    const c = j.custom;
+    if (c.kind === 'monthly_days') return 'CUSTOM D' + (c.daysOfMonth || []).join(',');
+    if (c.kind === 'monthly_last') return 'CUSTOM LAST';
+    if (c.kind === 'every_x_days') return 'CUSTOM every ' + c.everyXDays + 'd';
+    if (c.kind === 'weekly_days') return 'CUSTOM weekly';
+    if (c.kind === 'specific_dates') return 'CUSTOM dates';
+    return 'CUSTOM';
+  }
+  return j.calendar || '—';
 }
 
 /* ========== FAILED JOBS ========== */
@@ -671,7 +721,13 @@ function filterScheduled() {
   const type = document.getElementById('scheduled-filter-type').value;
   filteredScheduled = scheduledJobs.filter(j => {
     const cal = (j.calendar || '').toUpperCase();
-    if (type !== 'all' && cal !== type.toUpperCase()) return false;
+    if (type !== 'all') {
+      if (type === 'CUSTOM') {
+        if (cal !== 'CUSTOM') return false;
+      } else if (cal !== type.toUpperCase()) {
+        return false;
+      }
+    }
     if (q && !(j.name || j.job || '').toLowerCase().includes(q)) return false;
     return true;
   });
@@ -703,8 +759,8 @@ function renderScheduledTable() {
         <td style="font-weight:500">${j.name || j.job || '—'}</td>
         <td>${activeBadge}</td>
         <td>${j.startTime || '—'}</td>
-        <td><span class="badge ${scheduleTypeBadge(j.calendar)}">${j.calendar || '—'}</span></td>
-        <td>${j.type || '—'}</td>
+        <td><span class="badge ${scheduleTypeBadge(j.calendar)}">${calendarLabel(j)}</span></td>
+        <td>${j.transferType || '—'}</td>
         <td>${j.nextRunDisplay || j.nextRun || '—'}</td>
         <td>${j.lastRun || '—'}</td>
         <td><span class="badge ${badgeClass(j.lastStatus)}">${j.lastStatus || '—'}</span></td>
@@ -736,9 +792,9 @@ function showScheduledDetails(j) {
   document.getElementById('scheduled-detail-card').style.display = 'block';
   document.getElementById('sched-detail-name').textContent = j.name || j.job || '—';
   document.getElementById('sched-detail-schedule').textContent =
-    `${j.calendar || '—'} at ${j.startTime || '—'}`;
+    `${calendarLabel(j)} at ${j.startTime || '—'}`;
   document.getElementById('sched-detail-tz').textContent =
-    j.timezone ? `Time zone: ${j.timezone}` : `Time zone: ${DEFAULT_SCHEDULE_TZ}`;
+    `Time zone: ${j.timezone || DEFAULT_SCHEDULE_TZ}`;
   document.getElementById('sched-detail-next').textContent = j.nextRunDisplay || j.nextRun || '—';
   document.getElementById('sched-detail-last').textContent = j.lastRun || '—';
   document.getElementById('sched-detail-last-status').innerHTML = j.lastStatus
@@ -780,7 +836,7 @@ function renderScheduleSummary() {
     const c = (j.calendar || '').toUpperCase();
     if (c === 'DAILY' || c === 'WEEKDAYS' || c === 'WEEKENDS') counts.DAILY++;
     else if (c.startsWith('WEEKLY')) counts.WEEKLY++;
-    else if (c.startsWith('MONTHLY')) counts.MONTHLY++;
+    else if (c.startsWith('MONTHLY') || c === 'CUSTOM') counts.MONTHLY++;
     else counts.OTHER++;
   });
   const total = scheduledJobs.length || 1;
@@ -806,7 +862,7 @@ function renderScheduleSummary() {
   document.getElementById('sched-legend').innerHTML = `
     <div class="legend-row"><span class="legend-dot" style="background:#2563eb"></span> Daily/Weekday ${counts.DAILY} (${pct(counts.DAILY)}%)</div>
     <div class="legend-row"><span class="legend-dot" style="background:#8b5cf6"></span> Weekly ${counts.WEEKLY} (${pct(counts.WEEKLY)}%)</div>
-    <div class="legend-row"><span class="legend-dot" style="background:#f59e0b"></span> Monthly ${counts.MONTHLY} (${pct(counts.MONTHLY)}%)</div>`;
+    <div class="legend-row"><span class="legend-dot" style="background:#f59e0b"></span> Monthly/Custom ${counts.MONTHLY} (${pct(counts.MONTHLY)}%)</div>`;
 }
 
 function renderNextRuns() {
@@ -832,12 +888,48 @@ function renderNextRuns() {
           <div class="next-run-when">${j._next}</div>
         </div>
       </div>
-      <span class="next-run-badge">${j.calendar || ''}</span>`;
+      <span class="next-run-badge">${calendarLabel(j)}</span>`;
     ul.appendChild(li);
   });
 }
 
-/* ========== SCHEDULE MODAL (Add / Edit → save JSON) ========== */
+/* ========== SCHEDULE MODAL ========== */
+function initScheduleModalUi() {
+  const mode = document.getElementById('sf-schedule-mode');
+  if (!mode) return;
+  mode.onchange = () => {
+    const custom = mode.value === 'custom';
+    document.getElementById('sf-preset-block').hidden = custom;
+    document.getElementById('sf-custom-block').hidden = !custom;
+    updateNextPreview();
+  };
+  document.querySelectorAll('.custom-tab').forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll('.custom-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const tab = btn.dataset.tab;
+      document.getElementById('sf-tab-monthly').hidden = tab !== 'monthly';
+      document.getElementById('sf-tab-weekly').hidden = tab !== 'weekly';
+      document.getElementById('sf-tab-dates').hidden = tab !== 'dates';
+      updateNextPreview();
+    };
+  });
+  ['sf-start', 'sf-tz', 'sf-calendar', 'sf-month-days', 'sf-every-x', 'sf-every-from', 'sf-specific-dates']
+    .forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('input', updateNextPreview);
+        el.addEventListener('change', updateNextPreview);
+      }
+    });
+  document.querySelectorAll('input[name="sf-monthly-mode"]').forEach(r => {
+    r.onchange = updateNextPreview;
+  });
+  document.querySelectorAll('#sf-weekdays input').forEach(c => {
+    c.onchange = updateNextPreview;
+  });
+}
+
 function openScheduleModal(job) {
   editingScheduleId = job ? (job.id || job.name || job.job) : null;
   document.getElementById('schedule-modal-title').textContent =
@@ -851,16 +943,70 @@ function openScheduleModal(job) {
   document.getElementById('sf-folder').value = job ? (job.folder || '') : '';
   document.getElementById('sf-enabled').value = job && job.enabled === false ? 'false' : 'true';
   document.getElementById('sf-start').value = job ? (job.startTime || '') : '02:30';
-  document.getElementById('sf-calendar').value = job ? (job.calendar || 'DAILY') : 'DAILY';
-  document.getElementById('sf-type').value = job ? (job.type || 'TRANSFER') : 'TRANSFER';
+
+  const tzSel = document.getElementById('sf-tz');
+  const tz = job ? (job.timezone || DEFAULT_SCHEDULE_TZ) : DEFAULT_SCHEDULE_TZ;
+  if (tzSel) {
+    if (![...tzSel.options].some(o => o.value === tz)) {
+      const opt = document.createElement('option');
+      opt.value = tz;
+      opt.textContent = tz;
+      tzSel.appendChild(opt);
+    }
+    tzSel.value = tz;
+  }
+
   document.getElementById('sf-transfer').value = job ? (job.transferType || 'ROBOCOPY') : 'ROBOCOPY';
   document.getElementById('sf-source').value = job ? (job.source || '') : '';
   document.getElementById('sf-destination').value = job ? (job.destination || '') : '';
   document.getElementById('sf-mask').value = job ? (job.fileMask || '*.*') : '*.*';
   document.getElementById('sf-flags').value = job ? (job.flags || '/R:0 /W:0 /NP') : '/R:0 /W:0 /NP';
   document.getElementById('sf-cred').value = job ? (job.credentialId || 'WIN.SVC.UC4.BATCHUSER') : 'WIN.SVC.UC4.BATCHUSER';
-  document.getElementById('sf-tz').value = job ? (job.timezone || DEFAULT_SCHEDULE_TZ) : DEFAULT_SCHEDULE_TZ;
 
+  const isCustom = job && String(job.calendar).toUpperCase() === 'CUSTOM';
+  document.getElementById('sf-schedule-mode').value = isCustom ? 'custom' : 'preset';
+  document.getElementById('sf-preset-block').hidden = isCustom;
+  document.getElementById('sf-custom-block').hidden = !isCustom;
+  document.getElementById('sf-calendar').value = (!isCustom && job && job.calendar) ? job.calendar : 'DAILY';
+
+  document.getElementById('sf-month-days').value = '';
+  document.getElementById('sf-every-x').value = '3';
+  document.getElementById('sf-every-from').value = '';
+  document.getElementById('sf-specific-dates').value = '';
+  document.querySelectorAll('#sf-weekdays input').forEach(c => { c.checked = false; });
+  const daysRadio = document.querySelector('input[name="sf-monthly-mode"][value="days"]');
+  if (daysRadio) daysRadio.checked = true;
+
+  if (isCustom && job.custom) {
+    const c = job.custom;
+    if (c.kind === 'monthly_days' || c.kind === 'monthly_last' || c.kind === 'every_x_days') {
+      const tab = document.querySelector('.custom-tab[data-tab="monthly"]');
+      if (tab) tab.click();
+      if (c.kind === 'monthly_days') {
+        document.querySelector('input[name="sf-monthly-mode"][value="days"]').checked = true;
+        document.getElementById('sf-month-days').value = (c.daysOfMonth || []).join(',');
+      } else if (c.kind === 'monthly_last') {
+        document.querySelector('input[name="sf-monthly-mode"][value="last"]').checked = true;
+      } else {
+        document.querySelector('input[name="sf-monthly-mode"][value="every"]').checked = true;
+        document.getElementById('sf-every-x').value = c.everyXDays || 3;
+        document.getElementById('sf-every-from').value = c.fromDate || '';
+      }
+    } else if (c.kind === 'weekly_days') {
+      const tab = document.querySelector('.custom-tab[data-tab="weekly"]');
+      if (tab) tab.click();
+      (c.weekDays || []).forEach(d => {
+        const el = document.querySelector(`#sf-weekdays input[value="${d}"]`);
+        if (el) el.checked = true;
+      });
+    } else if (c.kind === 'specific_dates') {
+      const tab = document.querySelector('.custom-tab[data-tab="dates"]');
+      if (tab) tab.click();
+      document.getElementById('sf-specific-dates').value = (c.specificDates || []).join('\n');
+    }
+  }
+
+  updateNextPreview();
   document.getElementById('schedule-modal').hidden = false;
 }
 
@@ -868,6 +1014,37 @@ function closeScheduleModal() {
   document.getElementById('schedule-modal').hidden = true;
   editingScheduleId = null;
   document.getElementById('sf-name').disabled = false;
+}
+
+function readCustomFromForm() {
+  const activeTab = document.querySelector('.custom-tab.active')?.dataset.tab || 'monthly';
+  if (activeTab === 'monthly') {
+    const mode = document.querySelector('input[name="sf-monthly-mode"]:checked')?.value || 'days';
+    if (mode === 'days') {
+      const days = document.getElementById('sf-month-days').value.split(/[,\s]+/)
+        .map(s => parseInt(s.trim(), 10)).filter(n => n >= 1 && n <= 31);
+      if (!days.length) throw new Error('Enter at least one day of month (1-31)');
+      return { kind: 'monthly_days', daysOfMonth: days, weekDays: [], specificDates: [], everyXDays: null, fromDate: null };
+    }
+    if (mode === 'last') {
+      return { kind: 'monthly_last', daysOfMonth: [], weekDays: [], specificDates: [], everyXDays: null, fromDate: null };
+    }
+    const x = parseInt(document.getElementById('sf-every-x').value, 10);
+    const from = document.getElementById('sf-every-from').value;
+    if (!x || x < 1) throw new Error('Every X days must be >= 1');
+    if (!from) throw new Error('Start date required for every X days');
+    return { kind: 'every_x_days', daysOfMonth: [], weekDays: [], specificDates: [], everyXDays: x, fromDate: from };
+  }
+  if (activeTab === 'weekly') {
+    const weekDays = [...document.querySelectorAll('#sf-weekdays input:checked')].map(c => parseInt(c.value, 10));
+    if (!weekDays.length) throw new Error('Select at least one weekday');
+    return { kind: 'weekly_days', daysOfMonth: [], weekDays, specificDates: [], everyXDays: null, fromDate: null };
+  }
+  const lines = document.getElementById('sf-specific-dates').value.split(/\r?\n/)
+    .map(s => s.trim()).filter(Boolean);
+  const specificDates = lines.filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s));
+  if (!specificDates.length) throw new Error('Add at least one date YYYY-MM-DD');
+  return { kind: 'specific_dates', daysOfMonth: [], weekDays: [], specificDates, everyXDays: null, fromDate: null };
 }
 
 function buildJobFromForm() {
@@ -878,26 +1055,54 @@ function buildJobFromForm() {
   if (!name || !start || !source || !dest) {
     throw new Error('Job Name, Start Time, Source and Destination are required');
   }
-  if (!/^\d{1,2}:\d{2}$/.test(start)) {
-    throw new Error('Start Time must be HH:mm (24h)');
-  }
+  if (!/^\d{1,2}:\d{2}$/.test(start)) throw new Error('Start Time must be HH:mm (24h)');
+
   const folder = document.getElementById('sf-folder').value.trim() || name;
+  const mode = document.getElementById('sf-schedule-mode').value;
+  let calendar = 'DAILY';
+  let custom = null;
+  if (mode === 'custom') {
+    calendar = 'CUSTOM';
+    custom = readCustomFromForm();
+  } else {
+    calendar = document.getElementById('sf-calendar').value;
+  }
+
   return {
     id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
     name,
     folder,
     enabled: document.getElementById('sf-enabled').value === 'true',
     startTime: start,
-    calendar: document.getElementById('sf-calendar').value,
-    type: document.getElementById('sf-type').value.trim() || 'TRANSFER',
+    calendar,
+    custom,
+    type: 'TRANSFER',
     transferType: document.getElementById('sf-transfer').value,
     source,
     destination: dest,
     fileMask: document.getElementById('sf-mask').value.trim() || '*.*',
     flags: document.getElementById('sf-flags').value.trim() || '/R:0 /W:0 /NP',
     credentialId: document.getElementById('sf-cred').value.trim() || 'WIN.SVC.UC4.BATCHUSER',
-    timezone: document.getElementById('sf-tz').value.trim() || DEFAULT_SCHEDULE_TZ
+    timezone: document.getElementById('sf-tz').value || DEFAULT_SCHEDULE_TZ
   };
+}
+
+function updateNextPreview() {
+  const el = document.getElementById('sf-next-preview');
+  if (!el) return;
+  try {
+    const mode = document.getElementById('sf-schedule-mode').value;
+    const draft = {
+      startTime: document.getElementById('sf-start').value.trim(),
+      timezone: document.getElementById('sf-tz').value || DEFAULT_SCHEDULE_TZ,
+      calendar: mode === 'custom' ? 'CUSTOM' : document.getElementById('sf-calendar').value,
+      custom: mode === 'custom' ? readCustomFromForm() : null
+    };
+    const next = computeNextRun(draft);
+    el.textContent = `Next run preview: ${next} (${draft.timezone})`;
+  } catch {
+    el.textContent = 'Next run preview: — (complete calendar fields)';
+  }
 }
 
 function scheduledJobsForSave() {
@@ -908,7 +1113,8 @@ function scheduledJobsForSave() {
     enabled: j.enabled !== false,
     startTime: j.startTime,
     calendar: j.calendar || 'DAILY',
-    type: j.type || 'TRANSFER',
+    custom: j.custom || null,
+    type: 'TRANSFER',
     transferType: j.transferType || 'ROBOCOPY',
     source: j.source || '',
     destination: j.destination || '',
@@ -920,18 +1126,13 @@ function scheduledJobsForSave() {
 }
 
 async function persistScheduledJobs(list) {
-  if (!CONFIG.SCHEDULE_SAVE_URL) {
-    throw new Error('SCHEDULE_SAVE_URL is not configured');
-  }
+  if (!CONFIG.SCHEDULE_SAVE_URL) throw new Error('SCHEDULE_SAVE_URL is not configured');
   const res = await fetch(CONFIG.SCHEDULE_SAVE_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(list, null, 2)
   });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error('Save failed: ' + t);
-  }
+  if (!res.ok) throw new Error('Save failed: ' + (await res.text()));
 }
 
 async function saveScheduleFromModal() {
@@ -941,18 +1142,11 @@ async function saveScheduleFromModal() {
     let list = scheduledJobsForSave();
 
     if (editingScheduleId) {
-      const idx = list.findIndex(
-        j => j.id === editingScheduleId || j.name === editingScheduleId
-      );
-      if (idx >= 0) {
-        list[idx] = { ...list[idx], ...entry, name: list[idx].name, id: list[idx].id };
-      } else {
-        list.push(entry);
-      }
+      const idx = list.findIndex(j => j.id === editingScheduleId || j.name === editingScheduleId);
+      if (idx >= 0) list[idx] = { ...list[idx], ...entry, name: list[idx].name, id: list[idx].id };
+      else list.push(entry);
     } else {
-      if (list.some(j => j.name === entry.name)) {
-        throw new Error('A job with this name already exists');
-      }
+      if (list.some(j => j.name === entry.name)) throw new Error('A job with this name already exists');
       list.push(entry);
     }
 
