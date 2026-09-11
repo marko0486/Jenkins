@@ -1,0 +1,363 @@
+Started by user UC4 TEST
+[Pipeline] Start of Pipeline
+[Pipeline] node
+Running on Jenkins in C:\ProgramData\Jenkins\.jenkins\workspace\ZF_GLOBAL_SCHEDULE_DISPATCHER
+[Pipeline] {
+[Pipeline] timeout
+Timeout set to expire in 15 min
+[Pipeline] {
+[Pipeline] stage
+[Pipeline] { (Dispatch scheduled jobs)
+[Pipeline] script
+[Pipeline] {
+[Pipeline] }
+[Pipeline] // script
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] }
+[Pipeline] // timeout
+[Pipeline] }
+[Pipeline] // node
+[Pipeline] End of Pipeline
+Also:   org.jenkinsci.plugins.workflow.actions.ErrorAction$ErrorId: e8f90da0-3a3d-407b-9351-64ab83b71e27
+java.lang.NoSuchMethodError: No such DSL method 'calendarMatches' found among steps [archive, bat, build, catchError, checkout, deleteDir, dir, echo, envVarsForTool, error, fileExists, getContext, git, hideFromView, input, isUnix, junit, library, libraryResource, load, mail, milestone, node, parallel, powershell, properties, publishChecks, publishHTML, pwd, pwsh, readFile, readScmFile, readTrusted, resolveScm, retry, script, sh, sleep, sshCommand, sshGet, sshPut, sshRemove, sshScript, sshagent, stage, stash, step, timeout, tm, tool, unarchive, unstable, unstash, validateDeclarativePipeline, waitForBuild, waitUntil, warnError, withChecks, withContext, withCredentials, withEnv, wrap, writeFile, ws] or symbols [GitUsernamePassword, activeChoice, activeChoiceHtml, agent, all, allBranchesSame, allOf, always, any, anyOf, apiToken, apiTokenProperty, architecture, archiveArtifacts, artifactManager, assembla, authorInChangelog, authorizationMatrix, batchFile, bitbucket, bitbucketBranchDiscovery, bitbucketBuildStatusNotifications, bitbucketDiscardOldBranch, bitbucketDiscardOldTag, bitbucketForkDiscovery, bitbucketPRTargetBranchRefSpec, bitbucketPublicRepoPullRequestFilter, bitbucketPullRequestDiscovery, bitbucketServer, bitbucketSkipDraftPullRequestFilter, bitbucketSshCheckout, bitbucketTagDiscovery, bitbucketTrustEveryone, bitbucketTrustNobody, bitbucketTrustProject, bitbucketTrustTeam, bitbucketWebhookConfiguration, bitbucketWebhookRegistration, booleanParam, branch, browser, buildButton, buildDiscarder, buildDiscarders, buildRetention, buildSingleRevisionOnly, buildingTag, caseInsensitive, caseSensitive, certificate, cgit, changeRequest, changelog, changelogBase, changelogToBranch, changeset, checkoutOption, checkoutToSubdirectory, choice, choiceParam, cleanAfterCheckout, cleanBeforeCheckout, clock, cloneOption, cloudWebhook, command, computerRetentionCheckInterval, consoleUrlProvider, contentSecurityPolicy, cps, credentials, cron, crumb, default, defaultDisplayUrlProvider, defaultFolderConfiguration, defaultView, demand, disableConcurrentBuilds, disableRestartFromStage, disableResume, discoverOtherRefs, discoverOtherRefsTrait, diskSpace, diskSpaceMonitor, downstream, dumb, durabilityHint, envVars, envVarsFilter, environment, equals, experimentalFlags, expression, file, fileParam, filePath, fingerprint, fingerprints, firstBuildChangelog, fisheye, frameOptions, freeStyle, freeStyleJob, fromScm, fromSource, git, gitBranchDiscovery, gitHooks, gitHubBranchDiscovery, gitHubBranchHeadAuthority, gitHubExcludeArchivedRepositories, gitHubExcludeForkedRepositories, gitHubExcludePrivateRepositories, gitHubExcludePublicRepositories, gitHubForkDiscovery, gitHubIgnoreDraftPullRequestFilter, gitHubPullRequestDiscovery, gitHubSshCheckout, gitHubTagDiscovery, gitHubTopicsFilter, gitHubTrustContributors, gitHubTrustEveryone, gitHubTrustNobody, gitHubTrustPermissions, gitLab, gitList, gitSCM, gitSource, gitTagDiscovery, gitTool, gitUsernamePassword, gitWeb, gitblit, github, githubProjectProperty, githubPush, gitiles, gogs, groovyScript, group, headRegexFilter, headWildcardFilter, hyperlink, hyperlinkToModels, ignoreOnPush, inbound, inferOwner, inferRepository, inheriting, inheritingGlobal, installSource, isRestartedRun, jdk, jgit, jgitapache, jnlp, jobBuildDiscarder, jobName, junitTestResultStorage, kiln, label, lastDuration, lastFailure, lastGrantedAuthorities, lastStable, lastSuccess, legacy, legacySCM, lfs, list, local, localBranch, localBranchTrait, location, logRotator, loggedInUsersCanDoAnything, mailer, maven, maven3Mojos, mavenErrors, mavenGlobalConfig, mavenMojos, mavenWarnings, modernSCM, multiBranchProjectDisplayNaming, multibranch, myView, namedBranchesDifferent, node, nodeProperties, nonInheriting, none, nonresumable, not, organizationFolder, overrideIndexTriggers, paneStatus, parallelsAlwaysFailFast, parameters, password, pattern, perBuildTag, permanent, phabricator, pipelineGraphView, pipelineTriggers, plainText, plugin, pluginWebhook, pollSCM, preserveStashes, prism, projectNamingStrategy, proxy, pruneStaleBranch, pruneStaleTag, pruneTags, queueItemAuthenticator, quietPeriod, rateLimit, rateLimitBuilds, reactiveChoice, redmine, refSpecs, remoteName, resourceRoot, responseTime, retainOnlyVariables, rhodeCode, run, runParam, sSHLauncher, schedule, scheduleBuild, scmGit, scmRetryCount, scriptApproval, scriptApprovalLink, scriptlerScript, search, security, separator, serverWebhook, shell, showBitbucketAvatar, simpleBuildDiscarder, skipDefaultCheckout, skipStagesAfterUnstable, slave, sourceRegexFilter, sourceWildcardFilter, sparseCheckout, sparseCheckoutPaths, specificRepositories, ssh, sshPublisher, sshPublisherDesc, sshTransfer, sshUserPrivateKey, standard, status, string, stringParam, submodule, submoduleOption, suppressAutomaticTriggering, suppressFolderAutomaticTriggering, swapSpace, tag, teamFoundation, teamSlugFilter, text, textParam, timezone, tmpSpace, toolLocation, triggeredBy, unsecured, untrusted, upstream, user, userIdentity, userOrGroup, userSeed, usernameColonPassword, usernamePassword, viewgit, viewsTabBar, weather, zip] or globals [currentBuild, env, params, pipeline, scm]
+	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.DSL.invokeMethod(DSL.java:223)
+	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsScript.invokeMethod(CpsScript.java:124)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:98)
+	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:325)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1225)
+	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1034)
+	at org.codehaus.groovy.runtime.callsite.PogoMetaClassSite.call(PogoMetaClassSite.java:41)
+	at org.codehaus.groovy.runtime.callsite.CallSiteArray.defaultCall(CallSiteArray.java:47)
+	at org.codehaus.groovy.runtime.callsite.AbstractCallSite.call(AbstractCallSite.java:116)
+	at PluginClassLoader for script-security//org.kohsuke.groovy.sandbox.impl.Checker$1.call(Checker.java:180)
+	at PluginClassLoader for script-security//org.kohsuke.groovy.sandbox.GroovyInterceptor.onMethodCall(GroovyInterceptor.java:23)
+	at PluginClassLoader for script-security//org.jenkinsci.plugins.scriptsecurity.sandbox.groovy.SandboxInterceptor.onMethodCall(SandboxInterceptor.java:163)
+	at PluginClassLoader for script-security//org.kohsuke.groovy.sandbox.impl.Checker$1.call(Checker.java:178)
+	at PluginClassLoader for script-security//org.kohsuke.groovy.sandbox.impl.Checker.checkedCall(Checker.java:182)
+	at PluginClassLoader for script-security//org.kohsuke.groovy.sandbox.impl.Checker.checkedCall(Checker.java:152)
+	at PluginClassLoader for script-security//org.kohsuke.groovy.sandbox.impl.Checker.checkedCall(Checker.java:152)
+	at PluginClassLoader for script-security//org.kohsuke.groovy.sandbox.impl.Checker.checkedCall(Checker.java:152)
+	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.sandbox.SandboxInvoker.methodCall(SandboxInvoker.java:17)
+	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.LoggingInvoker.methodCall(LoggingInvoker.java:124)
+	at WorkflowScript.run(WorkflowScript:195)
+	at com.cloudbees.groovy.cps.CpsDefaultGroovyMethods.each(CpsDefaultGroovyMethods:2125)
+	at com.cloudbees.groovy.cps.CpsDefaultGroovyMethods.each(CpsDefaultGroovyMethods:2110)
+	at com.cloudbees.groovy.cps.CpsDefaultGroovyMethods.each(CpsDefaultGroovyMethods:2151)
+	at WorkflowScript.run(WorkflowScript:178)
+	at ___cps.transform___(Native Method)
+	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.impl.ContinuationGroup.methodCall(ContinuationGroup.java:107)
+	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.impl.FunctionCallBlock$ContinuationImpl.dispatchOrArg(FunctionCallBlock.java:118)
+	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.impl.FunctionCallBlock$ContinuationImpl.fixArg(FunctionCallBlock.java:87)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.impl.ContinuationPtr$ContinuationImpl.receive(ContinuationPtr.java:71)
+	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.impl.LocalVariableBlock$LocalVariable.get(LocalVariableBlock.java:39)
+	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.LValueBlock$GetAdapter.receive(LValueBlock.java:30)
+	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.impl.LocalVariableBlock.evalLValue(LocalVariableBlock.java:28)
+	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.LValueBlock$BlockImpl.eval(LValueBlock.java:54)
+	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.LValueBlock.eval(LValueBlock.java:16)
+	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.Next.step(Next.java:84)
+	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.Continuable.run0(Continuable.java:142)
+	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.SandboxContinuable.access$001(SandboxContinuable.java:17)
+	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.SandboxContinuable.run0(SandboxContinuable.java:48)
+	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsThread.runNextChunk(CpsThread.java:188)
+	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsThreadGroup.run(CpsThreadGroup.java:464)
+	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsThreadGroup$2.call(CpsThreadGroup.java:372)
+	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsThreadGroup$2.call(CpsThreadGroup.java:302)
+	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsVmExecutorService.lambda$wrap$4(CpsVmExecutorService.java:143)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+	at hudson.remoting.SingleLaneExecutorService$1.run(SingleLaneExecutorService.java:139)
+	at jenkins.util.ContextResettingExecutorService.lambda$wrap$0(ContextResettingExecutorService.java:26)
+	at jenkins.security.ImpersonatingExecutorService.lambda$wrap$0(ImpersonatingExecutorService.java:66)
+	at jenkins.util.ErrorLoggingExecutorService.lambda$wrap$0(ErrorLoggingExecutorService.java:51)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:572)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsVmExecutorService$1.call(CpsVmExecutorService.java:53)
+	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsVmExecutorService$1.call(CpsVmExecutorService.java:50)
+	at org.codehaus.groovy.runtime.GroovyCategorySupport$ThreadCategoryInfo.use(GroovyCategorySupport.java:136)
+	at org.codehaus.groovy.runtime.GroovyCategorySupport.use(GroovyCategorySupport.java:275)
+	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsVmExecutorService.lambda$categoryThreadFactory$0(CpsVmExecutorService.java:50)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Finished: FAILURE
+
+
+
+Este es el codigo del Dispatcher
+
+import groovy.json.JsonSlurperClassic
+import groovy.json.JsonOutput
+import java.util.Calendar
+import java.util.TimeZone
+
+// ============================================================================
+// Paths — adjust TEMPLATE_JOB to your real template job name
+// ============================================================================
+def SCHEDULE_FILE  = 'C:/Jenkins/Jobs/Dashboard/scheduled-jobs.json'
+def LAST_RUN_FILE  = 'C:/Jenkins/Jobs/Dashboard/data/scheduler/last-run.json'
+def TEMPLATE_JOB   = 'ZF_TEST-FILE_TRANSFER-JOB'
+def WINDOW_MINUTES = 5
+
+// ============================================================================
+// Helpers
+// ============================================================================
+@NonCPS
+def loadJsonList(String path) {
+    def f = new File(path)
+    if (!f.exists()) return []
+    def text = f.getText('UTF-8').trim()
+    if (!text || text == '[]') return []
+    def parsed = new JsonSlurperClassic().parseText(text)
+    return (parsed instanceof List) ? new ArrayList(parsed) : []
+}
+
+@NonCPS
+def loadJsonMap(String path) {
+    def f = new File(path)
+    if (!f.exists()) return [:]
+    def text = f.getText('UTF-8').trim()
+    if (!text || text == '{}' || text == '[]') return [:]
+    def parsed = new JsonSlurperClassic().parseText(text)
+    return (parsed instanceof Map) ? new LinkedHashMap(parsed) : [:]
+}
+
+@NonCPS
+def writeJson(String path, Object data) {
+    def f = new File(path)
+    f.parentFile?.mkdirs()
+    f.write(JsonOutput.prettyPrint(JsonOutput.toJson(data)), 'UTF-8')
+}
+
+@NonCPS
+def parseStartTime(String hhmm) {
+    if (!hhmm) return null
+    def m = (hhmm =~ /^(\d{1,2}):(\d{2})$/)
+    if (!m.matches()) return null
+    int h = m[0][1].toInteger()
+    int min = m[0][2].toInteger()
+    if (h < 0 || h > 23 || min < 0 || min > 59) return null
+    return [h, min]
+}
+
+@NonCPS
+def calendarMatches(Map job, Calendar cal) {
+    def c = (job.calendar ?: 'DAILY').toString().trim().toUpperCase()
+    int dow = cal.get(Calendar.DAY_OF_WEEK)   // 1=Sun .. 7=Sat
+    int dom = cal.get(Calendar.DAY_OF_MONTH)
+    int lastDom = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
+    // JS uses 0=Sun..6=Sat
+    int jsDow = (dow == Calendar.SUNDAY) ? 0 : (dow - 1)
+
+    if (c == 'CUSTOM') {
+        def custom = job.custom
+        if (!(custom instanceof Map)) return false
+        def kind = (custom.kind ?: '').toString()
+        if (kind == 'monthly_days') {
+            def days = (custom.daysOfMonth instanceof List) ? custom.daysOfMonth : []
+            return days.collect { it as int }.contains(dom)
+        }
+        if (kind == 'monthly_last') return dom == lastDom
+        if (kind == 'every_x_days') {
+            int x = (custom.everyXDays ?: 0) as int
+            def from = (custom.fromDate ?: '').toString()
+            if (x < 1 || !(from ==~ /\d{4}-\d{2}-\d{2}/)) return false
+            def parts = from.split('-')
+            def fromCal = Calendar.getInstance(cal.getTimeZone())
+            fromCal.clear()
+            fromCal.set(parts[0] as int, (parts[1] as int) - 1, parts[2] as int)
+            // strip time
+            def cur = Calendar.getInstance(cal.getTimeZone())
+            cur.clear()
+            cur.set(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH))
+            if (cur.before(fromCal)) return false
+            long diff = (cur.timeInMillis - fromCal.timeInMillis) / (24L * 60L * 60L * 1000L)
+            return (diff % x) == 0
+        }
+        if (kind == 'weekly_days') {
+            def w = (custom.weekDays instanceof List) ? custom.weekDays.collect { it as int } : []
+            return w.contains(jsDow)
+        }
+        if (kind == 'specific_dates') {
+            def y = cal.get(Calendar.YEAR)
+            def m = String.format('%02d', cal.get(Calendar.MONTH) + 1)
+            def d = String.format('%02d', cal.get(Calendar.DAY_OF_MONTH))
+            def key = "${y}-${m}-${d}"
+            def dates = (custom.specificDates instanceof List) ? custom.specificDates : []
+            return dates.contains(key)
+        }
+        return false
+    }
+
+    switch (c) {
+        case 'DAILY':       return true
+        case 'WEEKDAYS':    return dow >= Calendar.MONDAY && dow <= Calendar.FRIDAY
+        case 'WEEKENDS':    return dow == Calendar.SATURDAY || dow == Calendar.SUNDAY
+        case 'WEEKLY_SUN':  return dow == Calendar.SUNDAY
+        case 'WEEKLY_MON':  return dow == Calendar.MONDAY
+        case 'WEEKLY_TUE':  return dow == Calendar.TUESDAY
+        case 'WEEKLY_WED':  return dow == Calendar.WEDNESDAY
+        case 'WEEKLY_THU':  return dow == Calendar.THURSDAY
+        case 'WEEKLY_FRI':  return dow == Calendar.FRIDAY
+        case 'WEEKLY_SAT':  return dow == Calendar.SATURDAY
+        case 'MONTHLY_1':   return dom == 1
+        case 'MONTHLY_15':  return dom == 15
+        case 'MONTHLY_LAST': return dom == lastDom
+        default:
+            def m = (c =~ /^MONTHLY_(\d{1,2})$/)
+            if (m.matches()) return dom == (m[0][1] as int)
+            return true
+    }
+}
+
+@NonCPS
+def inTimeWindow(Calendar cal, int startH, int startM, int windowMinutes) {
+    int nowMin = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+    int startMin = startH * 60 + startM
+    int endMin = startMin + windowMinutes
+    return nowMin >= startMin && nowMin < endMin
+}
+
+@NonCPS
+def windowKey(Calendar cal, String startTime) {
+    def y = cal.get(Calendar.YEAR)
+    def m = String.format('%02d', cal.get(Calendar.MONTH) + 1)
+    def d = String.format('%02d', cal.get(Calendar.DAY_OF_MONTH))
+    return "${y}-${m}-${d}|${startTime}"
+}
+
+@NonCPS
+def nowStamp(Calendar cal) {
+    def y = cal.get(Calendar.YEAR)
+    def m = String.format('%02d', cal.get(Calendar.MONTH) + 1)
+    def d = String.format('%02d', cal.get(Calendar.DAY_OF_MONTH))
+    def hh = String.format('%02d', cal.get(Calendar.HOUR_OF_DAY))
+    def mm = String.format('%02d', cal.get(Calendar.MINUTE))
+    def ss = String.format('%02d', cal.get(Calendar.SECOND))
+    return "${y}-${m}-${d} ${hh}:${mm}:${ss}"
+}
+
+// ============================================================================
+// Pipeline
+// ============================================================================
+pipeline {
+    agent { label 'built-in' }
+
+    options {
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '50'))
+        timeout(time: 15, unit: 'MINUTES')
+    }
+
+    stages {
+        stage('Dispatch scheduled jobs') {
+            steps {
+                script {
+                    def jobs = loadJsonList(SCHEDULE_FILE)
+                    if (jobs.isEmpty()) {
+                        echo "No entries in ${SCHEDULE_FILE}"
+                        return
+                    }
+
+                    def lastRun = loadJsonMap(LAST_RUN_FILE)
+                    def triggered = []
+                    def skipped = []
+
+                    jobs.each { job ->
+                        def name = (job.name ?: job.job ?: '').toString()
+                        if (!name) {
+                            skipped << [name: '(missing name)', reason: 'no name']
+                            return
+                        }
+
+                        if (job.enabled == false) {
+                            skipped << [name: name, reason: 'disabled']
+                            return
+                        }
+
+                        def tzName = (job.timezone ?: 'Europe/Berlin').toString()
+                        def tz = TimeZone.getTimeZone(tzName)
+                        def cal = Calendar.getInstance(tz)
+
+                        def calendar = (job.calendar ?: 'DAILY').toString()
+                        if (!calendarMatches(calendar, cal)) {
+                            skipped << [name: name, reason: "calendar ${calendar} not today"]
+                            return
+                        }
+
+                        def startTime = (job.startTime ?: '').toString()
+                        def hm = parseStartTime(startTime)
+                        if (!hm) {
+                            skipped << [name: name, reason: "invalid startTime '${startTime}'"]
+                            return
+                        }
+
+                        if (!inTimeWindow(cal, hm[0], hm[1], WINDOW_MINUTES)) {
+                            skipped << [name: name, reason: "outside window ${startTime} (+${WINDOW_MINUTES}m)"]
+                            return
+                        }
+
+                        def wKey = windowKey(cal, startTime)
+                        def prev = lastRun[name]
+                        if (prev instanceof Map && prev.windowKey == wKey) {
+                            skipped << [name: name, reason: "already triggered for window ${wKey}"]
+                            return
+                        }
+
+                        echo "TRIGGER → ${name} | calendar=${calendar} | start=${startTime} | window=${wKey}"
+
+                        def transferType = (job.transferType ?: 'ROBOCOPY').toString().toUpperCase()
+                        if (transferType == 'SHAREPOINT') {
+                            echo "SKIP SharePoint for now: ${name}"
+                            skipped << [name: name, reason: 'SHAREPOINT not wired in dispatcher v1']
+                            return
+                        }
+
+                        def paramsList = [
+                            string(name: 'LOGICAL_JOB_NAME', value: name),
+                            string(name: 'SRC_CRED',         value: (job.credentialId ?: 'WIN.SVC.UC4.BATCHUSER').toString()),
+                            string(name: 'SRC_PATH',         value: (job.source ?: '').toString()),
+                            string(name: 'DST_PATH',         value: (job.destination ?: '').toString()),
+                            string(name: 'FILE_MASK',        value: (job.fileMask ?: '*.*').toString()),
+                            string(name: 'ROBOCOPY_FLAGS',   value: (job.flags ?: '/R:0 /W:0 /NP').toString()),
+                            string(name: 'PARENT_BUILD',     value: "SCHEDULE-${env.BUILD_NUMBER}")
+                        ]
+
+                        try {
+                            build(
+                                job: TEMPLATE_JOB,
+                                wait: false,
+                                propagate: false,
+                                parameters: paramsList
+                            )
+
+                            lastRun[name] = [
+                                windowKey   : wKey,
+                                triggeredAt : nowStamp(cal)
+                            ]
+                            triggered << name
+                        } catch (Exception e) {
+                            echo "ERROR triggering ${name}: ${e.message}"
+                            skipped << [name: name, reason: "build error: ${e.message}"]
+                        }
+                    }
+
+                    writeJson(LAST_RUN_FILE, lastRun)
+
+                    echo "========================================"
+                    echo "DISPATCH SUMMARY"
+                    echo "Triggered : ${triggered.size()} → ${triggered}"
+                    echo "Skipped   : ${skipped.size()}"
+                    skipped.each { s ->
+                        echo "  - ${s.name}: ${s.reason}"
+                    }
+                    echo "========================================"
+                }
+            }
+        }
+    }
+}
+
