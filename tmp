@@ -1,14 +1,33 @@
-netsh http add urlacl url=http://+:8091/ user=Everyone
-powershell -ExecutionPolicy Bypass -File C:\Jenkins\Jobs\Dashboard\schedule-api.ps1
+PS C:\Users\adm.Z0190731> powershell -ExecutionPolicy Bypass -File C:\Jenkins\Jobs\Dashboard\schedule-api.ps1
+At C:\Jenkins\Jobs\Dashboard\schedule-api.ps1:179 char:54
++         Write-Host "Repairing single-object JSON â†’ array..."
++                                                      ~~~~~~~~~
+Unexpected token 'array..."
+        Write-Jobs $jobs
+    }
+}
+catch {
+    Write-Host "Startup' in expression or statement.
+At C:\Jenkins\Jobs\Dashboard\schedule-api.ps1:311 char:123
++ ... th -eq '/api/scheduled-jobs' -or $path -eq '/api/scheduled-jobs/')) {
++                                                                         ~
+Unexpected token '{' in expression or statement.
+At C:\Jenkins\Jobs\Dashboard\schedule-api.ps1:366 char:99
++ ... d -eq 'GET' -and ($path -eq '/api/health' -or $path -eq '/health')) {
++                                                                         ~
+Unexpected token '{' in expression or statement.
+At C:\Jenkins\Jobs\Dashboard\schedule-api.ps1:395 char:1
++ }
++ ~
+Unexpected token '}' in expression or statement.
+    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : UnexpectedToken
 
 
-const CONFIG = {
-  ORCHESTRATORS_URL: 'orchestrators.json',
-  SCHEDULED_URL: 'scheduled-jobs.json',
-  // Guardado (API PowerShell)
-  SCHEDULE_SAVE_URL: 'http://10.59.234.217:8091/api/scheduled-jobs',
-  PAGE_SIZE: 6,
-  FAILED_PAGE_SIZE: 15,
-  HISTORY_PAGE_SIZE: 15,
-  SCHEDULED_PAGE_SIZE: 10
-};
+
+asi tengo mi archivo json
+
+[
+  {
+  }
+]
