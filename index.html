@@ -1,6 +1,373 @@
-Sustituye el bloque sched-transfer-grid por:
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AUTOMIC ORCHESTRATORS – Master Build Dashboard</title>
+  <link rel="stylesheet" href="Assets/dashboard.css" />
+</head>
+<body>
 
-<div class="sched-transfer-grid">
+  <header class="app-header">
+    <div class="header-left">
+      <div class="logo">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
+          <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
+        </svg>
+      </div>
+      <div>
+        <h1>AUTOMIC ORCHESTRATORS</h1>
+        <p>Master Build Dashboard</p>
+      </div>
+    </div>
+    <div class="header-right">
+      <span class="live-badge"><span class="pulse"></span> Live</span>
+      <span class="updated">Last Updated: <strong id="last-updated">—</strong></span>
+      <button class="icon-btn bell-btn" id="btn-bell" title="Failed jobs">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        <span class="bell-badge" id="bell-badge" hidden>0</span>
+      </button>
+      <button class="icon-btn" id="btn-refresh" title="Refresh">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="left-panel">
+      <div class="panel-card">
+        <div class="panel-head">
+          <span class="panel-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+              <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+            </svg>
+            Orchestrators
+          </span>
+          <span class="count-badge" id="orch-count">0</span>
+        </div>
+        <div class="search-mini">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input type="text" id="orch-search" placeholder="Search orchestrator..." />
+        </div>
+        <div class="filter-tabs">
+          <button class="tab active" data-filter="all">All</button>
+          <button class="tab" data-filter="active">Active</button>
+          <button class="tab" data-filter="issues">Issues</button>
+        </div>
+        <ul class="orch-list" id="orch-list"></ul>
+      </div>
+
+      <div class="panel-card">
+        <div class="panel-head">
+          <span class="panel-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+            </svg>
+            Navigation
+          </span>
+        </div>
+        <nav class="nav-menu">
+          <button class="nav-item active" id="nav-dashboard">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+              <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+            </svg>
+            Dashboard
+          </button>
+          <button class="nav-item" id="nav-failed">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/>
+            </svg>
+            Failed Jobs
+          </button>
+          <button class="nav-item" id="nav-history">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/>
+            </svg>
+            Job History
+          </button>
+          <button class="nav-item" id="nav-scheduled">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+            </svg>
+            Scheduled Jobs
+          </button>
+          <button class="nav-item" id="nav-reports">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/>
+            </svg>
+            Reports
+          </button>
+        </nav>
+      </div>
+
+      <div class="panel-card">
+        <div class="panel-head">
+          <span class="panel-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            Recent Activity
+          </span>
+        </div>
+        <ul class="activity-list" id="activity-list"></ul>
+      </div>
+    </aside>
+
+    <main class="center-panel">
+      <div class="stats-row" id="stats-row">
+        <div class="stat-card">
+          <div class="stat-icon blue">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+          </div>
+          <div class="stat-body">
+            <div class="stat-label">TOTAL BUILDS</div>
+            <div class="stat-value" id="stat-total">0</div>
+            <div class="stat-trend" id="trend-total">—</div>
+          </div>
+          <div class="mini-bars" id="mini-bars"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon green">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-6"/></svg>
+          </div>
+          <div class="stat-body">
+            <div class="stat-label">SUCCESS</div>
+            <div class="stat-value green" id="stat-success">0</div>
+            <div class="stat-trend" id="trend-success">—</div>
+          </div>
+          <div class="ring-wrap">
+            <svg class="ring" width="48" height="48" viewBox="0 0 48 48">
+              <circle class="ring-bg" cx="24" cy="24" r="18"/>
+              <circle class="ring-fg green" id="ring-success" cx="24" cy="24" r="18"/>
+            </svg>
+            <span class="ring-text" id="pct-success">0%</span>
+          </div>
+        </div>
+        <div class="stat-card" id="failed-stat-card" style="cursor:pointer" title="Click to view failed jobs">
+          <div class="stat-icon red">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>
+          </div>
+          <div class="stat-body">
+            <div class="stat-label">FAILED</div>
+            <div class="stat-value red" id="stat-failed">0</div>
+            <div class="stat-trend" id="trend-failed">—</div>
+          </div>
+          <div class="ring-wrap">
+            <svg class="ring" width="48" height="48" viewBox="0 0 48 48">
+              <circle class="ring-bg" cx="24" cy="24" r="18"/>
+              <circle class="ring-fg red" id="ring-failed" cx="24" cy="24" r="18"/>
+            </svg>
+            <span class="ring-text" id="pct-failed">0%</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon amber">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+          </div>
+          <div class="stat-body">
+            <div class="stat-label">UNSTABLE</div>
+            <div class="stat-value amber" id="stat-unstable">0</div>
+            <div class="stat-trend" id="trend-unstable">—</div>
+          </div>
+          <div class="ring-wrap">
+            <svg class="ring" width="48" height="48" viewBox="0 0 48 48">
+              <circle class="ring-bg" cx="24" cy="24" r="18"/>
+              <circle class="ring-fg amber" id="ring-unstable" cx="24" cy="24" r="18"/>
+            </svg>
+            <span class="ring-text" id="pct-unstable">0%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="builds-card">
+        <div class="card-head">
+          <div class="card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+              <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+            </svg>
+            Orchestrator Builds (All)
+            <span class="sub" id="table-subtitle">Showing builds from all orchestrators</span>
+          </div>
+          <div class="card-actions">
+            <select id="filter-orch"><option value="all">All Orchestrators</option></select>
+            <div class="search-box">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+              <input type="text" id="build-search" placeholder="Search builds..." />
+            </div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Build ID</th><th>Orchestrator</th><th>Start Time</th><th>End Time</th>
+                <th>Status</th><th>Duration</th><th>Children</th><th>Success</th>
+                <th>Failed</th><th>Unstable</th><th>Log</th>
+              </tr>
+            </thead>
+            <tbody id="builds-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pager" id="builds-pager"></div>
+      </div>
+
+      <div class="card" id="failed-jobs-card" style="display:none">
+        <div class="card-head">
+          <div class="card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>
+            Failed Jobs
+            <span class="sub" id="failed-jobs-subtitle">Orchestrator + Scheduled failures</span>
+          </div>
+          <div class="card-actions">
+            <div class="search-box">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+              <input type="text" id="failed-search" placeholder="Search Job..." />
+            </div>
+            <button class="link" id="btn-back-builds">← Back to Builds</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Job Name</th><th>Parent / Build</th><th>Source</th>
+                <th>Status</th><th>Reason</th><th>Failed At</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="failed-jobs-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pager" id="failed-jobs-pager"></div>
+      </div>
+
+      <div class="card" id="history-card" style="display:none">
+        <div class="card-head">
+          <div class="card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/>
+            </svg>
+            Job History
+            <span class="sub" id="history-subtitle">Unique jobs found across all builds</span>
+          </div>
+          <div class="card-actions">
+            <div class="search-box">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+              <input type="text" id="history-search" placeholder="Search Job..." />
+            </div>
+            <button class="link" id="btn-back-history">← Back to Builds</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Job Name</th><th>Source</th><th>Destination</th>
+                <th>Transfer Type</th><th>File Mask</th><th>Flags</th>
+              </tr>
+            </thead>
+            <tbody id="history-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pager" id="history-pager"></div>
+        <div id="history-detail-panel" class="history-detail-panel" style="display:none">
+          <div class="history-detail-title" id="history-detail-title">—</div>
+          <div class="history-detail-grid">
+            <div><div class="history-detail-label">Source</div><div class="history-detail-value" id="hd-source">—</div></div>
+            <div><div class="history-detail-label">Destination</div><div class="history-detail-value" id="hd-destination">—</div></div>
+            <div><div class="history-detail-label">Transfer Type</div><div class="history-detail-value" id="hd-type">—</div></div>
+            <div><div class="history-detail-label">File Mask</div><div class="history-detail-value" id="hd-mask">—</div></div>
+            <div><div class="history-detail-label">Flags</div><div class="history-detail-value" id="hd-flags">—</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="scheduled-view" style="display:none">
+        <div class="card" id="scheduled-card">
+          <div class="card-head">
+            <div class="card-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+              Global Schedule
+              <span class="sub" id="scheduled-subtitle">Standalone jobs (no orchestrator)</span>
+            </div>
+            <div class="card-actions">
+              <div class="search-box">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                <input type="text" id="scheduled-search" placeholder="Search job name..." />
+              </div>
+              <select id="scheduled-filter-type">
+                <option value="all">All Calendars</option>
+                <option value="DAILY">DAILY</option>
+                <option value="WEEKDAYS">WEEKDAYS</option>
+                <option value="WEEKENDS">WEEKENDS</option>
+                <option value="WEEKLY_MON">WEEKLY_MON</option>
+                <option value="WEEKLY_TUE">WEEKLY_TUE</option>
+                <option value="WEEKLY_WED">WEEKLY_WED</option>
+                <option value="WEEKLY_THU">WEEKLY_THU</option>
+                <option value="WEEKLY_FRI">WEEKLY_FRI</option>
+                <option value="WEEKLY_SAT">WEEKLY_SAT</option>
+                <option value="WEEKLY_SUN">WEEKLY_SUN</option>
+                <option value="MONTHLY_1">MONTHLY_1</option>
+                <option value="MONTHLY_15">MONTHLY_15</option>
+                <option value="MONTHLY_LAST">MONTHLY_LAST</option>
+              </select>
+              <button class="btn-primary" id="btn-add-scheduled" type="button">+ Add Job</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Job Name</th><th>Active</th><th>Start Time</th><th>Calendar</th>
+                  <th>Type</th><th>Next Run</th><th>Last Run</th><th>Last Status</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="scheduled-tbody"></tbody>
+            </table>
+          </div>
+          <div class="pager" id="scheduled-pager"></div>
+        </div>
+
+        <div class="card" id="scheduled-detail-card" style="display:none">
+          <div class="card-head">
+            <div class="card-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/>
+              </svg>
+              Job Details
+              <span class="badge badge-success" id="sched-detail-active" style="margin-left:8px">Active</span>
+            </div>
+          </div>
+          <div class="sched-detail-header">
+            <div>
+              <div class="sched-detail-name" id="sched-detail-name">—</div>
+              <div class="sched-detail-sub">Scheduled job (no orchestrator)</div>
+            </div>
+            <div class="sched-detail-meta">
+              <div class="sched-meta-box">
+                <div class="sched-meta-label">Schedule Information</div>
+                <div class="sched-meta-value" id="sched-detail-schedule">—</div>
+                <div class="sched-meta-sub" id="sched-detail-tz">—</div>
+                <div class="sched-meta-sub" id="sched-detail-from">—</div>
+              </div>
+              <div class="sched-meta-box">
+                <div class="sched-meta-label">Next Run</div>
+                <div class="sched-meta-value" id="sched-detail-next">—</div>
+              </div>
+              <div class="sched-meta-box">
+                <div class="sched-meta-label">Last Run</div>
+                <div class="sched-meta-value" id="sched-detail-last">—</div>
+                <div id="sched-detail-last-status"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sched-transfer-grid">
             <div>
               <div class="history-detail-label">Source</div>
               <div class="history-detail-value" id="sched-detail-source">—</div>
@@ -19,12 +386,97 @@ Sustituye el bloque sched-transfer-grid por:
             </div>
           </div>
 
----------------------------------------
-Y el título del historial:
           <div class="children-head">Execution History (Last 2 runs)</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th><th>Build ID</th><th>Start Time</th><th>End Time</th>
+                  <th>Duration</th><th>Status</th><th>Log File</th>
+                </tr>
+              </thead>
+              <tbody id="sched-history-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
 
--------------------------------
-En el panel derecho #right-scheduled, orden final:
+      <div class="card" id="detail-card" style="display:none">
+        <div class="card-head">
+          <div class="card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/>
+            </svg>
+            Selected Build Details: <span id="detail-id">#—</span>
+          </div>
+          <div class="detail-meta">
+            <span id="detail-range">—</span>
+            <span class="badge" id="detail-badge">—</span>
+          </div>
+        </div>
+        <div class="children-head">Child Builds (Jobs)</div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Job Name</th><th>Build ID</th><th>Start Time</th><th>End Time</th>
+                <th>Status</th><th>Duration</th><th>Log File</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="children-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pager" id="children-pager"></div>
+        <div class="info-bar">All logs are located at: <code>C:\Jenkins\Jobs\Log\</code></div>
+      </div>
+    </main>
+
+    <aside class="right-panel">
+      <div id="right-dashboard">
+        <div class="panel-card">
+          <div class="panel-head">
+            <span class="panel-title">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+              Build Status
+            </span>
+          </div>
+          <div class="donut-wrap">
+            <svg id="donut-chart" width="120" height="120" viewBox="0 0 120 120"></svg>
+            <div class="donut-center">
+              <div class="donut-total" id="donut-total">0</div>
+              <div class="donut-label">Total</div>
+            </div>
+          </div>
+          <div class="legend" id="status-legend"></div>
+        </div>
+        <div class="panel-card">
+          <div class="panel-head">
+            <span class="panel-title">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+              Status by Orchestrator
+            </span>
+          </div>
+          <div id="orch-status-list"></div>
+        </div>
+        <div class="panel-card">
+          <div class="panel-head">
+            <span class="panel-title">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+              Quick Actions
+            </span>
+          </div>
+          <div class="quick-grid">
+            <button class="quick-btn" id="qa-refresh" type="button">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+              Refresh
+            </button>
+            <button class="quick-btn" type="button">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
+              Generate Report
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div id="right-scheduled" style="display:none">
         <div class="panel-card">
@@ -43,7 +495,6 @@ En el panel derecho #right-scheduled, orden final:
           </div>
           <div class="legend" id="sched-legend"></div>
         </div>
-
         <div class="panel-card">
           <div class="panel-head">
             <span class="panel-title">
@@ -53,7 +504,6 @@ En el panel derecho #right-scheduled, orden final:
           </div>
           <ul class="next-runs-list" id="next-runs-list"></ul>
         </div>
-
         <div class="panel-card">
           <div class="panel-head">
             <span class="panel-title">
@@ -73,3 +523,126 @@ En el panel derecho #right-scheduled, orden final:
           </div>
         </div>
       </div>
+    </aside>
+  </div>
+
+  <footer class="app-footer">
+    <span>Manual refresh only</span>
+    <span id="footer-info">—</span>
+    <span id="footer-generated">Generated: —</span>
+  </footer>
+
+  <div class="modal" id="schedule-modal" hidden>
+    <div class="modal-backdrop" id="schedule-modal-backdrop"></div>
+    <div class="modal-panel schedule-modal-wide">
+      <div class="modal-header">
+        <div class="modal-title-block">
+          <div class="modal-title-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>
+            </svg>
+          </div>
+          <div>
+            <h3 id="schedule-modal-title">Edit Scheduled Job</h3>
+            <p class="modal-subtitle">Job details, schedule and valid-from date</p>
+          </div>
+        </div>
+        <button class="btn-icon modal-close-btn" id="schedule-modal-close" type="button">✕</button>
+      </div>
+      <div class="modal-two-col">
+        <div class="modal-col">
+          <div class="modal-section-title">Job Configuration</div>
+          <label class="full">Job Name *
+            <input type="text" id="sf-name" placeholder="ZF_MY_JOB" autocomplete="off" />
+          </label>
+          <div class="form-row">
+            <label>Folder
+              <input type="text" id="sf-folder" placeholder="Same as name if empty" />
+            </label>
+            <label>Active
+              <select id="sf-enabled">
+                <option value="true">Active</option>
+                <option value="false">Inactive</option>
+              </select>
+            </label>
+          </div>
+          <div class="form-row">
+            <label>Start Time (HH:mm) *
+              <input type="text" id="sf-start" placeholder="05:03" />
+            </label>
+            <label>Timezone *
+              <select id="sf-tz">
+                <option value="Europe/Berlin">Europe/Berlin</option>
+                <option value="America/Mexico_City">America/Mexico_City</option>
+                <option value="America/New_York">America/New_York</option>
+                <option value="UTC">UTC</option>
+              </select>
+            </label>
+          </div>
+          <label class="full">Transfer Type *
+            <select id="sf-transfer">
+              <option value="ROBOCOPY">ROBOCOPY</option>
+              <option value="SHAREPOINT">SHAREPOINT</option>
+            </select>
+          </label>
+          <label class="full">Source *
+            <input type="text" id="sf-source" placeholder="\\server\share\path" />
+          </label>
+          <label class="full">Destination *
+            <input type="text" id="sf-destination" placeholder="\\server\share\path" />
+          </label>
+          <div class="form-row">
+            <label>File Mask
+              <input type="text" id="sf-mask" value="*.*" />
+            </label>
+            <label>Flags
+              <input type="text" id="sf-flags" value="/R:0 /W:0 /NP" />
+            </label>
+          </div>
+          <label class="full">Credential ID
+            <input type="text" id="sf-cred" value="WIN.SVC.UC4.BATCHUSER" />
+          </label>
+        </div>
+        <div class="modal-col">
+          <div class="modal-section-title">Schedule &amp; Calendar</div>
+          <div class="info-tip">
+            Choose how often the job runs, then optionally a <strong>Valid from</strong> date.
+            The job will never run before that date.
+          </div>
+          <label class="full">Calendar *
+            <select id="sf-calendar">
+              <option value="DAILY">DAILY</option>
+              <option value="WEEKDAYS">WEEKDAYS</option>
+              <option value="WEEKENDS">WEEKENDS</option>
+              <option value="WEEKLY_MON">WEEKLY_MON</option>
+              <option value="WEEKLY_TUE">WEEKLY_TUE</option>
+              <option value="WEEKLY_WED">WEEKLY_WED</option>
+              <option value="WEEKLY_THU">WEEKLY_THU</option>
+              <option value="WEEKLY_FRI">WEEKLY_FRI</option>
+              <option value="WEEKLY_SAT">WEEKLY_SAT</option>
+              <option value="WEEKLY_SUN">WEEKLY_SUN</option>
+              <option value="MONTHLY_1">MONTHLY_1 (1st)</option>
+              <option value="MONTHLY_15">MONTHLY_15</option>
+              <option value="MONTHLY_LAST">MONTHLY_LAST</option>
+            </select>
+          </label>
+          <label class="full">Valid from (optional)
+            <input type="date" id="sf-from-date" />
+          </label>
+          <p class="hint">Leave empty to allow runs immediately according to the calendar.</p>
+          <div class="next-preview" id="sf-next-preview">Next run preview: —</div>
+          <div class="run-preview-list" id="sf-run-preview">
+            <div class="hint">Upcoming executions will appear here.</div>
+          </div>
+        </div>
+      </div>
+      <p class="form-error" id="sf-error" hidden></p>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" id="sf-cancel">Cancel</button>
+        <button type="button" class="btn-primary" id="sf-save">Save to scheduled-jobs.json</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="Assets/dashboard.js"></script>
+</body>
