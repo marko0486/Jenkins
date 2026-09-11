@@ -2,7 +2,7 @@
 # schedule-api.ps1
 # HTTP API for scheduled-jobs.json
 #   GET    /api/scheduled-jobs
-#   POST   /api/scheduled-jobs   (replace full list — body must be a JSON array)
+#   POST   /api/scheduled-jobs
 #   DELETE /api/scheduled-jobs?name=JOB_NAME
 #   GET    /api/health
 #
@@ -24,7 +24,6 @@ $LogRoot         = 'C:\Jenkins\Jobs\Log'
 # Helpers
 # ----------------------------------------------------------------------------
 
-# Windows forbidden filename characters: \ / : * ? " < > |
 function Test-ValidWindowsName([string]$name) {
     if ([string]::IsNullOrWhiteSpace($name)) { return $false }
     if ($name -match '[\\/:*?"<>|]') { return $false }
@@ -44,18 +43,33 @@ function Read-Jobs {
         $parsed = $trim | ConvertFrom-Json
     }
     catch {
-        Write-Host "WARNING: could not parse $JsonPath — $($_.Exception.Message)"
+        Write-Host "WARNING: could not parse JSON - $($_.Exception.Message)"
         return @()
     }
 
     if ($null -eq $parsed) { return @() }
 
-    # Always return a real PowerShell array
     if ($parsed -is [System.Array]) {
-        return @($parsed)
+        # Filter out empty objects {}
+        $out = @()
+        foreach ($item in @($parsed)) {
+            if ($null -eq $item) { continue }
+            $n = $null
+            try { $n = [string]$item.name } catch { $n = $null }
+            if ([string]::IsNullOrWhiteSpace($n)) { continue }
+            $out += $item
+        }
+        return $out
     }
 
-    # Single object written by bad ConvertTo-Json → wrap as 1-item array
+    # Single object
+    try {
+        $n = [string]$parsed.name
+        if ([string]::IsNullOrWhiteSpace($n)) { return @() }
+    }
+    catch {
+        return @()
+    }
     return @($parsed)
 }
 
@@ -68,7 +82,6 @@ function Write-Jobs($list) {
         Copy-Item $JsonPath "$JsonPath.bak" -Force
     }
 
-    # Force array even with 0 or 1 items (PowerShell ConvertTo-Json drops [] on single object)
     $arr = @($list)
 
     if ($arr.Count -eq 0) {
@@ -83,7 +96,7 @@ function Write-Jobs($list) {
     }
 
     [System.IO.File]::WriteAllText($JsonPath, $json, [System.Text.UTF8Encoding]::new($false))
-    Write-Host "  Write-Jobs count=$($arr.Count) → $JsonPath"
+    Write-Host "  Write-Jobs count=$($arr.Count) path=$JsonPath"
 }
 
 function Remove-JobTraces([string]$jobName, [string]$folder) {
@@ -91,14 +104,12 @@ function Remove-JobTraces([string]$jobName, [string]$folder) {
     if ([string]::IsNullOrWhiteSpace($folder)) { $folder = $jobName }
     if (-not (Test-ValidWindowsName $folder)) { return }
 
-    # 1) data/scheduled/<folder>
     $histDir = Join-Path $ScheduledRoot $folder
     if (Test-Path -LiteralPath $histDir) {
         Remove-Item -LiteralPath $histDir -Recurse -Force -ErrorAction SilentlyContinue
         Write-Host "  Removed folder: $histDir"
     }
 
-    # If folder != job name, also remove data/scheduled/<jobName>
     if ($folder -ne $jobName) {
         $alt = Join-Path $ScheduledRoot $jobName
         if (Test-Path -LiteralPath $alt) {
@@ -107,7 +118,6 @@ function Remove-JobTraces([string]$jobName, [string]$folder) {
         }
     }
 
-    # 2) Clean entry from data/scheduler/last-run.json
     if (Test-Path $LastRunFile) {
         try {
             $raw = Get-Content -Path $LastRunFile -Raw -Encoding UTF8
@@ -131,7 +141,6 @@ function Remove-JobTraces([string]$jobName, [string]$folder) {
         }
     }
 
-    # 3) Logs: C:\Jenkins\Jobs\Log\<name>_BuildID_*.txt
     if (Test-Path $LogRoot) {
         Get-ChildItem -Path $LogRoot -File -ErrorAction SilentlyContinue |
             Where-Object {
@@ -160,24 +169,30 @@ function Send-Json($res, [int]$status, $obj) {
 }
 
 # ----------------------------------------------------------------------------
-# Ensure base folders / empty JSON exist
+# Ensure folders exist
 # ----------------------------------------------------------------------------
 foreach ($d in @((Split-Path $JsonPath -Parent), $ScheduledRoot, $SchedulerDir, $LogRoot)) {
     if (-not (Test-Path $d)) {
         New-Item -ItemType Directory -Path $d -Force | Out-Null
     }
 }
+
 if (-not (Test-Path $JsonPath)) {
     [System.IO.File]::WriteAllText($JsonPath, '[]', [System.Text.UTF8Encoding]::new($false))
 }
 
-# One-time repair: if file is a single object, wrap as array
+# Repair: single object JSON -> array; empty objects removed by Read-Jobs
 try {
     $jobs = Read-Jobs
     $rawCheck = Get-Content -Path $JsonPath -Raw -Encoding UTF8
     if ($rawCheck -and $rawCheck.Trim().StartsWith('{')) {
-        Write-Host "Repairing single-object JSON → array..."
+        Write-Host "Repairing single-object JSON to array..."
         Write-Jobs $jobs
+    }
+    elseif ($jobs.Count -eq 0 -and $rawCheck -and $rawCheck.Trim() -ne '[]') {
+        # e.g. [ { } ] -> write clean []
+        Write-Host "Cleaning empty job entries -> []"
+        Write-Jobs @()
     }
 }
 catch {
@@ -202,13 +217,14 @@ catch {
     exit 1
 }
 
+$jobCount = @(Read-Jobs).Count
 Write-Host "========================================"
 Write-Host " Schedule API listening on $ListenPrefix"
 Write-Host " JSON file : $JsonPath"
 Write-Host " Scheduled : $ScheduledRoot"
 Write-Host " Last-run  : $LastRunFile"
 Write-Host " Logs      : $LogRoot"
-Write-Host " Jobs now  : $((Read-Jobs).Count)"
+Write-Host " Jobs now  : $jobCount"
 Write-Host "========================================"
 
 while ($listener.IsListening) {
@@ -226,7 +242,6 @@ while ($listener.IsListening) {
         continue
     }
 
-    # CORS
     $res.Headers.Add('Access-Control-Allow-Origin', '*')
     $res.Headers.Add('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
     $res.Headers.Add('Access-Control-Allow-Headers', 'Content-Type')
@@ -243,9 +258,7 @@ while ($listener.IsListening) {
 
         Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $($req.HttpMethod) $path"
 
-        # ------------------------------------------------------------------
         # GET /api/scheduled-jobs
-        # ------------------------------------------------------------------
         if ($req.HttpMethod -eq 'GET' -and ($path -eq '/api/scheduled-jobs' -or $path -eq '/api/scheduled-jobs/')) {
             $jobs = @(Read-Jobs)
             if ($jobs.Count -eq 0) {
@@ -262,12 +275,10 @@ while ($listener.IsListening) {
             $res.StatusCode = 200
             $res.ContentType = 'application/json; charset=utf-8'
             $res.OutputStream.Write($bytes, 0, $bytes.Length)
-            Write-Host "  GET → $($jobs.Count) job(s)"
+            Write-Host "  GET jobs=$($jobs.Count)"
         }
 
-        # ------------------------------------------------------------------
-        # POST /api/scheduled-jobs  (full list replace)
-        # ------------------------------------------------------------------
+        # POST /api/scheduled-jobs
         elseif ($req.HttpMethod -eq 'POST' -and ($path -eq '/api/scheduled-jobs' -or $path -eq '/api/scheduled-jobs/')) {
             $reader = New-Object System.IO.StreamReader($req.InputStream, $req.ContentEncoding)
             $raw = $reader.ReadToEnd()
@@ -285,29 +296,31 @@ while ($listener.IsListening) {
                 $list = @($parsed)
             }
             else {
-                # Client sent a single object → treat as 1-item list
                 $list = @($parsed)
             }
 
+            # Drop empty entries without name
+            $clean = @()
             foreach ($j in $list) {
+                if ($null -eq $j) { continue }
                 $n = [string]$j.name
+                if ([string]::IsNullOrWhiteSpace($n)) { continue }
                 $f = if ($j.folder) { [string]$j.folder } else { $n }
                 if (-not (Test-ValidWindowsName $n)) {
-                    throw "Invalid job name (Windows forbidden characters \ / : * ? `" < > | ): $n"
+                    throw "Invalid job name (forbidden chars): $n"
                 }
                 if (-not (Test-ValidWindowsName $f)) {
-                    throw "Invalid folder name (Windows forbidden characters): $f"
+                    throw "Invalid folder name (forbidden chars): $f"
                 }
+                $clean += $j
             }
 
-            Write-Jobs $list
-            Send-Json $res 200 @{ ok = $true; count = $list.Count }
-            Write-Host "  POST saved $($list.Count) job(s)"
+            Write-Jobs $clean
+            Send-Json $res 200 @{ ok = $true; count = $clean.Count }
+            Write-Host "  POST saved $($clean.Count) job(s)"
         }
 
-        # ------------------------------------------------------------------
         # DELETE /api/scheduled-jobs?name=JOB_NAME
-        # ------------------------------------------------------------------
         elseif ($req.HttpMethod -eq 'DELETE' -and ($path -eq '/api/scheduled-jobs' -or $path -eq '/api/scheduled-jobs/')) {
             $name = $req.QueryString['name']
 
@@ -322,7 +335,7 @@ while ($listener.IsListening) {
             }
 
             if ([string]::IsNullOrWhiteSpace($name)) {
-                throw 'Missing job name (query ?name= or JSON body { "name": "..." })'
+                throw 'Missing job name (query ?name= or body { "name": "..." })'
             }
             if (-not (Test-ValidWindowsName $name)) {
                 throw "Invalid name: $name"
@@ -360,9 +373,7 @@ while ($listener.IsListening) {
             Write-Host "  DELETE job=$name folder=$folder remaining=$(@($remaining).Count)"
         }
 
-        # ------------------------------------------------------------------
         # GET /api/health
-        # ------------------------------------------------------------------
         elseif ($req.HttpMethod -eq 'GET' -and ($path -eq '/api/health' -or $path -eq '/health')) {
             Send-Json $res 200 @{
                 ok   = $true
