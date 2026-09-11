@@ -18,6 +18,7 @@ let selectedBuild = null;
 let children = [];
 let childrenPage = 1;
 let activeOrchFilter = 'all';
+let currentView = 'dashboard';
 
 let failedJobs = [];
 let filteredFailedJobs = [];
@@ -40,8 +41,8 @@ let isLoadingScheduled = false;
 let editingScheduleId = null;
 
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('btn-refresh').onclick = loadAll;
-  document.getElementById('qa-refresh').onclick = loadAll;
+  document.getElementById('btn-refresh').onclick = refreshCurrentView;
+  document.getElementById('qa-refresh').onclick = refreshCurrentView;
   document.getElementById('qa-sched-refresh').onclick = () => openScheduledView(true);
 
   document.getElementById('build-search').oninput = applyFilters;
@@ -91,7 +92,21 @@ document.addEventListener('DOMContentLoaded', () => {
   loadAll();
 });
 
+async function refreshCurrentView() {
+  if (currentView === 'scheduled') {
+    await openScheduledView(true);
+    return;
+  }
+  await loadAll();
+  if (currentView === 'failed') await openFailedJobsView();
+  else if (currentView === 'history') {
+    historyCache = null;
+    await openHistoryView();
+  }
+}
+
 function setActiveNav(view) {
+  currentView = view;
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   const map = {
     dashboard: 'nav-dashboard',
@@ -167,6 +182,9 @@ async function loadAll() {
     renderActivity();
     renderTable();
 
+    // Bell: orchestrator failures + scheduled failures (last 24h)
+    await refreshBellCount();
+
     const now = new Date().toLocaleString('en-GB');
     document.getElementById('last-updated').textContent = now;
     document.getElementById('footer-generated').textContent = 'Generated: ' + now;
@@ -180,7 +198,7 @@ async function loadAll() {
 
 function parseTimestamp(ts) {
   if (!ts || ts === '—') return null;
-  const d = new Date(ts.replace(' ', 'T'));
+  const d = new Date(String(ts).replace(' ', 'T'));
   return isNaN(d.getTime()) ? null : d.getTime();
 }
 
@@ -200,19 +218,14 @@ function badgeClass(s) {
   return 'badge-other';
 }
 
-/* ========== TIMEZONE + CALENDAR ========== */
+/* ========== TIMEZONE + CALENDAR (preset + valid-from) ========== */
 function getZonedParts(date, timeZone) {
   const parts = {};
   const dtf = new Intl.DateTimeFormat('en-US', {
     timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-    weekday: 'short'
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hourCycle: 'h23', weekday: 'short'
   });
   for (const p of dtf.formatToParts(date)) {
     if (p.type !== 'literal') parts[p.type] = p.value;
@@ -259,39 +272,37 @@ function ymdKey(y, m, d) {
   return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
 
-function jobMatchesDay(job, parts) {
-  const cal = (job.calendar || 'DAILY').toString().toUpperCase();
-  const custom = job.custom || null;
+function afterOrOnFromDate(parts, fromDate) {
+  if (!fromDate || !/^\d{4}-\d{2}-\d{2}$/.test(fromDate)) return true;
+  return ymdKey(parts.year, parts.month, parts.day) >= fromDate;
+}
 
-  if (cal === 'CUSTOM' && custom) {
+function jobMatchesDay(job, parts) {
+  if (!afterOrOnFromDate(parts, job.fromDate)) return false;
+
+  // Legacy CUSTOM still supported if present in JSON
+  const cal = (job.calendar || 'DAILY').toString().toUpperCase();
+  if (cal === 'CUSTOM' && job.custom) {
+    const custom = job.custom;
     const kind = custom.kind || '';
     if (kind === 'monthly_days') {
-      const days = (custom.daysOfMonth || []).map(Number);
-      return days.includes(parts.day);
+      return (custom.daysOfMonth || []).map(Number).includes(parts.day);
     }
-    if (kind === 'monthly_last') {
-      return parts.day === lastDayOfMonth(parts.year, parts.month);
-    }
+    if (kind === 'monthly_last') return parts.day === lastDayOfMonth(parts.year, parts.month);
     if (kind === 'every_x_days') {
       const x = Number(custom.everyXDays || 0);
-      const from = (custom.fromDate || '').toString();
+      const from = (custom.fromDate || job.fromDate || '').toString();
       if (!x || !/^\d{4}-\d{2}-\d{2}$/.test(from)) return false;
       const [fy, fm, fd] = from.split('-').map(Number);
       const fromUtc = Date.UTC(fy, fm - 1, fd);
       const curUtc = Date.UTC(parts.year, parts.month - 1, parts.day);
       if (curUtc < fromUtc) return false;
-      const diffDays = Math.round((curUtc - fromUtc) / 86400000);
-      return diffDays % x === 0;
+      return Math.round((curUtc - fromUtc) / 86400000) % x === 0;
     }
-    if (kind === 'weekly_days') {
-      const w = (custom.weekDays || []).map(Number);
-      return w.includes(parts.dow);
-    }
+    if (kind === 'weekly_days') return (custom.weekDays || []).map(Number).includes(parts.dow);
     if (kind === 'specific_dates') {
-      const key = ymdKey(parts.year, parts.month, parts.day);
-      return (custom.specificDates || []).includes(key);
+      return (custom.specificDates || []).includes(ymdKey(parts.year, parts.month, parts.day));
     }
-    return false;
   }
 
   const dow = parts.dow;
@@ -318,17 +329,18 @@ function jobMatchesDay(job, parts) {
   }
 }
 
-function computeNextRun(job) {
+function computeNextRuns(job, count) {
   const timeZone = (job.timezone || DEFAULT_SCHEDULE_TZ).toString();
   const start = (job.startTime || '').toString().trim();
   const m = start.match(/^(\d{1,2}):(\d{2})$/);
-  if (!m) return '—';
+  if (!m) return [];
   const hour = parseInt(m[1], 10);
   const minute = parseInt(m[2], 10);
   const now = new Date();
   const nowZ = getZonedParts(now, timeZone);
+  const out = [];
 
-  for (let i = 0; i < 800; i++) {
+  for (let i = 0; i < 900 && out.length < count; i++) {
     const ymd = addDaysToYmd(nowZ.year, nowZ.month, nowZ.day, i);
     const noon = wallTimeToUtcDate(ymd.year, ymd.month, ymd.day, 12, 0, 0, timeZone);
     const dayParts = getZonedParts(noon, timeZone);
@@ -338,34 +350,36 @@ function computeNextRun(job) {
     if (!jobMatchesDay(job, dayParts)) continue;
     const runAt = wallTimeToUtcDate(ymd.year, ymd.month, ymd.day, hour, minute, 0, timeZone);
     if (runAt.getTime() > now.getTime()) {
-      return formatNextRunBerlin(ymd.year, ymd.month, ymd.day, hour, minute);
+      out.push(formatNextRunBerlin(ymd.year, ymd.month, ymd.day, hour, minute));
     }
   }
-  return '—';
+  return out;
+}
+
+function computeNextRun(job) {
+  const list = computeNextRuns(job, 1);
+  return list[0] || '—';
 }
 
 function normalizeScheduledJob(j) {
   const name = j.name || j.job || '—';
   const calendar = (j.calendar || 'DAILY').toString().toUpperCase();
   const startTime = j.startTime || '—';
-  return {
+  const fromDate = j.fromDate || (j.custom && j.custom.fromDate) || null;
+  const base = {
     ...j,
     name,
     job: name,
     calendar,
     startTime,
+    fromDate,
     transferType: j.transferType || 'ROBOCOPY',
     type: 'TRANSFER',
     enabled: j.enabled !== false,
-    timezone: j.timezone || DEFAULT_SCHEDULE_TZ,
-    nextRunDisplay: computeNextRun({
-      ...j,
-      calendar,
-      startTime: startTime === '—' ? '' : startTime,
-      timezone: j.timezone || DEFAULT_SCHEDULE_TZ,
-      custom: j.custom || null
-    })
+    timezone: j.timezone || DEFAULT_SCHEDULE_TZ
   };
+  base.nextRunDisplay = computeNextRun(base);
+  return base;
 }
 
 function scheduleTypeBadge(t) {
@@ -378,19 +392,77 @@ function scheduleTypeBadge(t) {
 }
 
 function calendarLabel(j) {
-  if ((j.calendar || '').toUpperCase() === 'CUSTOM' && j.custom) {
-    const c = j.custom;
-    if (c.kind === 'monthly_days') return 'CUSTOM D' + (c.daysOfMonth || []).join(',');
-    if (c.kind === 'monthly_last') return 'CUSTOM LAST';
-    if (c.kind === 'every_x_days') return 'CUSTOM every ' + c.everyXDays + 'd';
-    if (c.kind === 'weekly_days') return 'CUSTOM weekly';
-    if (c.kind === 'specific_dates') return 'CUSTOM dates';
-    return 'CUSTOM';
-  }
-  return j.calendar || '—';
+  const cal = j.calendar || '—';
+  if (j.fromDate) return `${cal} (from ${j.fromDate})`;
+  return cal;
 }
 
-/* ========== FAILED JOBS ========== */
+/* ========== BELL + FAILED (orchestrator + scheduled) ========== */
+async function loadScheduledJobsRaw() {
+  try {
+    const res = await fetch(CONFIG.SCHEDULED_URL + '?t=' + Date.now());
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+async function collectScheduledFailures() {
+  const list = await loadScheduledJobsRaw();
+  const failures = [];
+  await Promise.all(list.map(async job => {
+    const name = job.name || job.job;
+    if (!name) return;
+    const folder = job.folder || name;
+    try {
+      const r = await fetch(`data/scheduled/${encodeURIComponent(folder)}/history.json?t=${Date.now()}`);
+      if (!r.ok) return;
+      const hist = await r.json();
+      if (!Array.isArray(hist)) return;
+      hist.forEach(h => {
+        const st = (h.status || '').toUpperCase();
+        if (st !== 'FAILED' && st !== 'FAILURE') return;
+        const failTime = h.endTime || h.startTime || '—';
+        failures.push({
+          job: name,
+          parentBuild: h.build != null ? h.build : '—',
+          orchestrator: 'Scheduled',
+          orchestratorColor: '#8b5cf6',
+          status: h.status,
+          reason: h.reason || 'Scheduled job failed',
+          startTime: failTime,
+          logFile: h.logFile || null,
+          source: 'scheduled',
+          _sortKey: parseTimestamp(failTime) || 0
+        });
+      });
+    } catch (e) {
+      console.warn(e);
+    }
+  }));
+  return failures;
+}
+
+async function refreshBellCount() {
+  const now = Date.now();
+  const h24 = 24 * 60 * 60 * 1000;
+  let count = allBuilds.filter(b => {
+    const t = parseTimestamp(b.timestamp);
+    return t && now - t <= h24;
+  }).reduce((s, b) => s + (b.failedCount || 0), 0);
+
+  const schedFails = await collectScheduledFailures();
+  count += schedFails.filter(f => f._sortKey && now - f._sortKey <= h24).length;
+
+  if (count > 0) updateBellBadge(count);
+  else {
+    updateBellBadge(0);
+    bellCleared = false;
+  }
+}
+
 async function openFailedJobsView() {
   if (isLoadingFailed) return;
   isLoadingFailed = true;
@@ -408,7 +480,7 @@ async function openFailedJobsView() {
         (data.children || []).forEach(c => {
           const status = (c.status || '').toUpperCase();
           if (!['FAILED', 'FAILURE', 'PRECHECK_FAILED'].includes(status)) return;
-          const key = `${parent.build}||${c.job || ''}`;
+          const key = `orch||${parent.build}||${c.job || ''}`;
           if (seen.has(key)) return;
           seen.add(key);
           let failTime = c.endTime && c.endTime !== '—' ? c.endTime
@@ -424,6 +496,7 @@ async function openFailedJobsView() {
             reason: c.reason || '—',
             startTime: failTime,
             logFile: c.logFile || null,
+            source: 'orchestrator',
             _sortKey: parseTimestamp(failTime) || 0
           });
         });
@@ -431,6 +504,14 @@ async function openFailedJobsView() {
         console.warn(e);
       }
     }
+
+    const schedFails = await collectScheduledFailures();
+    schedFails.forEach(f => {
+      const key = `sched||${f.job}||${f.parentBuild}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      failedJobs.push(f);
+    });
   } finally {
     isLoadingFailed = false;
   }
@@ -446,7 +527,7 @@ async function openFailedJobsView() {
   document.getElementById('failed-jobs-card').style.display = 'block';
   document.getElementById('failed-search').value = '';
   document.getElementById('failed-jobs-subtitle').textContent =
-    `${failedJobs.length} failed job${failedJobs.length !== 1 ? 's' : ''} found`;
+    `${failedJobs.length} failed job${failedJobs.length !== 1 ? 's' : ''} (orchestrator + scheduled)`;
   setActiveNav('failed');
   renderFailedJobs();
 }
@@ -481,9 +562,10 @@ function renderFailedJobs() {
     page.forEach(f => {
       const tr = document.createElement('tr');
       tr.style.cursor = 'default';
+      const parentLabel = f.source === 'scheduled' ? `Sched #${f.parentBuild}` : `#${f.parentBuild}`;
       tr.innerHTML = `
         <td style="font-weight:500">${f.job}</td>
-        <td class="build-id">#${f.parentBuild}</td>
+        <td class="build-id">${parentLabel}</td>
         <td><div class="orch-cell"><span class="dot" style="background:${f.orchestratorColor}"></span>${f.orchestrator}</div></td>
         <td><span class="badge badge-failed">${f.status}</span></td>
         <td style="color:#dc2626;max-width:260px;white-space:normal">${f.reason}</td>
@@ -504,7 +586,6 @@ function renderFailedJobs() {
 async function openHistoryView() {
   if (isLoadingHistory) return;
   isLoadingHistory = true;
-
   try {
     if (historyCache) {
       historyJobs = historyCache;
@@ -514,7 +595,6 @@ async function openHistoryView() {
       showHistoryUI();
       return;
     }
-
     const results = await Promise.all(
       orchestrators.map(async o => {
         try {
@@ -527,7 +607,6 @@ async function openHistoryView() {
         }
       })
     );
-
     const map = new Map();
     results.flat().forEach(e => {
       const name = (e.job || '').trim();
@@ -546,7 +625,6 @@ async function openHistoryView() {
         });
       }
     });
-
     historyJobs = Array.from(map.values()).sort((a, b) => b._sortKey - a._sortKey);
     historyCache = historyJobs;
     filteredHistoryJobs = [...historyJobs];
@@ -585,9 +663,7 @@ function filterHistoryJobs() {
         (h.job || '').toLowerCase().includes(q) ||
         (h.source || '').toLowerCase().includes(q) ||
         (h.destination || '').toLowerCase().includes(q) ||
-        (h.transferType || '').toLowerCase().includes(q) ||
-        (h.fileMask || '').toLowerCase().includes(q) ||
-        (h.flags || '').toLowerCase().includes(q)
+        (h.transferType || '').toLowerCase().includes(q)
       );
   historyPage = 1;
   selectedHistoryJob = null;
@@ -603,11 +679,8 @@ function renderHistoryJobs() {
   tbody.innerHTML = '';
   const start = (historyPage - 1) * CONFIG.HISTORY_PAGE_SIZE;
   const page = filteredHistoryJobs.slice(start, start + CONFIG.HISTORY_PAGE_SIZE);
-
   if (!page.length) {
     tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:40px;color:#94a3b8">No jobs found</td></tr>`;
-    const panel = document.getElementById('history-detail-panel');
-    if (panel) panel.style.display = 'none';
   } else {
     page.forEach(h => {
       const tr = document.createElement('tr');
@@ -624,7 +697,6 @@ function renderHistoryJobs() {
       tbody.appendChild(tr);
     });
   }
-
   renderPagerCustom('history-pager', filteredHistoryJobs.length, historyPage, CONFIG.HISTORY_PAGE_SIZE, p => {
     historyPage = p;
     selectedHistoryJob = null;
@@ -649,11 +721,10 @@ function showHistoryJobDetails(h) {
   panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-/* ========== SCHEDULED JOBS ========== */
+/* ========== SCHEDULED ========== */
 async function openScheduledView(forceReload) {
   if (isLoadingScheduled && !forceReload) return;
   isLoadingScheduled = true;
-
   try {
     const res = await fetch(CONFIG.SCHEDULED_URL + '?t=' + Date.now());
     if (res.ok) {
@@ -662,30 +733,24 @@ async function openScheduledView(forceReload) {
     } else {
       scheduledJobs = [];
     }
-
-    await Promise.all(
-      scheduledJobs.map(async job => {
-        try {
-          const folder = job.folder || job.job || job.name;
-          const r = await fetch(`data/scheduled/${encodeURIComponent(folder)}/history.json?t=${Date.now()}`);
-          if (!r.ok) {
-            job._history = [];
-            return;
-          }
-          const hist = await r.json();
-          job._history = Array.isArray(hist) ? hist : [];
-          if (job._history.length) {
-            const last = job._history[0];
-            job.lastRun = last.startTime || last.endTime || job.lastRun || '—';
-            job.lastStatus = last.status || job.lastStatus || '—';
-          }
-        } catch {
-          job._history = [];
+    await Promise.all(scheduledJobs.map(async job => {
+      try {
+        const folder = job.folder || job.job || job.name;
+        const r = await fetch(`data/scheduled/${encodeURIComponent(folder)}/history.json?t=${Date.now()}`);
+        if (!r.ok) { job._history = []; return; }
+        const hist = await r.json();
+        job._history = Array.isArray(hist) ? hist : [];
+        if (job._history.length) {
+          const last = job._history[0];
+          job.lastRun = last.startTime || last.endTime || '—';
+          job.lastStatus = last.status || '—';
         }
-      })
-    );
+      } catch {
+        job._history = [];
+      }
+    }));
   } catch (e) {
-    console.warn('scheduled-jobs.json not found yet', e);
+    console.warn(e);
     scheduledJobs = [];
   } finally {
     isLoadingScheduled = false;
@@ -704,7 +769,6 @@ async function openScheduledView(forceReload) {
   if (schedDetail) schedDetail.style.display = 'none';
   document.getElementById('scheduled-search').value = '';
   document.getElementById('scheduled-filter-type').value = 'all';
-
   document.getElementById('scheduled-subtitle').textContent = scheduledJobs.length
     ? `${scheduledJobs.length} scheduled job${scheduledJobs.length !== 1 ? 's' : ''}`
     : 'No scheduled-jobs.json found yet';
@@ -714,6 +778,9 @@ async function openScheduledView(forceReload) {
   renderScheduleSummary();
   renderNextRuns();
   document.getElementById('footer-info').textContent = `Showing ${scheduledJobs.length} scheduled jobs`;
+
+  const now = new Date().toLocaleString('en-GB');
+  document.getElementById('last-updated').textContent = now;
 }
 
 function filterScheduled() {
@@ -721,13 +788,7 @@ function filterScheduled() {
   const type = document.getElementById('scheduled-filter-type').value;
   filteredScheduled = scheduledJobs.filter(j => {
     const cal = (j.calendar || '').toUpperCase();
-    if (type !== 'all') {
-      if (type === 'CUSTOM') {
-        if (cal !== 'CUSTOM') return false;
-      } else if (cal !== type.toUpperCase()) {
-        return false;
-      }
-    }
+    if (type !== 'all' && cal !== type.toUpperCase()) return false;
     if (q && !(j.name || j.job || '').toLowerCase().includes(q)) return false;
     return true;
   });
@@ -740,7 +801,6 @@ function renderScheduledTable() {
   tbody.innerHTML = '';
   const start = (scheduledPage - 1) * CONFIG.SCHEDULED_PAGE_SIZE;
   const page = filteredScheduled.slice(start, start + CONFIG.SCHEDULED_PAGE_SIZE);
-
   if (!page.length) {
     tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:40px;color:#94a3b8">No scheduled jobs found</td></tr>`;
   } else {
@@ -750,36 +810,28 @@ function renderScheduledTable() {
         tr.classList.add('selected');
       }
       tr.onclick = () => showScheduledDetails(j);
-
       const activeBadge = j.enabled
         ? `<span class="badge badge-active">Active</span>`
         : `<span class="badge badge-inactive">Inactive</span>`;
-
       tr.innerHTML = `
         <td style="font-weight:500">${j.name || j.job || '—'}</td>
         <td>${activeBadge}</td>
         <td>${j.startTime || '—'}</td>
-        <td><span class="badge ${scheduleTypeBadge(j.calendar)}">${calendarLabel(j)}</span></td>
+        <td><span class="badge ${scheduleTypeBadge(j.calendar)}">${j.calendar || '—'}</span></td>
         <td>${j.transferType || '—'}</td>
-        <td>${j.nextRunDisplay || j.nextRun || '—'}</td>
+        <td>${j.nextRunDisplay || '—'}</td>
         <td>${j.lastRun || '—'}</td>
         <td><span class="badge ${badgeClass(j.lastStatus)}">${j.lastStatus || '—'}</span></td>
         <td class="row-actions"></td>`;
-
       const actionsTd = tr.querySelector('.row-actions');
       const editBtn = document.createElement('button');
       editBtn.type = 'button';
       editBtn.textContent = 'Edit';
-      editBtn.onclick = (e) => {
-        e.stopPropagation();
-        openScheduleModal(j);
-      };
+      editBtn.onclick = (e) => { e.stopPropagation(); openScheduleModal(j); };
       actionsTd.appendChild(editBtn);
-
       tbody.appendChild(tr);
     });
   }
-
   renderPagerCustom('scheduled-pager', filteredScheduled.length, scheduledPage, CONFIG.SCHEDULED_PAGE_SIZE, p => {
     scheduledPage = p;
     renderScheduledTable();
@@ -791,11 +843,11 @@ function showScheduledDetails(j) {
   renderScheduledTable();
   document.getElementById('scheduled-detail-card').style.display = 'block';
   document.getElementById('sched-detail-name').textContent = j.name || j.job || '—';
-  document.getElementById('sched-detail-schedule').textContent =
-    `${calendarLabel(j)} at ${j.startTime || '—'}`;
-  document.getElementById('sched-detail-tz').textContent =
-    `Time zone: ${j.timezone || DEFAULT_SCHEDULE_TZ}`;
-  document.getElementById('sched-detail-next').textContent = j.nextRunDisplay || j.nextRun || '—';
+  document.getElementById('sched-detail-schedule').textContent = `${j.calendar || '—'} at ${j.startTime || '—'}`;
+  document.getElementById('sched-detail-tz').textContent = `Time zone: ${j.timezone || DEFAULT_SCHEDULE_TZ}`;
+  const fromEl = document.getElementById('sched-detail-from');
+  if (fromEl) fromEl.textContent = j.fromDate ? `Valid from: ${j.fromDate}` : 'Valid from: immediately';
+  document.getElementById('sched-detail-next').textContent = j.nextRunDisplay || '—';
   document.getElementById('sched-detail-last').textContent = j.lastRun || '—';
   document.getElementById('sched-detail-last-status').innerHTML = j.lastStatus
     ? `<span class="badge ${badgeClass(j.lastStatus)}" style="margin-top:4px;display:inline-block">${j.lastStatus}</span>`
@@ -805,8 +857,14 @@ function showScheduledDetails(j) {
   if (activeEl) {
     activeEl.textContent = j.enabled ? 'Active' : 'Inactive';
     activeEl.className = 'badge ' + (j.enabled ? 'badge-success' : 'badge-other');
-    activeEl.style.marginLeft = '8px';
   }
+
+  document.getElementById('sched-detail-source').textContent = displayPath(j.source);
+  document.getElementById('sched-detail-destination').textContent = displayPath(j.destination);
+  document.getElementById('sched-detail-mask').textContent = j.fileMask || '—';
+  document.getElementById('sched-detail-flags').textContent = j.flags || '—';
+  document.getElementById('sched-detail-transfer').textContent = j.transferType || '—';
+  document.getElementById('sched-detail-cred').textContent = j.credentialId || '—';
 
   const hist = (j._history || []).slice(0, 10);
   const tbody = document.getElementById('sched-history-tbody');
@@ -831,17 +889,15 @@ function showScheduledDetails(j) {
 }
 
 function renderScheduleSummary() {
-  const counts = { DAILY: 0, WEEKLY: 0, MONTHLY: 0, OTHER: 0 };
+  const counts = { DAILY: 0, WEEKLY: 0, MONTHLY: 0 };
   scheduledJobs.forEach(j => {
     const c = (j.calendar || '').toUpperCase();
     if (c === 'DAILY' || c === 'WEEKDAYS' || c === 'WEEKENDS') counts.DAILY++;
     else if (c.startsWith('WEEKLY')) counts.WEEKLY++;
-    else if (c.startsWith('MONTHLY') || c === 'CUSTOM') counts.MONTHLY++;
-    else counts.OTHER++;
+    else counts.MONTHLY++;
   });
   const total = scheduledJobs.length || 1;
   document.getElementById('sched-donut-total').textContent = scheduledJobs.length;
-
   const segs = [
     { val: counts.DAILY, color: '#2563eb' },
     { val: counts.WEEKLY, color: '#8b5cf6' },
@@ -857,25 +913,21 @@ function renderScheduleSummary() {
     offset += len;
   });
   document.getElementById('sched-donut').innerHTML = svg;
-
   const pct = n => (scheduledJobs.length ? Math.round((n / scheduledJobs.length) * 100) : 0);
   document.getElementById('sched-legend').innerHTML = `
     <div class="legend-row"><span class="legend-dot" style="background:#2563eb"></span> Daily/Weekday ${counts.DAILY} (${pct(counts.DAILY)}%)</div>
     <div class="legend-row"><span class="legend-dot" style="background:#8b5cf6"></span> Weekly ${counts.WEEKLY} (${pct(counts.WEEKLY)}%)</div>
-    <div class="legend-row"><span class="legend-dot" style="background:#f59e0b"></span> Monthly/Custom ${counts.MONTHLY} (${pct(counts.MONTHLY)}%)</div>`;
+    <div class="legend-row"><span class="legend-dot" style="background:#f59e0b"></span> Monthly ${counts.MONTHLY} (${pct(counts.MONTHLY)}%)</div>`;
 }
 
 function renderNextRuns() {
   const ul = document.getElementById('next-runs-list');
   ul.innerHTML = '';
   const list = [...scheduledJobs]
-    .filter(j => j.enabled !== false)
-    .map(j => ({ ...j, _next: j.nextRunDisplay || j.nextRun || '' }))
-    .filter(j => j._next && j._next !== '—')
+    .filter(j => j.enabled !== false && j.nextRunDisplay && j.nextRunDisplay !== '—')
     .slice(0, 6);
-
   if (!list.length) {
-    ul.innerHTML = `<li style="color:#94a3b8;font-size:12px;padding:12px 0">No upcoming runs defined</li>`;
+    ul.innerHTML = `<li style="color:#94a3b8;font-size:12px;padding:12px 0">No upcoming runs</li>`;
     return;
   }
   list.forEach(j => {
@@ -885,48 +937,22 @@ function renderNextRuns() {
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
         <div>
           <div class="next-run-name" title="${j.name || j.job}">${j.name || j.job}</div>
-          <div class="next-run-when">${j._next}</div>
+          <div class="next-run-when">${j.nextRunDisplay}</div>
         </div>
       </div>
-      <span class="next-run-badge">${calendarLabel(j)}</span>`;
+      <span class="next-run-badge">${j.calendar || ''}</span>`;
     ul.appendChild(li);
   });
 }
 
-/* ========== SCHEDULE MODAL ========== */
+/* ========== SCHEDULE MODAL (simple calendar + valid from) ========== */
 function initScheduleModalUi() {
-  const mode = document.getElementById('sf-schedule-mode');
-  if (!mode) return;
-  mode.onchange = () => {
-    const custom = mode.value === 'custom';
-    document.getElementById('sf-preset-block').hidden = custom;
-    document.getElementById('sf-custom-block').hidden = !custom;
-    updateNextPreview();
-  };
-  document.querySelectorAll('.custom-tab').forEach(btn => {
-    btn.onclick = () => {
-      document.querySelectorAll('.custom-tab').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const tab = btn.dataset.tab;
-      document.getElementById('sf-tab-monthly').hidden = tab !== 'monthly';
-      document.getElementById('sf-tab-weekly').hidden = tab !== 'weekly';
-      document.getElementById('sf-tab-dates').hidden = tab !== 'dates';
-      updateNextPreview();
-    };
-  });
-  ['sf-start', 'sf-tz', 'sf-calendar', 'sf-month-days', 'sf-every-x', 'sf-every-from', 'sf-specific-dates']
-    .forEach(id => {
-      const el = document.getElementById(id);
-      if (el) {
-        el.addEventListener('input', updateNextPreview);
-        el.addEventListener('change', updateNextPreview);
-      }
-    });
-  document.querySelectorAll('input[name="sf-monthly-mode"]').forEach(r => {
-    r.onchange = updateNextPreview;
-  });
-  document.querySelectorAll('#sf-weekdays input').forEach(c => {
-    c.onchange = updateNextPreview;
+  ['sf-start', 'sf-tz', 'sf-calendar', 'sf-from-date'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('input', updateNextPreview);
+      el.addEventListener('change', updateNextPreview);
+    }
   });
 }
 
@@ -946,15 +972,13 @@ function openScheduleModal(job) {
 
   const tzSel = document.getElementById('sf-tz');
   const tz = job ? (job.timezone || DEFAULT_SCHEDULE_TZ) : DEFAULT_SCHEDULE_TZ;
-  if (tzSel) {
-    if (![...tzSel.options].some(o => o.value === tz)) {
-      const opt = document.createElement('option');
-      opt.value = tz;
-      opt.textContent = tz;
-      tzSel.appendChild(opt);
-    }
-    tzSel.value = tz;
+  if (tzSel && ![...tzSel.options].some(o => o.value === tz)) {
+    const opt = document.createElement('option');
+    opt.value = tz;
+    opt.textContent = tz;
+    tzSel.appendChild(opt);
   }
+  if (tzSel) tzSel.value = tz;
 
   document.getElementById('sf-transfer').value = job ? (job.transferType || 'ROBOCOPY') : 'ROBOCOPY';
   document.getElementById('sf-source').value = job ? (job.source || '') : '';
@@ -963,48 +987,10 @@ function openScheduleModal(job) {
   document.getElementById('sf-flags').value = job ? (job.flags || '/R:0 /W:0 /NP') : '/R:0 /W:0 /NP';
   document.getElementById('sf-cred').value = job ? (job.credentialId || 'WIN.SVC.UC4.BATCHUSER') : 'WIN.SVC.UC4.BATCHUSER';
 
-  const isCustom = job && String(job.calendar).toUpperCase() === 'CUSTOM';
-  document.getElementById('sf-schedule-mode').value = isCustom ? 'custom' : 'preset';
-  document.getElementById('sf-preset-block').hidden = isCustom;
-  document.getElementById('sf-custom-block').hidden = !isCustom;
-  document.getElementById('sf-calendar').value = (!isCustom && job && job.calendar) ? job.calendar : 'DAILY';
-
-  document.getElementById('sf-month-days').value = '';
-  document.getElementById('sf-every-x').value = '3';
-  document.getElementById('sf-every-from').value = '';
-  document.getElementById('sf-specific-dates').value = '';
-  document.querySelectorAll('#sf-weekdays input').forEach(c => { c.checked = false; });
-  const daysRadio = document.querySelector('input[name="sf-monthly-mode"][value="days"]');
-  if (daysRadio) daysRadio.checked = true;
-
-  if (isCustom && job.custom) {
-    const c = job.custom;
-    if (c.kind === 'monthly_days' || c.kind === 'monthly_last' || c.kind === 'every_x_days') {
-      const tab = document.querySelector('.custom-tab[data-tab="monthly"]');
-      if (tab) tab.click();
-      if (c.kind === 'monthly_days') {
-        document.querySelector('input[name="sf-monthly-mode"][value="days"]').checked = true;
-        document.getElementById('sf-month-days').value = (c.daysOfMonth || []).join(',');
-      } else if (c.kind === 'monthly_last') {
-        document.querySelector('input[name="sf-monthly-mode"][value="last"]').checked = true;
-      } else {
-        document.querySelector('input[name="sf-monthly-mode"][value="every"]').checked = true;
-        document.getElementById('sf-every-x').value = c.everyXDays || 3;
-        document.getElementById('sf-every-from').value = c.fromDate || '';
-      }
-    } else if (c.kind === 'weekly_days') {
-      const tab = document.querySelector('.custom-tab[data-tab="weekly"]');
-      if (tab) tab.click();
-      (c.weekDays || []).forEach(d => {
-        const el = document.querySelector(`#sf-weekdays input[value="${d}"]`);
-        if (el) el.checked = true;
-      });
-    } else if (c.kind === 'specific_dates') {
-      const tab = document.querySelector('.custom-tab[data-tab="dates"]');
-      if (tab) tab.click();
-      document.getElementById('sf-specific-dates').value = (c.specificDates || []).join('\n');
-    }
-  }
+  let cal = job ? (job.calendar || 'DAILY') : 'DAILY';
+  if (String(cal).toUpperCase() === 'CUSTOM') cal = 'DAILY';
+  document.getElementById('sf-calendar').value = cal;
+  document.getElementById('sf-from-date').value = job && job.fromDate ? job.fromDate : '';
 
   updateNextPreview();
   document.getElementById('schedule-modal').hidden = false;
@@ -1016,37 +1002,6 @@ function closeScheduleModal() {
   document.getElementById('sf-name').disabled = false;
 }
 
-function readCustomFromForm() {
-  const activeTab = document.querySelector('.custom-tab.active')?.dataset.tab || 'monthly';
-  if (activeTab === 'monthly') {
-    const mode = document.querySelector('input[name="sf-monthly-mode"]:checked')?.value || 'days';
-    if (mode === 'days') {
-      const days = document.getElementById('sf-month-days').value.split(/[,\s]+/)
-        .map(s => parseInt(s.trim(), 10)).filter(n => n >= 1 && n <= 31);
-      if (!days.length) throw new Error('Enter at least one day of month (1-31)');
-      return { kind: 'monthly_days', daysOfMonth: days, weekDays: [], specificDates: [], everyXDays: null, fromDate: null };
-    }
-    if (mode === 'last') {
-      return { kind: 'monthly_last', daysOfMonth: [], weekDays: [], specificDates: [], everyXDays: null, fromDate: null };
-    }
-    const x = parseInt(document.getElementById('sf-every-x').value, 10);
-    const from = document.getElementById('sf-every-from').value;
-    if (!x || x < 1) throw new Error('Every X days must be >= 1');
-    if (!from) throw new Error('Start date required for every X days');
-    return { kind: 'every_x_days', daysOfMonth: [], weekDays: [], specificDates: [], everyXDays: x, fromDate: from };
-  }
-  if (activeTab === 'weekly') {
-    const weekDays = [...document.querySelectorAll('#sf-weekdays input:checked')].map(c => parseInt(c.value, 10));
-    if (!weekDays.length) throw new Error('Select at least one weekday');
-    return { kind: 'weekly_days', daysOfMonth: [], weekDays, specificDates: [], everyXDays: null, fromDate: null };
-  }
-  const lines = document.getElementById('sf-specific-dates').value.split(/\r?\n/)
-    .map(s => s.trim()).filter(Boolean);
-  const specificDates = lines.filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s));
-  if (!specificDates.length) throw new Error('Add at least one date YYYY-MM-DD');
-  return { kind: 'specific_dates', daysOfMonth: [], weekDays: [], specificDates, everyXDays: null, fromDate: null };
-}
-
 function buildJobFromForm() {
   const name = document.getElementById('sf-name').value.trim();
   const start = document.getElementById('sf-start').value.trim();
@@ -1056,17 +1011,8 @@ function buildJobFromForm() {
     throw new Error('Job Name, Start Time, Source and Destination are required');
   }
   if (!/^\d{1,2}:\d{2}$/.test(start)) throw new Error('Start Time must be HH:mm (24h)');
-
   const folder = document.getElementById('sf-folder').value.trim() || name;
-  const mode = document.getElementById('sf-schedule-mode').value;
-  let calendar = 'DAILY';
-  let custom = null;
-  if (mode === 'custom') {
-    calendar = 'CUSTOM';
-    custom = readCustomFromForm();
-  } else {
-    calendar = document.getElementById('sf-calendar').value;
-  }
+  const fromDate = document.getElementById('sf-from-date').value || null;
 
   return {
     id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
@@ -1074,8 +1020,9 @@ function buildJobFromForm() {
     folder,
     enabled: document.getElementById('sf-enabled').value === 'true',
     startTime: start,
-    calendar,
-    custom,
+    calendar: document.getElementById('sf-calendar').value,
+    fromDate,
+    custom: null,
     type: 'TRANSFER',
     transferType: document.getElementById('sf-transfer').value,
     source,
@@ -1089,472 +1036,19 @@ function buildJobFromForm() {
 
 function updateNextPreview() {
   const el = document.getElementById('sf-next-preview');
+  const listEl = document.getElementById('sf-run-preview');
   if (!el) return;
   try {
-    const mode = document.getElementById('sf-schedule-mode').value;
     const draft = {
       startTime: document.getElementById('sf-start').value.trim(),
       timezone: document.getElementById('sf-tz').value || DEFAULT_SCHEDULE_TZ,
-      calendar: mode === 'custom' ? 'CUSTOM' : document.getElementById('sf-calendar').value,
-      custom: mode === 'custom' ? readCustomFromForm() : null
+      calendar: document.getElementById('sf-calendar').value,
+      fromDate: document.getElementById('sf-from-date').value || null
     };
-    const next = computeNextRun(draft);
-    el.textContent = `Next run preview: ${next} (${draft.timezone})`;
-  } catch {
-    el.textContent = 'Next run preview: — (complete calendar fields)';
-  }
-}
-
-function scheduledJobsForSave() {
-  return scheduledJobs.map(j => ({
-    id: j.id || (j.name || j.job || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-    name: j.name || j.job,
-    folder: j.folder || j.name || j.job,
-    enabled: j.enabled !== false,
-    startTime: j.startTime,
-    calendar: j.calendar || 'DAILY',
-    custom: j.custom || null,
-    type: 'TRANSFER',
-    transferType: j.transferType || 'ROBOCOPY',
-    source: j.source || '',
-    destination: j.destination || '',
-    fileMask: j.fileMask || '*.*',
-    flags: j.flags || '/R:0 /W:0 /NP',
-    credentialId: j.credentialId || 'WIN.SVC.UC4.BATCHUSER',
-    timezone: j.timezone || DEFAULT_SCHEDULE_TZ
-  }));
-}
-
-async function persistScheduledJobs(list) {
-  if (!CONFIG.SCHEDULE_SAVE_URL) throw new Error('SCHEDULE_SAVE_URL is not configured');
-  const res = await fetch(CONFIG.SCHEDULE_SAVE_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(list, null, 2)
-  });
-  if (!res.ok) throw new Error('Save failed: ' + (await res.text()));
-}
-
-async function saveScheduleFromModal() {
-  const errEl = document.getElementById('sf-error');
-  try {
-    const entry = buildJobFromForm();
-    let list = scheduledJobsForSave();
-
-    if (editingScheduleId) {
-      const idx = list.findIndex(j => j.id === editingScheduleId || j.name === editingScheduleId);
-      if (idx >= 0) list[idx] = { ...list[idx], ...entry, name: list[idx].name, id: list[idx].id };
-      else list.push(entry);
-    } else {
-      if (list.some(j => j.name === entry.name)) throw new Error('A job with this name already exists');
-      list.push(entry);
-    }
-
-    await persistScheduledJobs(list);
-    closeScheduleModal();
-    await openScheduledView(true);
-    alert('scheduled-jobs.json updated successfully');
-  } catch (e) {
-    errEl.textContent = e.message;
-    errEl.hidden = false;
-  }
-}
-
-function updateBellBadge(count) {
-  const badge = document.getElementById('bell-badge');
-  if (count > 0 && !bellCleared) {
-    badge.hidden = false;
-    badge.textContent = count > 99 ? '99+' : count;
-  } else {
-    badge.hidden = true;
-  }
-}
-
-/* ========== ORCHESTRATORS / STATS / TABLE ========== */
-function renderOrchList() {
-  const ul = document.getElementById('orch-list');
-  ul.innerHTML = '';
-  let list = [...orchestrators];
-  const q = (document.getElementById('orch-search').value || '').toLowerCase();
-  if (q) list = list.filter(o => (o.displayName || o.name).toLowerCase().includes(q));
-  if (activeOrchFilter === 'active') {
-    list = list.filter(o => {
-      const builds = allBuilds.filter(b => b.orchestratorId === o.id);
-      return builds.length && (builds[0].status || '').toUpperCase() === 'SUCCESS';
-    });
-  } else if (activeOrchFilter === 'issues') {
-    list = list.filter(o => {
-      const builds = allBuilds.filter(b => b.orchestratorId === o.id);
-      return builds.some(b =>
-        (b.failedCount || 0) > 0 ||
-        ['FAILED', 'FAILURE', 'UNSTABLE'].includes((b.status || '').toUpperCase())
-      );
-    });
-  }
-  list.forEach(o => {
-    const builds = allBuilds.filter(b => b.orchestratorId === o.id);
-    const li = document.createElement('li');
-    li.innerHTML = `
-      <div class="orch-info">
-        <span class="orch-dot" style="background:${o.color || '#3b82f6'}"></span>
-        <span class="orch-name">${o.displayName || o.name}</span>
-      </div>
-      <span class="orch-meta">${builds.length} builds</span>`;
-    li.onclick = () => {
-      showDashboardView();
-      document.getElementById('filter-orch').value = o.id;
-      applyFilters();
-      selectedBuild = null;
-      children = [];
-      document.getElementById('detail-card').style.display = 'none';
-      const latest = allBuilds.find(b => b.orchestratorId === o.id);
-      if (latest) showDetails(latest);
-    };
-    ul.appendChild(li);
-  });
-}
-
-function filterOrchList() {
-  renderOrchList();
-}
-
-function populateOrchFilter() {
-  const sel = document.getElementById('filter-orch');
-  sel.innerHTML = '<option value="all">All Orchestrators</option>';
-  orchestrators.forEach(o => {
-    const opt = document.createElement('option');
-    opt.value = o.id;
-    opt.textContent = o.displayName || o.name;
-    sel.appendChild(opt);
-  });
-}
-
-function updateStats() {
-  const now = Date.now();
-  const h24 = 24 * 60 * 60 * 1000;
-  const last24 = allBuilds.filter(b => {
-    const t = parseTimestamp(b.timestamp);
-    return t && now - t <= h24;
-  });
-  const prev24 = allBuilds.filter(b => {
-    const t = parseTimestamp(b.timestamp);
-    return t && now - t > h24 && now - t <= h24 * 2;
-  });
-
-  const totalParents = allBuilds.length;
-  const totalSuccessChildren = allBuilds.reduce((s, b) => s + (b.successCount || 0), 0);
-  const totalFailedChildren = allBuilds.reduce((s, b) => s + (b.failedCount || 0), 0);
-  const totalUnstableChildren = allBuilds.reduce((s, b) => s + (b.unstableCount || 0), 0);
-  const totalChildren = totalSuccessChildren + totalFailedChildren + totalUnstableChildren || 1;
-
-  const failedLast24h = last24.reduce((s, b) => s + (b.failedCount || 0), 0);
-  if (failedLast24h > 0) updateBellBadge(failedLast24h);
-  else {
-    updateBellBadge(0);
-    bellCleared = false;
-  }
-
-  document.getElementById('stat-total').textContent = totalParents;
-  document.getElementById('stat-success').textContent = totalSuccessChildren;
-  document.getElementById('stat-failed').textContent = totalFailedChildren;
-  document.getElementById('stat-unstable').textContent = totalUnstableChildren;
-
-  const pct = (n, t) => (t ? Math.round((n / t) * 1000) / 10 : 0);
-  const pctSuccess = pct(totalSuccessChildren, totalChildren);
-  const pctFailed = pct(totalFailedChildren, totalChildren);
-  const pctUnstable = pct(totalUnstableChildren, totalChildren);
-  document.getElementById('pct-success').textContent = pctSuccess + '%';
-  document.getElementById('pct-failed').textContent = pctFailed + '%';
-  document.getElementById('pct-unstable').textContent = pctUnstable + '%';
-
-  const circ = 113;
-  setRing('ring-success', circ - (pctSuccess / 100) * circ);
-  setRing('ring-failed', circ - (pctFailed / 100) * circ);
-  setRing('ring-unstable', circ - (pctUnstable / 100) * circ);
-
-  setTrend('trend-total', last24.length - prev24.length);
-  setTrend('trend-success', last24.reduce((s, b) => s + (b.successCount || 0), 0) - prev24.reduce((s, b) => s + (b.successCount || 0), 0));
-  setTrend('trend-failed', last24.reduce((s, b) => s + (b.failedCount || 0), 0) - prev24.reduce((s, b) => s + (b.failedCount || 0), 0));
-  setTrend('trend-unstable', last24.reduce((s, b) => s + (b.unstableCount || 0), 0) - prev24.reduce((s, b) => s + (b.unstableCount || 0), 0));
-  renderMiniBars(last24.slice(0, 8).reverse());
-}
-
-function setRing(id, offset) {
-  const el = document.getElementById(id);
-  if (el) el.style.strokeDashoffset = offset;
-}
-
-function setTrend(id, diff) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  if (diff > 0) {
-    el.className = 'stat-trend up';
-    el.innerHTML = `↑ +${diff} <span style="color:#94a3b8">vs. last 24h</span>`;
-  } else if (diff < 0) {
-    el.className = 'stat-trend down';
-    el.innerHTML = `↓ ${diff} <span style="color:#94a3b8">vs. last 24h</span>`;
-  } else {
-    el.className = 'stat-trend same';
-    el.innerHTML = `— No change`;
-  }
-}
-
-function renderMiniBars(builds) {
-  const container = document.getElementById('mini-bars');
-  if (!container) return;
-  container.innerHTML = '';
-  if (!builds.length) {
-    for (let i = 0; i < 6; i++) {
-      const bar = document.createElement('div');
-      bar.className = 'bar';
-      bar.style.height = '4px';
-      container.appendChild(bar);
-    }
-    return;
-  }
-  builds.forEach(() => {
-    const bar = document.createElement('div');
-    bar.className = 'bar';
-    bar.style.height = 8 + Math.random() * 18 + 'px';
-    container.appendChild(bar);
-  });
-}
-
-function renderDonut() {
-  const success = allBuilds.reduce((s, b) => s + (b.successCount || 0), 0);
-  const failed = allBuilds.reduce((s, b) => s + (b.failedCount || 0), 0);
-  const unstable = allBuilds.reduce((s, b) => s + (b.unstableCount || 0), 0);
-  const total = success + failed + unstable || 1;
-  document.getElementById('donut-total').textContent = success + failed + unstable;
-  const r = 48, cx = 60, cy = 60, circ = 2 * Math.PI * r;
-  const segs = [
-    { val: success, color: '#10b981' },
-    { val: failed, color: '#ef4444' },
-    { val: unstable, color: '#f59e0b' }
-  ];
-  let offset = 0, svg = '';
-  segs.forEach(s => {
-    const len = (s.val / total) * circ;
-    svg += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="14"
-              stroke-dasharray="${len} ${circ - len}" stroke-dashoffset="${-offset}"
-              transform="rotate(-90 ${cx} ${cy})"/>`;
-    offset += len;
-  });
-  document.getElementById('donut-chart').innerHTML = svg;
-  document.getElementById('status-legend').innerHTML = `
-    <div class="legend-row"><span class="legend-dot" style="background:#10b981"></span> Success ${success} (${Math.round((success / total) * 100)}%)</div>
-    <div class="legend-row" style="cursor:pointer" onclick="openFailedJobsView()">
-      <span class="legend-dot" style="background:#ef4444"></span> Failed ${failed} (${Math.round((failed / total) * 100)}%)
-    </div>
-    <div class="legend-row"><span class="legend-dot" style="background:#f59e0b"></span> Unstable ${unstable} (${Math.round((unstable / total) * 100)}%)</div>`;
-}
-
-function renderOrchStatus() {
-  const el = document.getElementById('orch-status-list');
-  el.innerHTML = '';
-  orchestrators.forEach(o => {
-    const builds = allBuilds.filter(b => b.orchestratorId === o.id);
-    if (!builds.length) return;
-    const success = builds.reduce((s, b) => s + (b.successCount || 0), 0);
-    const failed = builds.reduce((s, b) => s + (b.failedCount || 0), 0);
-    const unstable = builds.reduce((s, b) => s + (b.unstableCount || 0), 0);
-    const total = success + failed + unstable || 1;
-    const row = document.createElement('div');
-    row.className = 'orch-status-row';
-    row.innerHTML = `
-      <div class="orch-status-name">
-        <div class="left"><span class="orch-dot" style="background:${o.color || '#3b82f6'}"></span>${o.displayName || o.name}</div>
-        <span>${success}/${total}</span>
-      </div>
-      <div class="orch-status-bar">
-        <div class="seg success" style="width:${(success / total) * 100}%"></div>
-        <div class="seg failed" style="width:${(failed / total) * 100}%"></div>
-        <div class="seg unstable" style="width:${(unstable / total) * 100}%"></div>
-      </div>`;
-    el.appendChild(row);
-  });
-}
-
-function renderActivity() {
-  const ul = document.getElementById('activity-list');
-  ul.innerHTML = '';
-  allBuilds.slice(0, 5).forEach(b => {
-    const ok = (b.status || '').toUpperCase() === 'SUCCESS';
-    const li = document.createElement('li');
-    li.innerHTML = `
-      <div class="act-icon ${ok ? 'ok' : 'err'}">${ok ? '✓' : '✕'}</div>
-      <div class="act-text">
-        <div class="act-title">Build #${b.build} ${ok ? 'completed' : 'failed'}</div>
-        <div class="act-sub">${b.orchestratorName} · ${b.timestamp || ''}</div>
-      </div>`;
-    ul.appendChild(li);
-  });
-}
-
-function applyFilters() {
-  const orch = document.getElementById('filter-orch').value;
-  const q = (document.getElementById('build-search').value || '').toLowerCase();
-  filteredBuilds = allBuilds.filter(b => {
-    if (orch !== 'all' && b.orchestratorId !== orch) return false;
-    if (q && !String(b.build).includes(q) && !(b.orchestratorName || '').toLowerCase().includes(q)) return false;
-    return true;
-  });
-  currentPage = 1;
-  document.getElementById('table-subtitle').textContent =
-    orch === 'all' ? 'Showing builds from all orchestrators' : 'Filtered by orchestrator';
-  document.getElementById('footer-info').textContent = `Showing ${filteredBuilds.length} of ${allBuilds.length} builds`;
-  renderTable();
-}
-
-function renderTable() {
-  const tbody = document.getElementById('builds-tbody');
-  tbody.innerHTML = '';
-  const start = (currentPage - 1) * CONFIG.PAGE_SIZE;
-  const rows = filteredBuilds.slice(start, start + CONFIG.PAGE_SIZE);
-  if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:40px;color:#94a3b8">No builds found</td></tr>`;
-  } else {
-    rows.forEach(b => {
-      const tr = document.createElement('tr');
-      if (selectedBuild && selectedBuild.build === b.build && selectedBuild.orchestratorId === b.orchestratorId) {
-        tr.classList.add('selected');
-      }
-      tr.onclick = () => showDetails(b);
-      tr.innerHTML = `
-        <td class="build-id">${b.build}</td>
-        <td><div class="orch-cell"><span class="dot" style="background:${b.orchestratorColor}"></span>${b.orchestratorName}</div></td>
-        <td>${b.timestamp || '—'}</td>
-        <td>${b.endTime || '—'}</td>
-        <td><span class="badge ${badgeClass(b.status)}">${b.status || '—'}</span></td>
-        <td>${b.duration || '—'}</td>
-        <td style="text-align:center">${b.children ?? '—'}</td>
-        <td style="text-align:center;color:var(--green);font-weight:600">${b.successCount ?? 0}</td>
-        <td style="text-align:center;color:var(--red);font-weight:600">${b.failedCount ?? 0}</td>
-        <td style="text-align:center;color:var(--amber);font-weight:600">${b.unstableCount ?? 0}</td>
-        <td><button class="link">View →</button></td>`;
-      tbody.appendChild(tr);
-    });
-  }
-  renderPager('builds-pager', filteredBuilds.length, currentPage, p => {
-    currentPage = p;
-    renderTable();
-  });
-}
-
-function renderPager(id, total, current, cb) {
-  renderPagerCustom(id, total, current, CONFIG.PAGE_SIZE, cb);
-}
-
-function renderPagerCustom(id, total, current, pageSize, cb) {
-  const pages = Math.max(1, Math.ceil(total / pageSize));
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.innerHTML = '';
-
-  const WINDOW = 10;
-
-  function addBtn(label, page, opts = {}) {
-    const b = document.createElement('button');
-    b.className = 'page-btn' + (opts.active ? ' active' : '');
-    b.textContent = label;
-    b.disabled = !!opts.disabled;
-    if (!opts.disabled && page != null) b.onclick = () => cb(page);
-    el.appendChild(b);
-  }
-
-  addBtn('‹', current - 1, { disabled: current <= 1 });
-
-  let start = Math.max(1, current - Math.floor(WINDOW / 2));
-  let end = start + WINDOW - 1;
-  if (end > pages) {
-    end = pages;
-    start = Math.max(1, end - WINDOW + 1);
-  }
-
-  if (start > 1) {
-    addBtn('1', 1);
-    if (start > 2) {
-      const dots = document.createElement('span');
-      dots.textContent = '…';
-      dots.style.cssText = 'padding:0 4px;color:#94a3b8;font-size:12px;align-self:center';
-      el.appendChild(dots);
-    }
-  }
-
-  for (let i = start; i <= end; i++) addBtn(String(i), i, { active: i === current });
-
-  if (end < pages) {
-    if (end < pages - 1) {
-      const dots = document.createElement('span');
-      dots.textContent = '…';
-      dots.style.cssText = 'padding:0 4px;color:#94a3b8;font-size:12px;align-self:center';
-      el.appendChild(dots);
-    }
-    addBtn(String(pages), pages);
-  }
-
-  addBtn('›', current + 1, { disabled: current >= pages });
-}
-
-async function showDetails(b) {
-  selectedBuild = b;
-  childrenPage = 1;
-  document.getElementById('detail-card').style.display = 'block';
-  document.getElementById('detail-id').textContent = '#' + b.build;
-  document.getElementById('detail-range').textContent =
-    `${b.timestamp || '—'} → ${b.endTime || '—'} (${b.duration || '—'})`;
-  const badge = document.getElementById('detail-badge');
-  badge.textContent = b.status || '—';
-  badge.className = 'badge ' + badgeClass(b.status);
-  renderTable();
-  try {
-    const file = b.file || `Build_${b.build}.json`;
-    const res = await fetch(`data/${b.folder}/Builds/${file}?t=${Date.now()}`);
-    if (!res.ok) throw new Error('Cannot load build details');
-    const data = await res.json();
-    children = data.children || [];
-    renderChildren();
-  } catch (e) {
-    document.getElementById('children-tbody').innerHTML =
-      `<tr><td colspan="8" style="text-align:center;padding:30px;color:#dc2626">${e.message}</td></tr>`;
-  }
-}
-
-function renderChildren() {
-  const tbody = document.getElementById('children-tbody');
-  tbody.innerHTML = '';
-  const start = (childrenPage - 1) * CONFIG.PAGE_SIZE;
-  const page = children.slice(start, start + CONFIG.PAGE_SIZE);
-  if (!page.length) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:30px;color:#94a3b8">No child builds</td></tr>`;
-  } else {
-    page.forEach(c => {
-      const tr = document.createElement('tr');
-      tr.style.cursor = 'default';
-      if (['FAILED', 'FAILURE'].includes((c.status || '').toUpperCase())) tr.style.background = '#fef2f2';
-      const hasBuild = c.build != null && c.build !== '';
-      let logCell = '—', action = '—';
-      if (c.logFile) {
-        logCell = `<span style="font-size:11px;color:#64748b">${c.logFile}</span>`;
-        action = `<button class="link" onclick="event.stopPropagation();alert('Log: ${c.logFile}')">View</button>`;
-      } else if (c.reason) {
-        logCell = `<span style="font-size:11px;color:#dc2626">${c.reason}</span>`;
-        action = `<span style="font-size:11px;color:#94a3b8">No log</span>`;
-      }
-      tr.innerHTML = `
-        <td style="font-weight:500">${c.job || '—'}</td>
-        <td class="build-id">${hasBuild ? c.build : '—'}</td>
-        <td>${c.startTime || '—'}</td>
-        <td>${c.endTime || '—'}</td>
-        <td><span class="badge ${badgeClass(c.status)}">${c.status || '—'}</span></td>
-        <td>${c.duration || '—'}</td>
-        <td>${logCell}</td>
-        <td>${action}</td>`;
-      tbody.appendChild(tr);
-    });
-  }
-  renderPager('children-pager', children.length, childrenPage, p => {
-    childrenPage = p;
-    renderChildren();
-  });
-}
+    const runs = computeNextRuns(draft, 10);
+    el.textContent = runs.length
+      ? `Next run: ${runs[0]} (${draft.timezone})`
+      : `Next run: — (${draft.timezone})`;
+    if (listEl) {
+      if (!runs.length) {
+        listEl.innerHTML = '<div
