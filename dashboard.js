@@ -5,7 +5,7 @@ const CONFIG = {
   PAGE_SIZE: 6,
   FAILED_PAGE_SIZE: 15,
   HISTORY_PAGE_SIZE: 15,
-  SCHEDULED_PAGE_SIZE: 10
+  SCHEDULED_PAGE_SIZE: 7
 };
 
 const DEFAULT_SCHEDULE_TZ = 'Europe/Berlin';
@@ -39,6 +39,9 @@ let scheduledPage = 1;
 let selectedScheduled = null;
 let isLoadingScheduled = false;
 let editingScheduleId = null;
+
+/** Cached scheduled failures for bell + FAILED card */
+let cachedScheduledFailures = [];
 
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-refresh').onclick = refreshCurrentView;
@@ -95,6 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
 async function refreshCurrentView() {
   if (currentView === 'scheduled') {
     await openScheduledView(true);
+    await refreshBellAndFailedStats();
     return;
   }
   await loadAll();
@@ -176,13 +180,14 @@ async function loadAll() {
     showDashboardView();
     renderOrchList();
     populateOrchFilter();
-    updateStats();
+
+    // Load scheduled failures BEFORE stats so FAILED card + bell are correct
+    await refreshBellAndFailedStats();
+
     renderDonut();
     renderOrchStatus();
     renderActivity();
     renderTable();
-
-    await refreshBellCount();
 
     const now = new Date().toLocaleString('en-GB');
     document.getElementById('last-updated').textContent = now;
@@ -389,7 +394,7 @@ function scheduleTypeBadge(t) {
   return 'badge-other';
 }
 
-/* ========== BELL + FAILED ========== */
+/* ========== SCHEDULED FAILURES (bell + FAILED card) ========== */
 async function loadScheduledJobsRaw() {
   try {
     const res = await fetch(CONFIG.SCHEDULED_URL + '?t=' + Date.now());
@@ -437,21 +442,27 @@ async function collectScheduledFailures() {
   return failures;
 }
 
-async function refreshBellCount() {
+async function refreshBellAndFailedStats() {
+  cachedScheduledFailures = await collectScheduledFailures();
+  updateStats();
+  updateBellFromCaches();
+}
+
+function updateBellFromCaches() {
   const now = Date.now();
   const h24 = 24 * 60 * 60 * 1000;
+
   let count = allBuilds.filter(b => {
     const t = parseTimestamp(b.timestamp);
     return t && now - t <= h24;
   }).reduce((s, b) => s + (b.failedCount || 0), 0);
 
-  const schedFails = await collectScheduledFailures();
-  count += schedFails.filter(f => f._sortKey && now - f._sortKey <= h24).length;
+  count += cachedScheduledFailures.filter(f => f._sortKey && now - f._sortKey <= h24).length;
 
   if (count > 0) updateBellBadge(count);
   else {
     updateBellBadge(0);
-    bellCleared = false;
+    if (count === 0) bellCleared = false;
   }
 }
 
@@ -497,8 +508,9 @@ async function openFailedJobsView() {
       }
     }
 
-    const schedFails = await collectScheduledFailures();
-    schedFails.forEach(f => {
+    // Always re-load scheduled failures for this view
+    cachedScheduledFailures = await collectScheduledFailures();
+    cachedScheduledFailures.forEach(f => {
       const key = `sched||${f.job}||${f.parentBuild}`;
       if (seen.has(key)) return;
       seen.add(key);
@@ -522,6 +534,7 @@ async function openFailedJobsView() {
     `${failedJobs.length} failed job${failedJobs.length !== 1 ? 's' : ''} (orchestrator + scheduled)`;
   setActiveNav('failed');
   renderFailedJobs();
+  updateBellFromCaches();
 }
 
 function closeFailedJobsView() {
@@ -794,6 +807,9 @@ async function openScheduledView(forceReload) {
 
   const now = new Date().toLocaleString('en-GB');
   document.getElementById('last-updated').textContent = now;
+
+  // Refresh bell/FAILED after scheduled data changed
+  await refreshBellAndFailedStats();
 }
 
 function filterScheduled() {
@@ -884,7 +900,6 @@ function showScheduledDetails(j) {
   document.getElementById('sched-detail-mask').textContent = j.fileMask || '—';
   document.getElementById('sched-detail-flags').textContent = j.flags || '—';
 
-  // Always rebuild history for THIS job only (never keep previous job rows)
   const tbody = document.getElementById('sched-history-tbody');
   tbody.innerHTML = '';
 
@@ -945,11 +960,11 @@ function renderNextRuns() {
   const ul = document.getElementById('next-runs-list');
   ul.innerHTML = '';
 
-  // Only the next 8 upcoming runs, sorted by next run time
+  // Only the next 7 upcoming runs
   const list = [...scheduledJobs]
     .filter(j => j.enabled !== false && j.nextRunDisplay && j.nextRunDisplay !== '—')
     .sort((a, b) => String(a.nextRunDisplay).localeCompare(String(b.nextRunDisplay)))
-    .slice(0, 8);
+    .slice(0, 7);
 
   if (!list.length) {
     ul.innerHTML = `<li style="color:#94a3b8;font-size:12px;padding:12px 0">No upcoming runs</li>`;
@@ -1208,6 +1223,9 @@ function populateOrchFilter() {
   });
 }
 
+/**
+ * Stats include orchestrator child counts + scheduled failures (FAILED card + rings).
+ */
 function updateStats() {
   const now = Date.now();
   const h24 = 24 * 60 * 60 * 1000;
@@ -1221,7 +1239,9 @@ function updateStats() {
   });
 
   const totalSuccessChildren = allBuilds.reduce((s, b) => s + (b.successCount || 0), 0);
-  const totalFailedChildren = allBuilds.reduce((s, b) => s + (b.failedCount || 0), 0);
+  const orchFailed = allBuilds.reduce((s, b) => s + (b.failedCount || 0), 0);
+  const schedFailed = cachedScheduledFailures.length;
+  const totalFailedChildren = orchFailed + schedFailed;
   const totalUnstableChildren = allBuilds.reduce((s, b) => s + (b.unstableCount || 0), 0);
   const totalChildren = totalSuccessChildren + totalFailedChildren + totalUnstableChildren || 1;
 
@@ -1243,9 +1263,13 @@ function updateStats() {
   setRing('ring-failed', circ - (pctFailed / 100) * circ);
   setRing('ring-unstable', circ - (pctUnstable / 100) * circ);
 
+  const schedFailedLast24 = cachedScheduledFailures.filter(f => f._sortKey && now - f._sortKey <= h24).length;
+  const orchFailedLast24 = last24.reduce((s, b) => s + (b.failedCount || 0), 0);
+  const prevOrchFailed = prev24.reduce((s, b) => s + (b.failedCount || 0), 0);
+
   setTrend('trend-total', last24.length - prev24.length);
   setTrend('trend-success', last24.reduce((s, b) => s + (b.successCount || 0), 0) - prev24.reduce((s, b) => s + (b.successCount || 0), 0));
-  setTrend('trend-failed', last24.reduce((s, b) => s + (b.failedCount || 0), 0) - prev24.reduce((s, b) => s + (b.failedCount || 0), 0));
+  setTrend('trend-failed', (orchFailedLast24 + schedFailedLast24) - prevOrchFailed);
   setTrend('trend-unstable', last24.reduce((s, b) => s + (b.unstableCount || 0), 0) - prev24.reduce((s, b) => s + (b.unstableCount || 0), 0));
   renderMiniBars(last24.slice(0, 8).reverse());
 }
@@ -1293,7 +1317,8 @@ function renderMiniBars(builds) {
 
 function renderDonut() {
   const success = allBuilds.reduce((s, b) => s + (b.successCount || 0), 0);
-  const failed = allBuilds.reduce((s, b) => s + (b.failedCount || 0), 0);
+  const orchFailed = allBuilds.reduce((s, b) => s + (b.failedCount || 0), 0);
+  const failed = orchFailed + cachedScheduledFailures.length;
   const unstable = allBuilds.reduce((s, b) => s + (b.unstableCount || 0), 0);
   const total = success + failed + unstable || 1;
   document.getElementById('donut-total').textContent = success + failed + unstable;
