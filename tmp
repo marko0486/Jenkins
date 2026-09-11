@@ -1,2 +1,14 @@
 netsh http add urlacl url=http://+:8091/ user=Everyone
 powershell -ExecutionPolicy Bypass -File C:\Jenkins\Jobs\Dashboard\schedule-api.ps1
+
+
+const CONFIG = {
+  ORCHESTRATORS_URL: 'orchestrators.json',
+  SCHEDULED_URL: 'scheduled-jobs.json',
+  // Guardado (API PowerShell)
+  SCHEDULE_SAVE_URL: 'http://10.59.234.217:8091/api/scheduled-jobs',
+  PAGE_SIZE: 6,
+  FAILED_PAGE_SIZE: 15,
+  HISTORY_PAGE_SIZE: 15,
+  SCHEDULED_PAGE_SIZE: 10
+};
