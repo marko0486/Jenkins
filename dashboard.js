@@ -2,6 +2,7 @@ const CONFIG = {
   ORCHESTRATORS_URL: 'orchestrators.json',
   SCHEDULED_URL: 'scheduled-jobs.json',
   SCHEDULE_SAVE_URL: 'http://10.59.234.217:8091/api/scheduled-jobs',
+  SCHEDULE_DELETE_URL: 'http://10.59.234.217:8091/api/scheduled-jobs',
   PAGE_SIZE: 6,
   FAILED_PAGE_SIZE: 15,
   HISTORY_PAGE_SIZE: 15,
@@ -9,6 +10,7 @@ const CONFIG = {
 };
 
 const DEFAULT_SCHEDULE_TZ = 'Europe/Berlin';
+const WIN_FORBIDDEN = /[\\/:*?"<>|]/;
 
 let orchestrators = [];
 let allBuilds = [];
@@ -40,13 +42,13 @@ let selectedScheduled = null;
 let isLoadingScheduled = false;
 let editingScheduleId = null;
 
-/** Cached scheduled failures for bell + FAILED card */
 let cachedScheduledFailures = [];
 
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-refresh').onclick = refreshCurrentView;
   document.getElementById('qa-refresh').onclick = refreshCurrentView;
-  document.getElementById('qa-sched-refresh').onclick = () => openScheduledView(true);
+  const qaSched = document.getElementById('qa-sched-refresh');
+  if (qaSched) qaSched.onclick = () => openScheduledView(true);
 
   document.getElementById('build-search').oninput = applyFilters;
   document.getElementById('filter-orch').onchange = applyFilters;
@@ -90,6 +92,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (sfCancel) sfCancel.onclick = closeScheduleModal;
   const sfSave = document.getElementById('sf-save');
   if (sfSave) sfSave.onclick = saveScheduleFromModal;
+  const sfDelete = document.getElementById('sf-delete');
+  if (sfDelete) sfDelete.onclick = deleteScheduleFromModal;
 
   initScheduleModalUi();
   loadAll();
@@ -143,6 +147,32 @@ function showDashboardView() {
   renderTable();
 }
 
+function formatBerlinNow() {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: DEFAULT_SCHEDULE_TZ,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  }).format(new Date());
+}
+
+function setLastUpdated() {
+  const el = document.getElementById('last-updated');
+  if (el) el.textContent = formatBerlinNow();
+}
+
+function isValidWindowsName(name) {
+  if (!name || !String(name).trim()) return false;
+  if (WIN_FORBIDDEN.test(name)) return false;
+  if (name === '.' || name === '..') return false;
+  if (/^\s|\s$/.test(name)) return false;
+  return true;
+}
+
 async function loadAll() {
   try {
     const res = await fetch(CONFIG.ORCHESTRATORS_URL + '?t=' + Date.now());
@@ -181,19 +211,16 @@ async function loadAll() {
     renderOrchList();
     populateOrchFilter();
 
-    // Load scheduled failures BEFORE stats so FAILED card + bell are correct
     await refreshBellAndFailedStats();
 
     renderDonut();
     renderOrchStatus();
     renderActivity();
     renderTable();
+    setLastUpdated();
 
-    const now = new Date().toLocaleString('en-GB');
-    document.getElementById('last-updated').textContent = now;
-    document.getElementById('footer-generated').textContent = 'Generated: ' + now;
-    document.getElementById('footer-info').textContent = `Showing ${filteredBuilds.length} of ${allBuilds.length} builds`;
-    document.getElementById('orch-count').textContent = orchestrators.length;
+    const orchCount = document.getElementById('orch-count');
+    if (orchCount) orchCount.textContent = orchestrators.length;
   } catch (err) {
     console.error(err);
     alert('Error loading dashboard:\n' + err.message);
@@ -394,7 +421,7 @@ function scheduleTypeBadge(t) {
   return 'badge-other';
 }
 
-/* ========== SCHEDULED FAILURES (bell + FAILED card) ========== */
+/* ========== SCHEDULED FAILURES ========== */
 async function loadScheduledJobsRaw() {
   try {
     const res = await fetch(CONFIG.SCHEDULED_URL + '?t=' + Date.now());
@@ -446,6 +473,7 @@ async function refreshBellAndFailedStats() {
   cachedScheduledFailures = await collectScheduledFailures();
   updateStats();
   updateBellFromCaches();
+  renderDonut();
 }
 
 function updateBellFromCaches() {
@@ -462,7 +490,7 @@ function updateBellFromCaches() {
   if (count > 0) updateBellBadge(count);
   else {
     updateBellBadge(0);
-    if (count === 0) bellCleared = false;
+    bellCleared = false;
   }
 }
 
@@ -508,7 +536,6 @@ async function openFailedJobsView() {
       }
     }
 
-    // Always re-load scheduled failures for this view
     cachedScheduledFailures = await collectScheduledFailures();
     cachedScheduledFailures.forEach(f => {
       const key = `sched||${f.job}||${f.parentBuild}`;
@@ -803,12 +830,8 @@ async function openScheduledView(forceReload) {
   renderScheduledTable();
   renderScheduleSummary();
   renderNextRuns();
-  document.getElementById('footer-info').textContent = `Showing ${scheduledJobs.length} scheduled jobs`;
+  setLastUpdated();
 
-  const now = new Date().toLocaleString('en-GB');
-  document.getElementById('last-updated').textContent = now;
-
-  // Refresh bell/FAILED after scheduled data changed
   await refreshBellAndFailedStats();
 }
 
@@ -906,7 +929,7 @@ function showScheduledDetails(j) {
   const hist = Array.isArray(j._history) ? j._history.slice(0, 2) : [];
 
   if (!hist.length) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:20px;color:#94a3b8">No execution history yet</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:16px;color:#94a3b8">No execution history yet</td></tr>`;
   } else {
     hist.forEach((h, idx) => {
       const tr = document.createElement('tr');
@@ -960,11 +983,11 @@ function renderNextRuns() {
   const ul = document.getElementById('next-runs-list');
   ul.innerHTML = '';
 
-  // Only the next 7 upcoming runs
+  // Next 6 upcoming runs only
   const list = [...scheduledJobs]
     .filter(j => j.enabled !== false && j.nextRunDisplay && j.nextRunDisplay !== '—')
     .sort((a, b) => String(a.nextRunDisplay).localeCompare(String(b.nextRunDisplay)))
-    .slice(0, 7);
+    .slice(0, 6);
 
   if (!list.length) {
     ul.innerHTML = `<li style="color:#94a3b8;font-size:12px;padding:12px 0">No upcoming runs</li>`;
@@ -1033,6 +1056,9 @@ function openScheduleModal(job) {
   document.getElementById('sf-calendar').value = cal;
   document.getElementById('sf-from-date').value = job && job.fromDate ? job.fromDate : '';
 
+  const delBtn = document.getElementById('sf-delete');
+  if (delBtn) delBtn.hidden = !job;
+
   updateNextPreview();
   document.getElementById('schedule-modal').hidden = false;
 }
@@ -1041,6 +1067,8 @@ function closeScheduleModal() {
   document.getElementById('schedule-modal').hidden = true;
   editingScheduleId = null;
   document.getElementById('sf-name').disabled = false;
+  const delBtn = document.getElementById('sf-delete');
+  if (delBtn) delBtn.hidden = true;
 }
 
 function buildJobFromForm() {
@@ -1052,7 +1080,16 @@ function buildJobFromForm() {
     throw new Error('Job Name, Start Time, Source and Destination are required');
   }
   if (!/^\d{1,2}:\d{2}$/.test(start)) throw new Error('Start Time must be HH:mm (24h)');
+
   const folder = document.getElementById('sf-folder').value.trim() || name;
+
+  if (!isValidWindowsName(name)) {
+    throw new Error('Job Name cannot contain: \\ / : * ? " < > |');
+  }
+  if (!isValidWindowsName(folder)) {
+    throw new Error('Folder cannot contain: \\ / : * ? " < > |');
+  }
+
   const fromDate = document.getElementById('sf-from-date').value || null;
 
   return {
@@ -1156,8 +1193,33 @@ async function saveScheduleFromModal() {
   }
 }
 
+async function deleteScheduleFromModal() {
+  if (!editingScheduleId) return;
+  const name = document.getElementById('sf-name').value.trim();
+  if (!name) return;
+  if (!confirm(`Delete job "${name}"?\n\nThis removes it from scheduled-jobs.json and deletes its history folder under data/scheduled.`)) {
+    return;
+  }
+  const errEl = document.getElementById('sf-error');
+  try {
+    const url = (CONFIG.SCHEDULE_DELETE_URL || CONFIG.SCHEDULE_SAVE_URL) + '?name=' + encodeURIComponent(name);
+    const res = await fetch(url, { method: 'DELETE' });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(t || 'Delete failed');
+    }
+    closeScheduleModal();
+    await openScheduledView(true);
+    alert('Job deleted: ' + name);
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.hidden = false;
+  }
+}
+
 function updateBellBadge(count) {
   const badge = document.getElementById('bell-badge');
+  if (!badge) return;
   if (count > 0 && !bellCleared) {
     badge.hidden = false;
     badge.textContent = count > 99 ? '99+' : count;
@@ -1223,9 +1285,6 @@ function populateOrchFilter() {
   });
 }
 
-/**
- * Stats include orchestrator child counts + scheduled failures (FAILED card + rings).
- */
 function updateStats() {
   const now = Date.now();
   const h24 = 24 * 60 * 60 * 1000;
@@ -1321,7 +1380,8 @@ function renderDonut() {
   const failed = orchFailed + cachedScheduledFailures.length;
   const unstable = allBuilds.reduce((s, b) => s + (b.unstableCount || 0), 0);
   const total = success + failed + unstable || 1;
-  document.getElementById('donut-total').textContent = success + failed + unstable;
+  const donutTotal = document.getElementById('donut-total');
+  if (donutTotal) donutTotal.textContent = success + failed + unstable;
   const r = 48, cx = 60, cy = 60, circ = 2 * Math.PI * r;
   const segs = [
     { val: success, color: '#10b981' },
@@ -1336,17 +1396,22 @@ function renderDonut() {
               transform="rotate(-90 ${cx} ${cy})"/>`;
     offset += len;
   });
-  document.getElementById('donut-chart').innerHTML = svg;
-  document.getElementById('status-legend').innerHTML = `
+  const chart = document.getElementById('donut-chart');
+  if (chart) chart.innerHTML = svg;
+  const legend = document.getElementById('status-legend');
+  if (legend) {
+    legend.innerHTML = `
     <div class="legend-row"><span class="legend-dot" style="background:#10b981"></span> Success ${success} (${Math.round((success / total) * 100)}%)</div>
     <div class="legend-row" style="cursor:pointer" onclick="openFailedJobsView()">
       <span class="legend-dot" style="background:#ef4444"></span> Failed ${failed} (${Math.round((failed / total) * 100)}%)
     </div>
     <div class="legend-row"><span class="legend-dot" style="background:#f59e0b"></span> Unstable ${unstable} (${Math.round((unstable / total) * 100)}%)</div>`;
+  }
 }
 
 function renderOrchStatus() {
   const el = document.getElementById('orch-status-list');
+  if (!el) return;
   el.innerHTML = '';
   orchestrators.forEach(o => {
     const builds = allBuilds.filter(b => b.orchestratorId === o.id);
@@ -1373,6 +1438,7 @@ function renderOrchStatus() {
 
 function renderActivity() {
   const ul = document.getElementById('activity-list');
+  if (!ul) return;
   ul.innerHTML = '';
   allBuilds.slice(0, 5).forEach(b => {
     const ok = (b.status || '').toUpperCase() === 'SUCCESS';
@@ -1398,7 +1464,6 @@ function applyFilters() {
   currentPage = 1;
   document.getElementById('table-subtitle').textContent =
     orch === 'all' ? 'Showing builds from all orchestrators' : 'Filtered by orchestrator';
-  document.getElementById('footer-info').textContent = `Showing ${filteredBuilds.length} of ${allBuilds.length} builds`;
   renderTable();
 }
 
