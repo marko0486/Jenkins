@@ -1,33 +1,18 @@
-PS C:\Users\adm.Z0190731> powershell -ExecutionPolicy Bypass -File C:\Jenkins\Jobs\Dashboard\schedule-api.ps1
-At C:\Jenkins\Jobs\Dashboard\schedule-api.ps1:179 char:54
-+         Write-Host "Repairing single-object JSON â†’ array..."
-+                                                      ~~~~~~~~~
-Unexpected token 'array..."
-        Write-Jobs $jobs
-    }
-}
-catch {
-    Write-Host "Startup' in expression or statement.
-At C:\Jenkins\Jobs\Dashboard\schedule-api.ps1:311 char:123
-+ ... th -eq '/api/scheduled-jobs' -or $path -eq '/api/scheduled-jobs/')) {
-+                                                                         ~
-Unexpected token '{' in expression or statement.
-At C:\Jenkins\Jobs\Dashboard\schedule-api.ps1:366 char:99
-+ ... d -eq 'GET' -and ($path -eq '/api/health' -or $path -eq '/health')) {
-+                                                                         ~
-Unexpected token '{' in expression or statement.
-At C:\Jenkins\Jobs\Dashboard\schedule-api.ps1:395 char:1
-+ }
-+ ~
-Unexpected token '}' in expression or statement.
-    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
-    + FullyQualifiedErrorId : UnexpectedToken
-
-
-
-asi tengo mi archivo json
-
-[
-  {
-  }
-]
+SUMMARY
+================================================================================
+Job Name     : ZF_MY-FIRST_TEST_JOB_VER_1.0
+File Mask    : *.json
+SRC_PATH     : \\FRDV02656.emea.zf-world.com\ToolShare\tmp\src\Jobs
+DST_PATH     : \\FRDV02656.emea.zf-world.com\ToolShare\tmp\dst2
+SRC_CRED     : WIN.SVC.UC4.BATCHUSER
+Status       : FAILED
+Reason       : Source path not found or access denied: \\FRDV02656.emea.zf-world.com\ToolShare\tmp\src\Jobs
+Duration     : 1 seconds
+Timestamp    : 2026-09-11 23:24:00
+Parent       : SCHEDULE-416
+Robocopy RC  : 0
+-------------------------------------------------------------------------------
+Skipped Robocopy.
+REASON: Source path not found or access denied: \\FRDV02656.emea.zf-world.com\ToolShare\tmp\src\Jobs
+================================================================================
+END OF LOG
