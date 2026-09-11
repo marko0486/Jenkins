@@ -1,21 +1,82 @@
+import groovy.json.JsonSlurperClassic
+import groovy.json.JsonOutput
+import java.util.Calendar
+import java.util.TimeZone
+
+// ============================================================================
+// Paths — adjust TEMPLATE_JOB to your real template job name in Jenkins
+// ============================================================================
+def SCHEDULE_FILE  = 'C:/Jenkins/Jobs/Dashboard/scheduled-jobs.json'
+def LAST_RUN_FILE  = 'C:/Jenkins/Jobs/Dashboard/data/scheduler/last-run.json'
+def TEMPLATE_JOB   = 'ZF_TEST-FILE_TRANSFER-JOB'
+def WINDOW_MINUTES = 5
+
+// ============================================================================
+// Helpers
+// ============================================================================
+@NonCPS
+def loadJsonList(String path) {
+    def f = new File(path)
+    if (!f.exists()) return []
+    def text = f.getText('UTF-8').trim()
+    if (!text || text == '[]') return []
+    def parsed = new JsonSlurperClassic().parseText(text)
+    return (parsed instanceof List) ? new ArrayList(parsed) : []
+}
+
+@NonCPS
+def loadJsonMap(String path) {
+    def f = new File(path)
+    if (!f.exists()) return [:]
+    def text = f.getText('UTF-8').trim()
+    if (!text || text == '{}' || text == '[]') return [:]
+    def parsed = new JsonSlurperClassic().parseText(text)
+    return (parsed instanceof Map) ? new LinkedHashMap(parsed) : [:]
+}
+
+@NonCPS
+def writeJson(String path, Object data) {
+    def f = new File(path)
+    f.parentFile?.mkdirs()
+    f.write(JsonOutput.prettyPrint(JsonOutput.toJson(data)), 'UTF-8')
+}
+
+@NonCPS
+def parseStartTime(String hhmm) {
+    if (!hhmm) return null
+    def m = (hhmm =~ /^(\d{1,2}):(\d{2})$/)
+    if (!m.matches()) return null
+    int h = m[0][1].toInteger()
+    int min = m[0][2].toInteger()
+    if (h < 0 || h > 23 || min < 0 || min > 59) return null
+    return [h, min]
+}
+
+/**
+ * job = full Map from scheduled-jobs.json (must include calendar + optional custom)
+ * cal = Calendar in the job timezone
+ */
 @NonCPS
 def calendarMatches(Map job, Calendar cal) {
     def c = (job.calendar ?: 'DAILY').toString().trim().toUpperCase()
-    int dow = cal.get(Calendar.DAY_OF_WEEK)   // 1=Sun .. 7=Sat
+    int dow = cal.get(Calendar.DAY_OF_WEEK) // 1=Sun .. 7=Sat
     int dom = cal.get(Calendar.DAY_OF_MONTH)
     int lastDom = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
-    // JS uses 0=Sun..6=Sat
+    // Align with JS: 0=Sun .. 6=Sat
     int jsDow = (dow == Calendar.SUNDAY) ? 0 : (dow - 1)
 
     if (c == 'CUSTOM') {
         def custom = job.custom
         if (!(custom instanceof Map)) return false
         def kind = (custom.kind ?: '').toString()
+
         if (kind == 'monthly_days') {
             def days = (custom.daysOfMonth instanceof List) ? custom.daysOfMonth : []
             return days.collect { it as int }.contains(dom)
         }
-        if (kind == 'monthly_last') return dom == lastDom
+        if (kind == 'monthly_last') {
+            return dom == lastDom
+        }
         if (kind == 'every_x_days') {
             int x = (custom.everyXDays ?: 0) as int
             def from = (custom.fromDate ?: '').toString()
@@ -24,7 +85,6 @@ def calendarMatches(Map job, Calendar cal) {
             def fromCal = Calendar.getInstance(cal.getTimeZone())
             fromCal.clear()
             fromCal.set(parts[0] as int, (parts[1] as int) - 1, parts[2] as int)
-            // strip time
             def cur = Calendar.getInstance(cal.getTimeZone())
             cur.clear()
             cur.set(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH))
@@ -48,22 +108,169 @@ def calendarMatches(Map job, Calendar cal) {
     }
 
     switch (c) {
-        case 'DAILY':       return true
-        case 'WEEKDAYS':    return dow >= Calendar.MONDAY && dow <= Calendar.FRIDAY
-        case 'WEEKENDS':    return dow == Calendar.SATURDAY || dow == Calendar.SUNDAY
-        case 'WEEKLY_SUN':  return dow == Calendar.SUNDAY
-        case 'WEEKLY_MON':  return dow == Calendar.MONDAY
-        case 'WEEKLY_TUE':  return dow == Calendar.TUESDAY
-        case 'WEEKLY_WED':  return dow == Calendar.WEDNESDAY
-        case 'WEEKLY_THU':  return dow == Calendar.THURSDAY
-        case 'WEEKLY_FRI':  return dow == Calendar.FRIDAY
-        case 'WEEKLY_SAT':  return dow == Calendar.SATURDAY
-        case 'MONTHLY_1':   return dom == 1
-        case 'MONTHLY_15':  return dom == 15
+        case 'DAILY':        return true
+        case 'WEEKDAYS':     return dow >= Calendar.MONDAY && dow <= Calendar.FRIDAY
+        case 'WEEKENDS':     return dow == Calendar.SATURDAY || dow == Calendar.SUNDAY
+        case 'WEEKLY_SUN':   return dow == Calendar.SUNDAY
+        case 'WEEKLY_MON':   return dow == Calendar.MONDAY
+        case 'WEEKLY_TUE':   return dow == Calendar.TUESDAY
+        case 'WEEKLY_WED':   return dow == Calendar.WEDNESDAY
+        case 'WEEKLY_THU':   return dow == Calendar.THURSDAY
+        case 'WEEKLY_FRI':   return dow == Calendar.FRIDAY
+        case 'WEEKLY_SAT':   return dow == Calendar.SATURDAY
+        case 'MONTHLY_1':    return dom == 1
+        case 'MONTHLY_15':   return dom == 15
         case 'MONTHLY_LAST': return dom == lastDom
         default:
             def m = (c =~ /^MONTHLY_(\d{1,2})$/)
             if (m.matches()) return dom == (m[0][1] as int)
             return true
+    }
+}
+
+@NonCPS
+def inTimeWindow(Calendar cal, int startH, int startM, int windowMinutes) {
+    int nowMin = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+    int startMin = startH * 60 + startM
+    int endMin = startMin + windowMinutes
+    return nowMin >= startMin && nowMin < endMin
+}
+
+@NonCPS
+def windowKey(Calendar cal, String startTime) {
+    def y = cal.get(Calendar.YEAR)
+    def m = String.format('%02d', cal.get(Calendar.MONTH) + 1)
+    def d = String.format('%02d', cal.get(Calendar.DAY_OF_MONTH))
+    return "${y}-${m}-${d}|${startTime}"
+}
+
+@NonCPS
+def nowStamp(Calendar cal) {
+    def y = cal.get(Calendar.YEAR)
+    def m = String.format('%02d', cal.get(Calendar.MONTH) + 1)
+    def d = String.format('%02d', cal.get(Calendar.DAY_OF_MONTH))
+    def hh = String.format('%02d', cal.get(Calendar.HOUR_OF_DAY))
+    def mm = String.format('%02d', cal.get(Calendar.MINUTE))
+    def ss = String.format('%02d', cal.get(Calendar.SECOND))
+    return "${y}-${m}-${d} ${hh}:${mm}:${ss}"
+}
+
+// ============================================================================
+// Pipeline
+// ============================================================================
+pipeline {
+    agent { label 'built-in' }
+
+    options {
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '50'))
+        timeout(time: 15, unit: 'MINUTES')
+    }
+
+    stages {
+        stage('Dispatch scheduled jobs') {
+            steps {
+                script {
+                    def jobs = loadJsonList(SCHEDULE_FILE)
+                    if (jobs.isEmpty()) {
+                        echo "No entries in ${SCHEDULE_FILE}"
+                        return
+                    }
+
+                    def lastRun = loadJsonMap(LAST_RUN_FILE)
+                    def triggered = []
+                    def skipped = []
+
+                    jobs.each { job ->
+                        def name = (job.name ?: job.job ?: '').toString()
+                        if (!name) {
+                            skipped << [name: '(missing name)', reason: 'no name']
+                            return
+                        }
+
+                        if (job.enabled == false) {
+                            skipped << [name: name, reason: 'disabled']
+                            return
+                        }
+
+                        def tzName = (job.timezone ?: 'Europe/Berlin').toString()
+                        def tz = TimeZone.getTimeZone(tzName)
+                        def cal = Calendar.getInstance(tz)
+
+                        // Must pass the full job Map (calendar + custom)
+                        if (!calendarMatches(job, cal)) {
+                            skipped << [name: name, reason: "calendar ${job.calendar} not today"]
+                            return
+                        }
+
+                        def startTime = (job.startTime ?: '').toString()
+                        def hm = parseStartTime(startTime)
+                        if (!hm) {
+                            skipped << [name: name, reason: "invalid startTime '${startTime}'"]
+                            return
+                        }
+
+                        if (!inTimeWindow(cal, hm[0], hm[1], WINDOW_MINUTES)) {
+                            skipped << [name: name, reason: "outside window ${startTime} (+${WINDOW_MINUTES}m)"]
+                            return
+                        }
+
+                        def wKey = windowKey(cal, startTime)
+                        def prev = lastRun[name]
+                        if (prev instanceof Map && prev.windowKey == wKey) {
+                            skipped << [name: name, reason: "already triggered for window ${wKey}"]
+                            return
+                        }
+
+                        echo "TRIGGER → ${name} | calendar=${job.calendar} | start=${startTime} | window=${wKey}"
+
+                        def transferType = (job.transferType ?: 'ROBOCOPY').toString().toUpperCase()
+                        if (transferType == 'SHAREPOINT') {
+                            echo "SKIP SharePoint for now: ${name}"
+                            skipped << [name: name, reason: 'SHAREPOINT not wired in dispatcher v1']
+                            return
+                        }
+
+                        def paramsList = [
+                            string(name: 'LOGICAL_JOB_NAME', value: name),
+                            string(name: 'SRC_CRED',         value: (job.credentialId ?: 'WIN.SVC.UC4.BATCHUSER').toString()),
+                            string(name: 'SRC_PATH',         value: (job.source ?: '').toString()),
+                            string(name: 'DST_PATH',         value: (job.destination ?: '').toString()),
+                            string(name: 'FILE_MASK',        value: (job.fileMask ?: '*.*').toString()),
+                            string(name: 'ROBOCOPY_FLAGS',   value: (job.flags ?: '/R:0 /W:0 /NP').toString()),
+                            string(name: 'PARENT_BUILD',     value: "SCHEDULE-${env.BUILD_NUMBER}")
+                        ]
+
+                        try {
+                            build(
+                                job: TEMPLATE_JOB,
+                                wait: false,
+                                propagate: false,
+                                parameters: paramsList
+                            )
+                            lastRun[name] = [
+                                windowKey   : wKey,
+                                triggeredAt : nowStamp(cal)
+                            ]
+                            triggered << name
+                        } catch (Exception e) {
+                            echo "ERROR triggering ${name}: ${e.message}"
+                            skipped << [name: name, reason: "build error: ${e.message}"]
+                        }
+                    }
+
+                    writeJson(LAST_RUN_FILE, lastRun)
+
+                    echo "========================================"
+                    echo "DISPATCH SUMMARY"
+                    echo "Triggered : ${triggered.size()} → ${triggered}"
+                    echo "Skipped   : ${skipped.size()}"
+                    skipped.each { s ->
+                        echo "  - ${s.name}: ${s.reason}"
+                    }
+                    echo "========================================"
+                }
+            }
+        }
     }
 }
