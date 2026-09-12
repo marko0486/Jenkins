@@ -174,6 +174,78 @@ function isValidWindowsName(name) {
   return true;
 }
 
+function clearScheduleFormError() {
+  const errEl = document.getElementById('sf-error');
+  if (errEl) {
+    errEl.hidden = true;
+    errEl.textContent = '';
+  }
+}
+
+function showScheduleFormError(msg) {
+  const errEl = document.getElementById('sf-error');
+  if (errEl) {
+    errEl.textContent = msg;
+    errEl.hidden = false;
+  }
+}
+
+/** Live check: name / folder already exists (case-insensitive). Returns error string or null. */
+async function validateJobNameLive() {
+  if (editingScheduleId) return null;
+
+  const nameEl = document.getElementById('sf-name');
+  const folderEl = document.getElementById('sf-folder');
+  if (!nameEl) return null;
+
+  const name = (nameEl.value || '').trim();
+  if (!name) return null;
+
+  if (!isValidWindowsName(name)) {
+    return 'Job Name cannot contain: \\ / : * ? " < > |';
+  }
+
+  const folder = ((folderEl && folderEl.value) || '').trim() || name;
+  if (!isValidWindowsName(folder)) {
+    return 'Folder cannot contain: \\ / : * ? " < > |';
+  }
+
+  let list = [];
+  try {
+    list = await fetchScheduledJobsList();
+  } catch (e) {
+    console.warn(e);
+    return null;
+  }
+
+  const nameKey = name.toLowerCase();
+  const folderKey = folder.toLowerCase();
+
+  const nameExists = list.some(j => (j.name || j.job || '').toLowerCase() === nameKey);
+  if (nameExists) {
+    return 'A job with this name already exists: ' + name;
+  }
+
+  const folderExists = list.some(j =>
+    ((j.folder || j.name || j.job) || '').toLowerCase() === folderKey
+  );
+  if (folderExists) {
+    return 'A job with this folder already exists: ' + folder;
+  }
+
+  return null;
+}
+
+async function runLiveNameValidation() {
+  if (editingScheduleId) {
+    clearScheduleFormError();
+    return;
+  }
+  const msg = await validateJobNameLive();
+  if (msg) showScheduleFormError(msg);
+  else clearScheduleFormError();
+}
+
 /** Always returns an array (API or local file). Handles single-object JSON. */
 async function fetchScheduledJobsList() {
   const normalize = (data) => {
@@ -1056,13 +1128,35 @@ function initScheduleModalUi() {
       el.addEventListener('change', updateNextPreview);
     }
   });
+
+  // Live validation: Job Name + Folder
+  const nameEl = document.getElementById('sf-name');
+  const folderEl = document.getElementById('sf-folder');
+
+  if (nameEl) {
+    let nameTimer = null;
+    nameEl.addEventListener('input', () => {
+      clearTimeout(nameTimer);
+      nameTimer = setTimeout(() => { runLiveNameValidation(); }, 350);
+    });
+    nameEl.addEventListener('blur', () => { runLiveNameValidation(); });
+  }
+
+  if (folderEl) {
+    let folderTimer = null;
+    folderEl.addEventListener('input', () => {
+      clearTimeout(folderTimer);
+      folderTimer = setTimeout(() => { runLiveNameValidation(); }, 350);
+    });
+    folderEl.addEventListener('blur', () => { runLiveNameValidation(); });
+  }
 }
 
 function openScheduleModal(job) {
   editingScheduleId = job ? (job.id || job.name || job.job) : null;
   document.getElementById('schedule-modal-title').textContent =
     job ? 'Edit Scheduled Job' : 'Add Scheduled Job';
-  document.getElementById('sf-error').hidden = true;
+  clearScheduleFormError();
 
   const nameInput = document.getElementById('sf-name');
   nameInput.value = job ? (job.name || job.job || '') : '';
@@ -1070,7 +1164,8 @@ function openScheduleModal(job) {
 
   document.getElementById('sf-folder').value = job ? (job.folder || '') : '';
   document.getElementById('sf-enabled').value = job && job.enabled === false ? 'false' : 'true';
-  document.getElementById('sf-start').value = job ? (job.startTime || '') : '02:30';
+  // Default Start Time = 00:00 for new jobs
+  document.getElementById('sf-start').value = job ? (job.startTime || '') : '00:00';
 
   const tzSel = document.getElementById('sf-tz');
   const tz = job ? (job.timezone || DEFAULT_SCHEDULE_TZ) : DEFAULT_SCHEDULE_TZ;
@@ -1099,6 +1194,11 @@ function openScheduleModal(job) {
 
   updateNextPreview();
   document.getElementById('schedule-modal').hidden = false;
+
+  // Live check when opening Add (if name already typed somehow)
+  if (!job) {
+    setTimeout(() => { runLiveNameValidation(); }, 50);
+  }
 }
 
 function closeScheduleModal() {
@@ -1107,6 +1207,7 @@ function closeScheduleModal() {
   document.getElementById('sf-name').disabled = false;
   const delBtn = document.getElementById('sf-delete');
   if (delBtn) delBtn.hidden = true;
+  clearScheduleFormError();
 }
 
 function buildJobFromForm() {
@@ -1194,6 +1295,12 @@ async function persistScheduledJobs(list) {
 async function saveScheduleFromModal() {
   const errEl = document.getElementById('sf-error');
   try {
+    // Live validation before save (create only)
+    if (!editingScheduleId) {
+      const liveMsg = await validateJobNameLive();
+      if (liveMsg) throw new Error(liveMsg);
+    }
+
     const entry = buildJobFromForm();
 
     // Always re-read from API/file so we never overwrite with empty memory
@@ -1212,9 +1319,16 @@ async function saveScheduleFromModal() {
         list.push(entry);
       }
     } else {
-      if (list.some(j => j.name === entry.name)) {
-        throw new Error('A job with this name already exists');
+      const nameKey = entry.name.toLowerCase();
+      const folderKey = (entry.folder || entry.name).toLowerCase();
+
+      if (list.some(j => (j.name || '').toLowerCase() === nameKey)) {
+        throw new Error('A job with this name already exists: ' + entry.name);
       }
+      if (list.some(j => ((j.folder || j.name) || '').toLowerCase() === folderKey)) {
+        throw new Error('A job with this folder already exists: ' + (entry.folder || entry.name));
+      }
+
       list.push(entry);
     }
 
