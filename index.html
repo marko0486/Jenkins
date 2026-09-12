@@ -42,7 +42,6 @@
   </header>
 
   <div class="layout">
-    <!-- ===================== LEFT ===================== -->
     <aside class="left-panel">
       <div class="panel-card">
         <div class="panel-head">
@@ -128,9 +127,7 @@
       </div>
     </aside>
 
-    <!-- ===================== CENTER ===================== -->
     <main class="center-panel">
-      <!-- Stats (Dashboard only) -->
       <div class="stats-row" id="stats-row">
         <div class="stat-card">
           <div class="stat-icon blue">
@@ -205,7 +202,6 @@
         </div>
       </div>
 
-      <!-- Builds table -->
       <section class="card" id="builds-card">
         <div class="card-head">
           <div class="card-title">
@@ -251,7 +247,6 @@
         <div class="pager" id="builds-pager"></div>
       </section>
 
-      <!-- Build details / children -->
       <section class="card" id="detail-card" style="display:none">
         <div class="card-head">
           <div class="card-title">
@@ -290,7 +285,6 @@
         </div>
       </section>
 
-      <!-- Failed Jobs -->
       <section class="card" id="failed-jobs-card" style="display:none">
         <div class="card-head">
           <div class="card-title">
@@ -329,7 +323,6 @@
         <div class="pager" id="failed-jobs-pager"></div>
       </section>
 
-      <!-- Job History -->
       <section class="card" id="history-card" style="display:none">
         <div class="card-head">
           <div class="card-title">
@@ -392,7 +385,6 @@
         </div>
       </section>
 
-      <!-- Scheduled Jobs -->
       <div id="scheduled-view" style="display:none">
         <section class="card">
           <div class="card-head">
@@ -450,7 +442,6 @@
           <div class="pager" id="scheduled-pager"></div>
         </section>
 
-        <!-- Job Details (compact) -->
         <section class="card" id="scheduled-detail-card" style="display:none">
           <div class="card-head">
             <div class="card-title">
@@ -461,7 +452,6 @@
               <span class="badge badge-active" id="sched-detail-active">Active</span>
             </div>
           </div>
-
           <div class="sched-detail-header">
             <div>
               <div class="sched-detail-name" id="sched-detail-name">—</div>
@@ -485,7 +475,6 @@
               </div>
             </div>
           </div>
-
           <div class="sched-transfer-grid">
             <div>
               <div class="history-detail-label">Source</div>
@@ -500,11 +489,10 @@
               <div class="history-detail-value" id="sched-detail-mask">—</div>
             </div>
             <div>
-              <div class="history-detail-label">Flags</div>
+              <div class="history-detail-label">Flags / Library</div>
               <div class="history-detail-value" id="sched-detail-flags">—</div>
             </div>
           </div>
-
           <div class="children-head">Execution History (Last 2 runs)</div>
           <div class="table-wrap">
             <table>
@@ -526,18 +514,11 @@
       </div>
     </main>
 
-    <!-- ===================== RIGHT ===================== -->
     <aside class="right-panel">
-      <!-- Dashboard right -->
       <div id="right-dashboard">
         <div class="panel-card">
           <div class="panel-head">
-            <span class="panel-title">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
-              </svg>
-              Build Status
-            </span>
+            <span class="panel-title">Build Status</span>
           </div>
           <div class="donut-wrap">
             <svg id="donut-chart" width="120" height="120" viewBox="0 0 120 120"></svg>
@@ -548,57 +529,21 @@
           </div>
           <div class="legend" id="status-legend"></div>
         </div>
-
         <div class="panel-card">
-          <div class="panel-head">
-            <span class="panel-title">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-6"/>
-              </svg>
-              Orchestrator Status
-            </span>
-          </div>
+          <div class="panel-head"><span class="panel-title">Orchestrator Status</span></div>
           <div id="orch-status-list"></div>
         </div>
-
         <div class="panel-card">
-          <div class="panel-head">
-            <span class="panel-title">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="3"/>
-                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
-              </svg>
-              Quick Actions
-            </span>
-          </div>
+          <div class="panel-head"><span class="panel-title">Quick Actions</span></div>
           <div class="quick-grid">
-            <button class="quick-btn" id="qa-refresh" type="button">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-              </svg>
-              Refresh
-            </button>
-            <button class="quick-btn" type="button">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/>
-              </svg>
-              Generate Report
-            </button>
+            <button class="quick-btn" id="qa-refresh" type="button">Refresh</button>
+            <button class="quick-btn" type="button">Generate Report</button>
           </div>
         </div>
       </div>
-
-      <!-- Scheduled right -->
       <div id="right-scheduled" style="display:none">
         <div class="panel-card">
-          <div class="panel-head">
-            <span class="panel-title">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
-              </svg>
-              Schedule Summary
-            </span>
-          </div>
+          <div class="panel-head"><span class="panel-title">Schedule Summary</span></div>
           <div class="donut-wrap">
             <svg id="sched-donut" width="120" height="120" viewBox="0 0 120 120"></svg>
             <div class="donut-center">
@@ -608,42 +553,15 @@
           </div>
           <div class="legend" id="sched-legend"></div>
         </div>
-
         <div class="panel-card">
-          <div class="panel-head">
-            <span class="panel-title">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
-              </svg>
-              Next Scheduled Runs
-            </span>
-          </div>
+          <div class="panel-head"><span class="panel-title">Next Scheduled Runs</span></div>
           <ul class="next-runs-list" id="next-runs-list"></ul>
         </div>
-
         <div class="panel-card">
-          <div class="panel-head">
-            <span class="panel-title">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="3"/>
-                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
-              </svg>
-              Quick Actions
-            </span>
-          </div>
+          <div class="panel-head"><span class="panel-title">Quick Actions</span></div>
           <div class="quick-grid">
-            <button class="quick-btn" id="qa-sched-refresh" type="button">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-              </svg>
-              Refresh
-            </button>
-            <button class="quick-btn" type="button">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/>
-              </svg>
-              Generate Report
-            </button>
+            <button class="quick-btn" id="qa-sched-refresh" type="button">Refresh</button>
+            <button class="quick-btn" type="button">Generate Report</button>
           </div>
         </div>
       </div>
@@ -696,14 +614,16 @@
               </select>
             </label>
           </div>
+
           <label class="full">
             Source
             <input type="text" id="sf-source" placeholder="\\server\share\src" />
           </label>
           <label class="full">
             Destination
-            <input type="text" id="sf-destination" placeholder="\\server\share\dst" />
+            <input type="text" id="sf-destination" placeholder="\\server\share\dst or https://....sharepoint.com/sites/..." />
           </label>
+
           <div class="form-row">
             <label>
               File Mask
@@ -714,10 +634,39 @@
               <input type="text" id="sf-cred" value="WIN.SVC.UC4.BATCHUSER" />
             </label>
           </div>
-          <label class="full">
-            Flags
-            <input type="text" id="sf-flags" value="/R:0 /W:0 /NP" />
-          </label>
+
+          <!-- ROBOCOPY only -->
+          <div id="sf-robocopy-fields">
+            <label class="full">
+              Flags
+              <input type="text" id="sf-flags" value="/R:0 /W:0 /NP" />
+            </label>
+          </div>
+
+          <!-- SHAREPOINT only -->
+          <div id="sf-sharepoint-fields" hidden>
+            <label class="full">
+              Library
+              <input type="text" id="sf-library" placeholder="Shared Documents/General/EOO" />
+            </label>
+            <div class="form-row">
+              <label>
+                Operation
+                <select id="sf-operation">
+                  <option value="COPY">COPY</option>
+                  <option value="MOVE">MOVE</option>
+                </select>
+              </label>
+              <label>
+                Overwrite
+                <select id="sf-overwrite">
+                  <option value="true">true</option>
+                  <option value="false">false</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
           <div class="info-tip">
             Job Name and Folder cannot contain Windows reserved characters:
             <code>\ / : * ? " &lt; &gt; |</code>
@@ -729,7 +678,7 @@
           <div class="form-row">
             <label>
               Start Time (24h)
-              <input type="text" id="sf-start" placeholder="02:30" />
+              <input type="text" id="sf-start" placeholder="00:00" />
             </label>
             <label>
               Time zone
