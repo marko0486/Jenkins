@@ -190,7 +190,6 @@ function showScheduleFormError(msg) {
   }
 }
 
-/** Live check: name / folder already exists (case-insensitive). Returns error string or null. */
 async function validateJobNameLive() {
   if (editingScheduleId) return null;
 
@@ -221,18 +220,12 @@ async function validateJobNameLive() {
   const nameKey = name.toLowerCase();
   const folderKey = folder.toLowerCase();
 
-  const nameExists = list.some(j => (j.name || j.job || '').toLowerCase() === nameKey);
-  if (nameExists) {
+  if (list.some(j => (j.name || j.job || '').toLowerCase() === nameKey)) {
     return 'A job with this name already exists: ' + name;
   }
-
-  const folderExists = list.some(j =>
-    ((j.folder || j.name || j.job) || '').toLowerCase() === folderKey
-  );
-  if (folderExists) {
+  if (list.some(j => ((j.folder || j.name || j.job) || '').toLowerCase() === folderKey)) {
     return 'A job with this folder already exists: ' + folder;
   }
-
   return null;
 }
 
@@ -246,7 +239,6 @@ async function runLiveNameValidation() {
   else clearScheduleFormError();
 }
 
-/** Always returns an array (API or local file). Handles single-object JSON. */
 async function fetchScheduledJobsList() {
   const normalize = (data) => {
     if (Array.isArray(data)) return data;
@@ -256,9 +248,7 @@ async function fetchScheduledJobsList() {
 
   try {
     const res = await fetch(CONFIG.SCHEDULED_URL + '?t=' + Date.now());
-    if (res.ok) {
-      return normalize(await res.json());
-    }
+    if (res.ok) return normalize(await res.json());
   } catch (e) {
     console.warn('API scheduled-jobs failed, trying local file', e);
   }
@@ -266,9 +256,7 @@ async function fetchScheduledJobsList() {
   try {
     const url = (CONFIG.SCHEDULED_FILE_URL || 'scheduled-jobs.json') + '?t=' + Date.now();
     const res = await fetch(url);
-    if (res.ok) {
-      return normalize(await res.json());
-    }
+    if (res.ok) return normalize(await res.json());
   } catch (e) {
     console.warn(e);
   }
@@ -498,6 +486,7 @@ function normalizeScheduledJob(j) {
   const calendar = (j.calendar || 'DAILY').toString().toUpperCase();
   const startTime = j.startTime || '—';
   const fromDate = j.fromDate || (j.custom && j.custom.fromDate) || null;
+  const transferType = (j.transferType || 'ROBOCOPY').toString().toUpperCase();
   const base = {
     ...j,
     name,
@@ -505,10 +494,13 @@ function normalizeScheduledJob(j) {
     calendar,
     startTime,
     fromDate,
-    transferType: j.transferType || 'ROBOCOPY',
+    transferType,
     type: 'TRANSFER',
     enabled: j.enabled !== false,
-    timezone: j.timezone || DEFAULT_SCHEDULE_TZ
+    timezone: j.timezone || DEFAULT_SCHEDULE_TZ,
+    library: j.library || '',
+    operation: j.operation || 'COPY',
+    overwrite: j.overwrite !== false
   };
   base.nextRunDisplay = computeNextRun(base);
   return base;
@@ -524,7 +516,8 @@ function scheduleTypeBadge(t) {
 }
 
 function toSaveShape(j) {
-  return {
+  const transferType = (j.transferType || 'ROBOCOPY').toString().toUpperCase();
+  const base = {
     id: j.id || (j.name || j.job || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
     name: j.name || j.job,
     folder: j.folder || j.name || j.job,
@@ -534,14 +527,23 @@ function toSaveShape(j) {
     fromDate: j.fromDate || null,
     custom: null,
     type: 'TRANSFER',
-    transferType: j.transferType || 'ROBOCOPY',
+    transferType,
     source: j.source || '',
     destination: j.destination || '',
     fileMask: j.fileMask || '*.*',
-    flags: j.flags || '/R:0 /W:0 /NP',
     credentialId: j.credentialId || 'WIN.SVC.UC4.BATCHUSER',
     timezone: j.timezone || DEFAULT_SCHEDULE_TZ
   };
+
+  if (transferType === 'SHAREPOINT') {
+    base.library = j.library || '';
+    base.operation = j.operation || 'COPY';
+    base.overwrite = j.overwrite !== false;
+  } else {
+    base.flags = j.flags || '/R:0 /W:0 /NP';
+  }
+
+  return base;
 }
 
 /* ========== SCHEDULED FAILURES ========== */
@@ -1032,7 +1034,17 @@ function showScheduledDetails(j) {
   document.getElementById('sched-detail-source').textContent = displayPath(j.source);
   document.getElementById('sched-detail-destination').textContent = displayPath(j.destination);
   document.getElementById('sched-detail-mask').textContent = j.fileMask || '—';
-  document.getElementById('sched-detail-flags').textContent = j.flags || '—';
+
+  const flagsEl = document.getElementById('sched-detail-flags');
+  if ((j.transferType || '').toUpperCase() === 'SHAREPOINT') {
+    flagsEl.textContent = [
+      j.library ? 'Library: ' + j.library : null,
+      j.operation ? 'Op: ' + j.operation : null,
+      'Overwrite: ' + (j.overwrite !== false)
+    ].filter(Boolean).join(' | ') || '—';
+  } else {
+    flagsEl.textContent = j.flags || '—';
+  }
 
   const tbody = document.getElementById('sched-history-tbody');
   tbody.innerHTML = '';
@@ -1119,7 +1131,27 @@ function renderNextRuns() {
   });
 }
 
-/* ========== SCHEDULE MODAL ========== */
+/* ========== SCHEDULE MODAL (ROBOCOPY / SHAREPOINT) ========== */
+function toggleTransferFields() {
+  const type = (document.getElementById('sf-transfer').value || 'ROBOCOPY').toUpperCase();
+  const robo = document.getElementById('sf-robocopy-fields');
+  const sp = document.getElementById('sf-sharepoint-fields');
+  const dest = document.getElementById('sf-destination');
+  const source = document.getElementById('sf-source');
+
+  if (type === 'SHAREPOINT') {
+    if (robo) robo.hidden = true;
+    if (sp) sp.hidden = false;
+    if (dest) dest.placeholder = 'https://....sharepoint.com/sites/...';
+    if (source) source.placeholder = '\\\\server\\share\\src';
+  } else {
+    if (robo) robo.hidden = false;
+    if (sp) sp.hidden = true;
+    if (dest) dest.placeholder = '\\\\server\\share\\dst';
+    if (source) source.placeholder = '\\\\server\\share\\src';
+  }
+}
+
 function initScheduleModalUi() {
   ['sf-start', 'sf-tz', 'sf-calendar', 'sf-from-date'].forEach(id => {
     const el = document.getElementById(id);
@@ -1129,7 +1161,11 @@ function initScheduleModalUi() {
     }
   });
 
-  // Live validation: Job Name + Folder
+  const transferEl = document.getElementById('sf-transfer');
+  if (transferEl) {
+    transferEl.addEventListener('change', toggleTransferFields);
+  }
+
   const nameEl = document.getElementById('sf-name');
   const folderEl = document.getElementById('sf-folder');
 
@@ -1164,7 +1200,6 @@ function openScheduleModal(job) {
 
   document.getElementById('sf-folder').value = job ? (job.folder || '') : '';
   document.getElementById('sf-enabled').value = job && job.enabled === false ? 'false' : 'true';
-  // Default Start Time = 00:00 for new jobs
   document.getElementById('sf-start').value = job ? (job.startTime || '') : '00:00';
 
   const tzSel = document.getElementById('sf-tz');
@@ -1177,12 +1212,21 @@ function openScheduleModal(job) {
   }
   if (tzSel) tzSel.value = tz;
 
-  document.getElementById('sf-transfer').value = job ? (job.transferType || 'ROBOCOPY') : 'ROBOCOPY';
+  const transferType = job ? (job.transferType || 'ROBOCOPY') : 'ROBOCOPY';
+  document.getElementById('sf-transfer').value = transferType;
+
   document.getElementById('sf-source').value = job ? (job.source || '') : '';
   document.getElementById('sf-destination').value = job ? (job.destination || '') : '';
   document.getElementById('sf-mask').value = job ? (job.fileMask || '*.*') : '*.*';
-  document.getElementById('sf-flags').value = job ? (job.flags || '/R:0 /W:0 /NP') : '/R:0 /W:0 /NP';
   document.getElementById('sf-cred').value = job ? (job.credentialId || 'WIN.SVC.UC4.BATCHUSER') : 'WIN.SVC.UC4.BATCHUSER';
+  document.getElementById('sf-flags').value = job ? (job.flags || '/R:0 /W:0 /NP') : '/R:0 /W:0 /NP';
+
+  const libEl = document.getElementById('sf-library');
+  const opEl = document.getElementById('sf-operation');
+  const owEl = document.getElementById('sf-overwrite');
+  if (libEl) libEl.value = job ? (job.library || '') : '';
+  if (opEl) opEl.value = job ? (job.operation || 'COPY') : 'COPY';
+  if (owEl) owEl.value = job && job.overwrite === false ? 'false' : 'true';
 
   let cal = job ? (job.calendar || 'DAILY') : 'DAILY';
   if (String(cal).toUpperCase() === 'CUSTOM') cal = 'DAILY';
@@ -1192,10 +1236,10 @@ function openScheduleModal(job) {
   const delBtn = document.getElementById('sf-delete');
   if (delBtn) delBtn.hidden = !job;
 
+  toggleTransferFields();
   updateNextPreview();
   document.getElementById('schedule-modal').hidden = false;
 
-  // Live check when opening Add (if name already typed somehow)
   if (!job) {
     setTimeout(() => { runLiveNameValidation(); }, 50);
   }
@@ -1229,9 +1273,10 @@ function buildJobFromForm() {
     throw new Error('Folder cannot contain: \\ / : * ? " < > |');
   }
 
+  const transferType = (document.getElementById('sf-transfer').value || 'ROBOCOPY').toUpperCase();
   const fromDate = document.getElementById('sf-from-date').value || null;
 
-  return {
+  const entry = {
     id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
     name,
     folder,
@@ -1241,14 +1286,25 @@ function buildJobFromForm() {
     fromDate,
     custom: null,
     type: 'TRANSFER',
-    transferType: document.getElementById('sf-transfer').value,
+    transferType,
     source,
     destination: dest,
     fileMask: document.getElementById('sf-mask').value.trim() || '*.*',
-    flags: document.getElementById('sf-flags').value.trim() || '/R:0 /W:0 /NP',
     credentialId: document.getElementById('sf-cred').value.trim() || 'WIN.SVC.UC4.BATCHUSER',
     timezone: document.getElementById('sf-tz').value || DEFAULT_SCHEDULE_TZ
   };
+
+  if (transferType === 'SHAREPOINT') {
+    const library = (document.getElementById('sf-library')?.value || '').trim();
+    if (!library) throw new Error('Library is required for SHAREPOINT jobs');
+    entry.library = library;
+    entry.operation = document.getElementById('sf-operation')?.value || 'COPY';
+    entry.overwrite = document.getElementById('sf-overwrite')?.value !== 'false';
+  } else {
+    entry.flags = document.getElementById('sf-flags').value.trim() || '/R:0 /W:0 /NP';
+  }
+
+  return entry;
 }
 
 function updateNextPreview() {
@@ -1295,7 +1351,6 @@ async function persistScheduledJobs(list) {
 async function saveScheduleFromModal() {
   const errEl = document.getElementById('sf-error');
   try {
-    // Live validation before save (create only)
     if (!editingScheduleId) {
       const liveMsg = await validateJobNameLive();
       if (liveMsg) throw new Error(liveMsg);
@@ -1303,7 +1358,6 @@ async function saveScheduleFromModal() {
 
     const entry = buildJobFromForm();
 
-    // Always re-read from API/file so we never overwrite with empty memory
     const current = await fetchScheduledJobsList();
     let list = current.map(toSaveShape);
 
