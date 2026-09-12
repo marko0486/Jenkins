@@ -42,6 +42,7 @@
   </header>
 
   <div class="layout">
+    <!-- ===================== LEFT ===================== -->
     <aside class="left-panel">
       <div class="panel-card">
         <div class="panel-head">
@@ -127,6 +128,7 @@
       </div>
     </aside>
 
+    <!-- ===================== CENTER ===================== -->
     <main class="center-panel">
       <div class="stats-row" id="stats-row">
         <div class="stat-card">
@@ -514,6 +516,7 @@
       </div>
     </main>
 
+    <!-- ===================== RIGHT ===================== -->
     <aside class="right-panel">
       <div id="right-dashboard">
         <div class="panel-card">
@@ -590,14 +593,17 @@
       <div class="modal-two-col">
         <div class="modal-col">
           <div class="modal-section-title">Job Configuration</div>
+
           <label class="full">
             Job Name
             <input type="text" id="sf-name" placeholder="ZF_MY_JOB" autocomplete="off" />
           </label>
+
           <label class="full">
             Folder (history path)
             <input type="text" id="sf-folder" placeholder="Same as job name if empty" />
           </label>
+
           <div class="form-row">
             <label>
               Enabled
@@ -619,6 +625,7 @@
             Source
             <input type="text" id="sf-source" placeholder="\\server\share\src" />
           </label>
+
           <label class="full">
             Destination
             <input type="text" id="sf-destination" placeholder="\\server\share\dst or https://....sharepoint.com/sites/..." />
@@ -712,7 +719,7 @@
             Valid from (optional)
             <input type="date" id="sf-from-date" />
           </label>
-          <div class="hint">Job will not run before this date (Europe/Berlin calendar day).</div>
+          <div class="hint">Job will not run before this date (calendar day in the selected time zone).</div>
           <div class="next-preview" id="sf-next-preview">Next run: —</div>
           <div class="run-preview-list" id="sf-run-preview">
             <div class="hint">Complete the schedule fields.</div>
