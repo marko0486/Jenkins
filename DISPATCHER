@@ -1,63 +1,16 @@
-POR QUE MI JOB DE SHAREPOINT SE LO SALTA Y LE PONE OTRA FECHA Y NO LO EJECUTA :(  
-Started by timer
-[Pipeline] Start of Pipeline
-[Pipeline] node
-Running on Jenkins in C:\ProgramData\Jenkins\.jenkins\workspace\ZF_GLOBAL_SCHEDULE_DISPATCHER
-[Pipeline] {
-[Pipeline] timeout
-Timeout set to expire in 15 min
-[Pipeline] {
-[Pipeline] stage
-[Pipeline] { (Dispatch scheduled jobs)
-[Pipeline] script
-[Pipeline] {
-[Pipeline] echo
-TRIGGER → SHAREPOINT.JOB_1 | calendar=DAILY | fromDate=- | start=05:13 | window=2026-09-13|05:13
-[Pipeline] echo
-SKIP SharePoint for now: SHAREPOINT.JOB_1
-[Pipeline] echo
-========================================
-[Pipeline] echo
-DISPATCH SUMMARY
-[Pipeline] echo
-Triggered : 0 → []
-[Pipeline] echo
-Skipped   : 3
-[Pipeline] echo
-  - ZF_MY_FRIST_JOB_1: outside window 00:08 (+5m)
-[Pipeline] echo
-  - ZF_MY_FIRST_JOB_1: outside window 20:57 (+5m)
-[Pipeline] echo
-  - SHAREPOINT.JOB_1: SHAREPOINT not wired in dispatcher v1
-[Pipeline] echo
-========================================
-[Pipeline] }
-[Pipeline] // script
-[Pipeline] }
-[Pipeline] // stage
-[Pipeline] }
-[Pipeline] // timeout
-[Pipeline] }
-[Pipeline] // node
-[Pipeline] End of Pipeline
-Finished: SUCCESS
-
-
-
-Codigo del dispatcher, DIME QUE PASA
-
 import groovy.json.JsonSlurperClassic
 import groovy.json.JsonOutput
 import java.util.Calendar
 import java.util.TimeZone
 
 // ============================================================================
-// Paths — adjust TEMPLATE_JOB to your real template job name in Jenkins
+// Paths / templates
 // ============================================================================
-def SCHEDULE_FILE  = 'C:/Jenkins/Jobs/Dashboard/scheduled-jobs.json'
-def LAST_RUN_FILE  = 'C:/Jenkins/Jobs/Dashboard/data/scheduler/last-run.json'
-def TEMPLATE_JOB   = 'ZF_TEST-FILE_TRANSFER-JOB'
-def WINDOW_MINUTES = 5
+def SCHEDULE_FILE             = 'C:/Jenkins/Jobs/Dashboard/scheduled-jobs.json'
+def LAST_RUN_FILE             = 'C:/Jenkins/Jobs/Dashboard/data/scheduler/last-run.json'
+def TEMPLATE_ROBOCOPY_JOB     = 'ZF_TEST-FILE_TRANSFER-JOB'
+def TEMPLATE_SHAREPOINT_JOB   = 'ZF_TEST-SHAREPOINT-JOB'   // <-- change to your real SharePoint job name
+def WINDOW_MINUTES            = 5
 
 // ============================================================================
 // Helpers
@@ -100,20 +53,14 @@ def parseStartTime(String hhmm) {
     return [h, min]
 }
 
-/**
- * job = full Map from scheduled-jobs.json (calendar, fromDate, optional custom)
- * cal = Calendar in the job timezone
- */
 @NonCPS
 def calendarMatches(Map job, Calendar cal) {
     def c = (job.calendar ?: 'DAILY').toString().trim().toUpperCase()
-    int dow = cal.get(Calendar.DAY_OF_WEEK) // 1=Sun .. 7=Sat
+    int dow = cal.get(Calendar.DAY_OF_WEEK)
     int dom = cal.get(Calendar.DAY_OF_MONTH)
     int lastDom = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
-    // Align with JS: 0=Sun .. 6=Sat
     int jsDow = (dow == Calendar.SUNDAY) ? 0 : (dow - 1)
 
-    // Optional "Valid from" (YYYY-MM-DD) — never run before this day
     if (job.fromDate) {
         def from = job.fromDate.toString()
         if (from ==~ /\d{4}-\d{2}-\d{2}/) {
@@ -125,19 +72,15 @@ def calendarMatches(Map job, Calendar cal) {
         }
     }
 
-    // Legacy CUSTOM block (if still present in JSON)
     if (c == 'CUSTOM') {
         def custom = job.custom
         if (!(custom instanceof Map)) return false
         def kind = (custom.kind ?: '').toString()
-
         if (kind == 'monthly_days') {
             def days = (custom.daysOfMonth instanceof List) ? custom.daysOfMonth : []
             return days.collect { it as int }.contains(dom)
         }
-        if (kind == 'monthly_last') {
-            return dom == lastDom
-        }
+        if (kind == 'monthly_last') return dom == lastDom
         if (kind == 'every_x_days') {
             int x = (custom.everyXDays ?: 0) as int
             def from = (custom.fromDate ?: job.fromDate ?: '').toString()
@@ -248,7 +191,6 @@ pipeline {
                             skipped << [name: '(missing name)', reason: 'no name']
                             return
                         }
-
                         if (job.enabled == false) {
                             skipped << [name: name, reason: 'disabled']
                             return
@@ -258,7 +200,6 @@ pipeline {
                         def tz = TimeZone.getTimeZone(tzName)
                         def cal = Calendar.getInstance(tz)
 
-                        // Full job Map (calendar + fromDate + optional custom)
                         if (!calendarMatches(job, cal)) {
                             skipped << [name: name, reason: "calendar ${job.calendar} / fromDate not today"]
                             return
@@ -283,39 +224,54 @@ pipeline {
                             return
                         }
 
-                        echo "TRIGGER → ${name} | calendar=${job.calendar} | fromDate=${job.fromDate ?: '-'} | start=${startTime} | window=${wKey}"
-
                         def transferType = (job.transferType ?: 'ROBOCOPY').toString().toUpperCase()
-                        if (transferType == 'SHAREPOINT') {
-                            echo "SKIP SharePoint for now: ${name}"
-                            skipped << [name: name, reason: 'SHAREPOINT not wired in dispatcher v1']
-                            return
-                        }
+                        echo "TRIGGER → ${name} | type=${transferType} | calendar=${job.calendar} | fromDate=${job.fromDate ?: '-'} | start=${startTime} | window=${wKey}"
 
-                        def paramsList = [
-                            string(name: 'LOGICAL_JOB_NAME', value: name),
-                            string(name: 'SRC_CRED',         value: (job.credentialId ?: 'WIN.SVC.UC4.BATCHUSER').toString()),
-                            string(name: 'SRC_PATH',         value: (job.source ?: '').toString()),
-                            string(name: 'DST_PATH',         value: (job.destination ?: '').toString()),
-                            string(name: 'FILE_MASK',        value: (job.fileMask ?: '*.*').toString()),
-                            string(name: 'ROBOCOPY_FLAGS',   value: (job.flags ?: '/R:0 /W:0 /NP').toString()),
-                            string(name: 'PARENT_BUILD',     value: "SCHEDULE-${env.BUILD_NUMBER}")
-                        ]
+                        def targetJob
+                        def paramsList
+
+                        if (transferType == 'SHAREPOINT') {
+                            targetJob = TEMPLATE_SHAREPOINT_JOB
+                            paramsList = [
+                                string(name: 'LOGICAL_JOB_NAME', value: name),
+                                string(name: 'SRC_CRED',         value: (job.credentialId ?: 'WIN.SVC.UC4.BATCHUSER').toString()),
+                                string(name: 'SRC_PATH',         value: (job.source ?: '').toString()),
+                                string(name: 'DST_URL',          value: (job.destination ?: '').toString()),
+                                string(name: 'LIBRARY',          value: (job.library ?: '').toString()),
+                                string(name: 'FILE_MASK',        value: (job.fileMask ?: '*.*').toString()),
+                                string(name: 'OPERATION',        value: (job.operation ?: 'COPY').toString()),
+                                string(name: 'OVERWRITE',        value: ((job.overwrite != false) ? 'true' : 'false')),
+                                string(name: 'PARENT_BUILD',     value: "SCHEDULE-${env.BUILD_NUMBER}")
+                            ]
+                        } else {
+                            // ROBOCOPY (default)
+                            targetJob = TEMPLATE_ROBOCOPY_JOB
+                            paramsList = [
+                                string(name: 'LOGICAL_JOB_NAME', value: name),
+                                string(name: 'SRC_CRED',         value: (job.credentialId ?: 'WIN.SVC.UC4.BATCHUSER').toString()),
+                                string(name: 'SRC_PATH',         value: (job.source ?: '').toString()),
+                                string(name: 'DST_PATH',         value: (job.destination ?: '').toString()),
+                                string(name: 'FILE_MASK',        value: (job.fileMask ?: '*.*').toString()),
+                                string(name: 'ROBOCOPY_FLAGS',   value: (job.flags ?: '/R:0 /W:0 /NP').toString()),
+                                string(name: 'PARENT_BUILD',     value: "SCHEDULE-${env.BUILD_NUMBER}")
+                            ]
+                        }
 
                         try {
                             build(
-                                job: TEMPLATE_JOB,
+                                job: targetJob,
                                 wait: false,
                                 propagate: false,
                                 parameters: paramsList
                             )
                             lastRun[name] = [
                                 windowKey   : wKey,
-                                triggeredAt : nowStamp(cal)
+                                triggeredAt : nowStamp(cal),
+                                type        : transferType
                             ]
                             triggered << name
                         } catch (Exception e) {
-                            echo "ERROR triggering ${name}: ${e.message}"
+                            echo "ERROR triggering ${name} → ${targetJob}: ${e.message}"
                             skipped << [name: name, reason: "build error: ${e.message}"]
                         }
                     }
