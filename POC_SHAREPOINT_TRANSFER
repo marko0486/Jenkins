@@ -1,18 +1,65 @@
+import groovy.json.JsonSlurperClassic
+import groovy.json.JsonOutput
+
+// ============================================================================
+// Helpers
+// ============================================================================
+def formatTime(long millis) {
+    if (millis <= 0) return "—"
+    return new Date(millis).format('yyyy-MM-dd HH:mm:ss')
+}
+
+def formatDuration(long millis) {
+    if (millis <= 0) return "—"
+    long totalSeconds = (millis / 1000).longValue()
+    long minutes = totalSeconds / 60
+    long seconds = totalSeconds % 60
+    if (minutes > 0) return "${minutes} min ${seconds} sec"
+    return "${seconds} sec"
+}
+
+@NonCPS
+def prependHistoryAndTrim(List history, Map entry, int maxEntries) {
+    def out = new ArrayList()
+    out.add(entry)
+    history.each { h ->
+        if (out.size() >= maxEntries) return
+        out.add(h)
+    }
+    return out
+}
+
+def stripTrailingSlash(String p) {
+    if (!p) return ''
+    def s = p.trim()
+    if (s.toLowerCase().startsWith('http://') || s.toLowerCase().startsWith('https://')) {
+        while (s.endsWith('/')) s = s.substring(0, s.length() - 1)
+        return s
+    }
+    while (s.endsWith('\\') || s.endsWith('/')) {
+        s = s.substring(0, s.length() - 1)
+    }
+    return s
+}
+
 pipeline {
     agent {
         label 'Windows'
     }
 
     parameters {
-        string(name: 'JOB_NAME',     defaultValue: '')
-        string(name: 'SRC_PATH',     defaultValue: '')
-        string(name: 'SITE_URL',     defaultValue: '')
-        string(name: 'LIBRARY',      defaultValue: 'Shared Documents')
-        string(name: 'FILE_MASK',    defaultValue: '*.*')
-        choice(name: 'OPERATION',    choices: ['COPY', 'MOVE'])
+        string(name: 'JOB_NAME',        defaultValue: '')
+        string(name: 'LOGICAL_JOB_NAME', defaultValue: '')
+        string(name: 'SRC_PATH',        defaultValue: '')
+        string(name: 'SITE_URL',        defaultValue: '')
+        string(name: 'DST_URL',         defaultValue: '')
+        string(name: 'DESTINATION',     defaultValue: '')
+        string(name: 'LIBRARY',         defaultValue: 'Shared Documents')
+        string(name: 'FILE_MASK',       defaultValue: '*.*')
+        choice(name: 'OPERATION',       choices: ['COPY', 'MOVE'])
         booleanParam(name: 'OVERWRITE', defaultValue: true)
-        string(name: 'SRC_CRED',     defaultValue: 'WIN.SVC.UC4.BATCHUSER')
-        string(name: 'PARENT_BUILD', defaultValue: 'N/A')
+        string(name: 'SRC_CRED',        defaultValue: 'WIN.SVC.UC4.BATCHUSER')
+        string(name: 'PARENT_BUILD',    defaultValue: 'N/A')
     }
 
     options {
@@ -22,58 +69,82 @@ pipeline {
     stages {
         stage('SharePoint Transfer') {
             steps {
-                catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
-                    script {
-                        def startTime = System.currentTimeMillis()
-                        env.START_TIME = "${startTime}"
+                script {
+                    def startMillis = System.currentTimeMillis()
+                    env.START_MILLIS = "${startMillis}"
+                    env.START_TIME_STR = formatTime(startMillis)
 
-                        currentBuild.displayName = "#${env.BUILD_NUMBER} - ${params.JOB_NAME}"
-                        currentBuild.description = "${params.FILE_MASK}"
+                    def jobName = (params.JOB_NAME ?: params.LOGICAL_JOB_NAME ?: 'UNKNOWN_JOB').toString().trim()
+                    if (!jobName) jobName = 'UNKNOWN_JOB'
+                    env.LOGICAL_NAME = jobName
 
-                        def logDir = "C:\\Jenkins\\Jobs\\Log"
+                    def srcPath = stripTrailingSlash(params.SRC_PATH ?: '')
+                    def siteUrl = stripTrailingSlash(
+                        (params.SITE_URL ?: params.DST_URL ?: params.DESTINATION ?: '').toString()
+                    )
+                    env.SRC_PATH_CLEAN = srcPath
+                    env.SITE_URL_CLEAN = siteUrl
 
-                        // Usamos el JOB_NAME del JSON para los archivos temporales y el log final
-                        def safeJobName  = params.JOB_NAME ?: "UNKNOWN_JOB"
-                        def psFile       = "${logDir}\\${safeJobName}_sharepoint-transfer_BuildID_${env.BUILD_NUMBER}.ps1"
-                        def resultFile   = "${logDir}\\${safeJobName}_result_BuildID_${env.BUILD_NUMBER}.txt"
-                        def finalLogFile = "${logDir}\\${safeJobName}_BuildID_${env.BUILD_NUMBER}.txt"
+                    currentBuild.displayName = "#${env.BUILD_NUMBER} - ${jobName}"
+                    currentBuild.description = "${params.FILE_MASK}"
 
-                        env.PS_FILE     = psFile
-                        env.RESULT_FILE = resultFile
-                        env.FINAL_LOG   = finalLogFile
+                    def logDir = 'C:\\Jenkins\\Jobs\\Log'
+                    def psFile = "${logDir}\\${jobName}_sharepoint-transfer_BuildID_${env.BUILD_NUMBER}.ps1"
+                    def resultFile = "${logDir}\\${jobName}_result_BuildID_${env.BUILD_NUMBER}.txt"
+                    def finalLogFile = "${logDir}\\${jobName}_BuildID_${env.BUILD_NUMBER}.txt"
+                    env.PS_FILE = psFile
+                    env.RESULT_FILE = resultFile
+                    env.FINAL_LOG = finalLogFile
+                    env.LOG_NAME = "${jobName}_BuildID_${env.BUILD_NUMBER}.txt"
 
-                        bat """
+                    // Defaults for post
+                    env.SP_STATUS = 'FAILED'
+                    env.SP_REASON = ''
+                    env.SP_RC = '1'
+
+                    bat """
 @echo off
 if not exist "${logDir}" mkdir "${logDir}"
 """
 
-                        withCredentials([
-                            usernamePassword(
-                                credentialsId: params.SRC_CRED,
-                                usernameVariable: 'FT_USER',
-                                passwordVariable: 'FT_PASS'
-                            )
-                        ]) {
-                            bat """
+                    if (!srcPath) {
+                        env.SP_STATUS = 'FAILED'
+                        env.SP_REASON = 'SRC_PATH is empty'
+                        error(env.SP_REASON)
+                    }
+                    if (!siteUrl) {
+                        env.SP_STATUS = 'FAILED'
+                        env.SP_REASON = 'SITE_URL is empty'
+                        error(env.SP_REASON)
+                    }
+
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: params.SRC_CRED,
+                            usernameVariable: 'FT_USER',
+                            passwordVariable: 'FT_PASS'
+                        )
+                    ]) {
+                        bat """
 @echo off
 echo Authenticating to UNC path using credential: ${params.SRC_CRED}
-net use "${params.SRC_PATH}" %FT_PASS% /user:%FT_USER% >nul 2>&1
+net use "${srcPath}" %FT_PASS% /user:%FT_USER% >nul 2>&1
 if errorlevel 1 (
     echo WARNING: net use failed on full path. Trying share root...
-    for /f "tokens=1,2,3 delims=\\" %%a in ("${params.SRC_PATH}") do (
+    for /f "tokens=1,2,3 delims=\\" %%a in ("${srcPath}") do (
         net use "\\\\%%b\\%%c" %FT_PASS% /user:%FT_USER% >nul 2>&1
     )
 )
 exit /b 0
 """
 
-                            try {
-                                writeFile(
-                                    file: psFile,
-                                    text: """
+                        try {
+                            writeFile(
+                                file: psFile,
+                                text: """
 # ================================================================
-# SharePoint Transfer Script
-# Generated by Jenkins Pipeline - Build ${env.BUILD_NUMBER}
+# SharePoint Transfer Script - Build ${env.BUILD_NUMBER}
+# Exit codes: 0=SUCCESS, 2=UNSTABLE (no files), 1=FAILED
 # ================================================================
 \$clientId   = "c9864df8-7369-42e5-bec4-2a7fd1e6cf7a"
 \$tenantId   = "eb70b763-b6d7-4486-8555-8831709a784e"
@@ -89,42 +160,47 @@ exit /b 0
 \$uploaded  = @()
 \$skipped   = @()
 \$errorMsg  = ""
+\$exitCode  = 0
 \$resultFile = "${resultFile}"
+
 try {
-    if (-not (Test-Path \$source)) {
-        throw "Source path does not exist or is not accessible: \$source"
+    if (-not (Test-Path -LiteralPath \$source)) {
+        throw "ACCESS_OR_MISSING: Source path does not exist or access denied: \$source"
     }
     Connect-PnPOnline -Url \$siteUrl -ClientId \$clientId -Tenant \$tenantId -Thumbprint \$thumbPrint -ErrorAction Stop
     \$connected = \$true
     Get-PnPWeb -ErrorAction Stop | Out-Null
-    \$files = @(Get-ChildItem -Path \$source -Filter \$mask -File)
+
+    \$files = @(Get-ChildItem -LiteralPath \$source -Filter \$mask -File -ErrorAction Stop)
     if (\$files.Count -eq 0) {
-        throw "No files found matching: \$mask"
-    }
-    foreach (\$file in \$files) {
-        Write-Host ""
-        Write-Host "Uploading: \$(\$file.Name)"
-        Write-Host "Operation: \$operation"
-        if (\$overwrite) {
-            Add-PnPFile -Path \$file.FullName -Folder \$library -ErrorAction Stop
-        } else {
-            \$existingFile = Get-PnPFile -Url "\$library/\$(\$file.Name)" -AsListItem -ErrorAction SilentlyContinue
-            if (\$existingFile) {
-                \$skipped += \$file.Name
-                Write-Host "Skipped (already exists): \$(\$file.Name)"
-                continue
+        \$errorMsg = "NO_FILES: No files found matching: \$mask"
+        \$exitCode = 2
+    } else {
+        foreach (\$file in \$files) {
+            Write-Host ""
+            Write-Host "Uploading: \$(\$file.Name)"
+            Write-Host "Operation: \$operation"
+            if (\$overwrite) {
+                Add-PnPFile -Path \$file.FullName -Folder \$library -ErrorAction Stop
+            } else {
+                \$existingFile = Get-PnPFile -Url "\$library/\$(\$file.Name)" -AsListItem -ErrorAction SilentlyContinue
+                if (\$existingFile) {
+                    \$skipped += \$file.Name
+                    Write-Host "Skipped (already exists): \$(\$file.Name)"
+                    continue
+                }
+                Add-PnPFile -Path \$file.FullName -Folder \$library -ErrorAction Stop
             }
-            Add-PnPFile -Path \$file.FullName -Folder \$library -ErrorAction Stop
-        }
-        \$uploaded += \$file.Name
-        if (\$operation -eq 'MOVE') {
-            Remove-Item -Path \$file.FullName -Force -ErrorAction Stop
+            \$uploaded += \$file.Name
+            if (\$operation -eq 'MOVE') {
+                Remove-Item -LiteralPath \$file.FullName -Force -ErrorAction Stop
+            }
         }
     }
 }
 catch {
     \$errorMsg = \$_.Exception.Message
-    exit 1
+    if (\$exitCode -eq 0) { \$exitCode = 1 }
 }
 finally {
     if (\$connected) {
@@ -139,46 +215,90 @@ SKIPPED
 ---
 ERROR
 \$errorMsg
+---
+EXIT
+\$exitCode
 "@
     \$content | Set-Content -Path \$resultFile -Encoding UTF8
 }
-exit 0
+exit \$exitCode
 """
-                                )
+                            )
 
-                                withEnv([
-                                    "SITE_URL=${params.SITE_URL}",
-                                    "SRC_PATH=${params.SRC_PATH}",
-                                    "FILE_MASK=${params.FILE_MASK}",
-                                    "LIBRARY=${params.LIBRARY}",
-                                    "OPERATION=${params.OPERATION}",
-                                    "OVERWRITE=${params.OVERWRITE}"
-                                ]) {
-                                    def rc = bat(
-                                        returnStatus: true,
-                                        script: """
+                            withEnv([
+                                "SITE_URL=${siteUrl}",
+                                "SRC_PATH=${srcPath}",
+                                "FILE_MASK=${params.FILE_MASK}",
+                                "LIBRARY=${params.LIBRARY}",
+                                "OPERATION=${params.OPERATION}",
+                                "OVERWRITE=${params.OVERWRITE}"
+                            ]) {
+                                def rc = bat(
+                                    returnStatus: true,
+                                    script: """
 @echo off
 "C:\\Program Files\\PowerShell\\7\\pwsh.exe" ^
     -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass ^
     -File "${psFile}"
 exit /b %ERRORLEVEL%
 """
-                                    )
-                                    if (rc != 0) {
-                                        error("SharePoint transfer failed. RC=${rc}")
+                                )
+                                env.SP_RC = "${rc}"
+
+                                // Read result early for classification
+                                def errorMsg = ''
+                                def uploadedList = []
+                                def skippedList = []
+                                if (fileExists(resultFile)) {
+                                    def content = readFile(resultFile)
+                                    def parts = content.split('---')
+                                    if (parts.size() >= 1) {
+                                        def u = parts[0].replace('UPLOADED', '').trim()
+                                        if (u) uploadedList = u.split('\n').findAll { it.trim() }
+                                    }
+                                    if (parts.size() >= 2) {
+                                        def s = parts[1].replace('SKIPPED', '').trim()
+                                        if (s) skippedList = s.split('\n').findAll { it.trim() }
+                                    }
+                                    if (parts.size() >= 3) {
+                                        errorMsg = parts[2].replace('ERROR', '').trim()
                                     }
                                 }
+                                env.SP_REASON = errorMsg ?: ''
+
+                                if (rc == 2 || (errorMsg && errorMsg.toUpperCase().startsWith('NO_FILES'))) {
+                                    // Path OK, mask matched nothing
+                                    env.SP_STATUS = 'UNSTABLE'
+                                    env.SP_REASON = errorMsg ?: "No files found matching: ${params.FILE_MASK}"
+                                    unstable(env.SP_REASON)
+                                } else if (rc != 0) {
+                                    env.SP_STATUS = 'FAILED'
+                                    if (!env.SP_REASON) {
+                                        env.SP_REASON = "SharePoint transfer failed. RC=${rc}"
+                                    }
+                                    // Access denied / missing path / API errors
+                                    error(env.SP_REASON)
+                                } else if (uploadedList.isEmpty() && !skippedList.isEmpty()) {
+                                    env.SP_STATUS = 'SUCCESS'
+                                    env.SP_REASON = ''
+                                } else if (uploadedList.isEmpty()) {
+                                    env.SP_STATUS = 'UNSTABLE'
+                                    env.SP_REASON = 'No files processed'
+                                    unstable(env.SP_REASON)
+                                } else {
+                                    env.SP_STATUS = 'SUCCESS'
+                                    env.SP_REASON = ''
+                                }
                             }
-                            finally {
-                                bat """
+                        } finally {
+                            bat """
 @echo off
-net use "${params.SRC_PATH}" /delete /y >nul 2>&1
-for /f "tokens=1,2,3 delims=\\" %%a in ("${params.SRC_PATH}") do (
+net use "${srcPath}" /delete /y >nul 2>&1
+for /f "tokens=1,2,3 delims=\\" %%a in ("${srcPath}") do (
     net use "\\\\%%b\\%%c" /delete /y >nul 2>&1
 )
 exit /b 0
 """
-                            }
                         }
                     }
                 }
@@ -189,80 +309,83 @@ exit /b 0
     post {
         always {
             script {
-                long elapsed = (System.currentTimeMillis() - env.START_TIME.toLong()) / 1000
+                def startMillis = (env.START_MILLIS ?: '0').toLong()
+                def endMillis = System.currentTimeMillis()
+                def startTime = env.START_TIME_STR ?: formatTime(startMillis)
+                def endTime = formatTime(endMillis)
+                def duration = formatDuration(endMillis - startMillis)
+                def elapsedSec = ((endMillis - startMillis) / 1000).longValue()
 
-                def logDir       = "C:\\Jenkins\\Jobs\\Log"
-                def safeJobName  = params.JOB_NAME ?: "UNKNOWN_JOB"
-                def resultFile   = "${logDir}\\${safeJobName}_result_BuildID_${env.BUILD_NUMBER}.txt"
-                def finalLogFile = "${logDir}\\${safeJobName}_BuildID_${env.BUILD_NUMBER}.txt"
+                def jobName = (env.LOGICAL_NAME ?: params.JOB_NAME ?: params.LOGICAL_JOB_NAME ?: 'UNKNOWN_JOB').toString()
+                def logDir = 'C:\\Jenkins\\Jobs\\Log'
+                def resultFile = env.RESULT_FILE ?: "${logDir}\\${jobName}_result_BuildID_${env.BUILD_NUMBER}.txt"
+                def finalLogFile = env.FINAL_LOG ?: "${logDir}\\${jobName}_BuildID_${env.BUILD_NUMBER}.txt"
+                def logName = env.LOG_NAME ?: "${jobName}_BuildID_${env.BUILD_NUMBER}.txt"
 
                 def uploadedList = []
-                def skippedList  = []
-                def errorMsg     = ''
+                def skippedList = []
+                def errorMsg = (env.SP_REASON ?: '').toString()
 
                 if (fileExists(resultFile)) {
                     def content = readFile(resultFile)
                     def parts = content.split('---')
-
                     if (parts.size() >= 1) {
-                        def uploadedSection = parts[0].replace('UPLOADED', '').trim()
-                        if (uploadedSection) {
-                            uploadedList = uploadedSection.split('\n').findAll { it.trim() }
-                        }
+                        def u = parts[0].replace('UPLOADED', '').trim()
+                        if (u) uploadedList = u.split('\n').findAll { it.trim() }
                     }
                     if (parts.size() >= 2) {
-                        def skippedSection = parts[1].replace('SKIPPED', '').trim()
-                        if (skippedSection) {
-                            skippedList = skippedSection.split('\n').findAll { it.trim() }
-                        }
+                        def s = parts[1].replace('SKIPPED', '').trim()
+                        if (s) skippedList = s.split('\n').findAll { it.trim() }
                     }
                     if (parts.size() >= 3) {
-                        errorMsg = parts[2].replace('ERROR', '').trim()
+                        def e = parts[2].replace('ERROR', '').trim()
+                        if (e) errorMsg = e
                     }
                 }
 
-                def finalStatus = ''
-                if (errorMsg) {
-                    finalStatus = errorMsg
-                } else if (uploadedList.isEmpty() && skippedList.isEmpty()) {
-                    finalStatus = 'NO FILES PROCESSED'
-                } else if (uploadedList.isEmpty() && !skippedList.isEmpty()) {
-                    finalStatus = 'NO FILES PROCESSED (all skipped)'
-                } else {
-                    finalStatus = "SUCCESS (${params.OPERATION})"
+                def status = (env.SP_STATUS ?: 'FAILED').toString().toUpperCase()
+                // Safety net from Jenkins result
+                if (status != 'SUCCESS' && status != 'UNSTABLE' && status != 'FAILED') {
+                    status = 'FAILED'
+                }
+                if (currentBuild.currentResult == 'FAILURE' && status == 'SUCCESS') {
+                    status = 'FAILED'
+                }
+                if (currentBuild.currentResult == 'UNSTABLE' && status == 'SUCCESS') {
+                    status = 'UNSTABLE'
                 }
 
-                def uploadedSection = ""
-                if (uploadedList) {
-                    uploadedList.eachWithIndex { file, idx ->
-                        uploadedSection += "${idx + 1}. ${file}\n"
-                    }
-                } else {
-                    uploadedSection = "No files uploaded\n"
+                def failReason = null
+                if (status != 'SUCCESS') {
+                    failReason = errorMsg ?: status
                 }
 
-                def skippedSection = ""
-                if (skippedList) {
-                    skippedList.eachWithIndex { file, idx ->
-                        skippedSection += "${idx + 1}. ${file}\n"
-                    }
+                def finalStatusText
+                if (status == 'SUCCESS') {
+                    finalStatusText = "SUCCESS (${params.OPERATION})"
+                } else if (status == 'UNSTABLE') {
+                    finalStatusText = "UNSTABLE: ${failReason}"
                 } else {
-                    skippedSection = "No files skipped\n"
+                    finalStatusText = "FAILED: ${failReason}"
                 }
+
+                def uploadedSection = uploadedList ? uploadedList.indexed().collect { i, f -> "${i + 1}. ${f}" }.join('\n') + '\n' : "No files uploaded\n"
+                def skippedSection = skippedList ? skippedList.indexed().collect { i, f -> "${i + 1}. ${f}" }.join('\n') + '\n' : "No files skipped\n"
 
                 def timestamp = new Date().format('yyyy-MM-dd HH:mm:ss')
-                def buildParent = "POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV #${params.PARENT_BUILD}"
+                def buildParent = "${params.PARENT_BUILD}"
 
                 def logContent = """SUMMARY
 ========================================
-Job Name     : ${params.JOB_NAME}
-Site URL     : ${params.SITE_URL}
+Job Name     : ${jobName}
+Site URL     : ${env.SITE_URL_CLEAN ?: params.SITE_URL}
+Source       : ${env.SRC_PATH_CLEAN ?: params.SRC_PATH}
 Library      : ${params.LIBRARY}
 Operation    : ${params.OPERATION}
 File Mask    : ${params.FILE_MASK}
 SRC_CRED     : ${params.SRC_CRED}
-Status       : ${finalStatus}
-Duration     : ${elapsed} seconds
+Status       : ${finalStatusText}
+Duration     : ${elapsedSec} seconds
 Timestamp    : ${timestamp}
 Build Parent : ${buildParent}
 Uploaded Files (${uploadedList.size()})
@@ -276,9 +399,55 @@ Errors
 ${errorMsg ? errorMsg : 'None'}
 ========================================
 """
-
                 writeFile file: finalLogFile, text: logContent
                 echo(logContent)
+
+                // ============================================================
+                // Dashboard history.json  →  Last Run / Last Status
+                // ============================================================
+                def histDir  = "C:\\Jenkins\\Jobs\\Dashboard\\data\\scheduled\\${jobName}"
+                def histFile = "${histDir}\\history.json"
+                def histWork = "${env.WORKSPACE}\\history_temp_${env.BUILD_NUMBER}.json"
+
+                bat """
+@echo off
+if not exist "${histDir}" mkdir "${histDir}"
+if exist "${histFile}" (
+    copy /Y "${histFile}" "${histWork}" >nul
+) else (
+    echo []> "${histWork}"
+)
+"""
+
+                def history = []
+                try {
+                    def raw = readFile(file: histWork).trim()
+                    if (raw && raw != '[]') {
+                        def parsed = new JsonSlurperClassic().parseText(raw)
+                        if (parsed instanceof List) history = new ArrayList(parsed)
+                    }
+                } catch (Exception e) {
+                    echo "WARNING: could not parse history: ${e.message}"
+                    history = []
+                }
+
+                def entry = [
+                    build     : env.BUILD_NUMBER.toInteger(),
+                    startTime : startTime,
+                    endTime   : endTime,
+                    duration  : duration,
+                    status    : status,
+                    logFile   : logName,
+                    reason    : failReason
+                ]
+                history = prependHistoryAndTrim(history, entry, 20)
+                writeFile file: histWork, text: JsonOutput.prettyPrint(JsonOutput.toJson(history))
+                bat """
+@echo off
+copy /Y "${histWork}" "${histFile}" >nul
+"""
+                echo "Scheduled history updated: ${histFile}"
+                echo "Final status for Dashboard: ${status}"
 
                 bat """
 @echo off
