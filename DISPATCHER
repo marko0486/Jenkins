@@ -1,293 +1,101 @@
-import groovy.json.JsonSlurperClassic
-import groovy.json.JsonOutput
-import java.util.Calendar
-import java.util.TimeZone
+Tengo estos errores:
 
-// ============================================================================
-// Paths / templates
-// ============================================================================
-def SCHEDULE_FILE             = 'C:/Jenkins/Jobs/Dashboard/scheduled-jobs.json'
-def LAST_RUN_FILE             = 'C:/Jenkins/Jobs/Dashboard/data/scheduler/last-run.json'
-def TEMPLATE_ROBOCOPY_JOB     = 'ZF_TEST-FILE_TRANSFER-JOB'
-def TEMPLATE_SHAREPOINT_JOB   = 'ZF_TEST-SHAREPOINT-JOB'   // <-- change to your real SharePoint job name
-def WINDOW_MINUTES            = 5
+ZF_GLOBAL_SCHEDULE_DISPATCHER
 
-// ============================================================================
-// Helpers
-// ============================================================================
-@NonCPS
-def loadJsonList(String path) {
-    def f = new File(path)
-    if (!f.exists()) return []
-    def text = f.getText('UTF-8').trim()
-    if (!text || text == '[]') return []
-    def parsed = new JsonSlurperClassic().parseText(text)
-    return (parsed instanceof List) ? new ArrayList(parsed) : []
-}
+TRIGGER → SHAREPOINT.JOB_1 | type=SHAREPOINT | calendar=DAILY | fromDate=- | start=05:24 | window=2026-09-13|05:24
+[Pipeline] build (Scheduling POC_SHAREPOINT_TRANSFER)
+Scheduling project: POC_SHAREPOINT_TRANSFER
+The parameter 'OVERWRITE' did not have the type expected by POC_SHAREPOINT_TRANSFER. Converting to Boolean Parameter.
+[Pipeline] echo
+========================================
+[Pipeline] echo
+DISPATCH SUMMARY
+[Pipeline] echo
+Triggered : 1 → [SHAREPOINT.JOB_1]
+[Pipeline] echo
 
-@NonCPS
-def loadJsonMap(String path) {
-    def f = new File(path)
-    if (!f.exists()) return [:]
-    def text = f.getText('UTF-8').trim()
-    if (!text || text == '{}' || text == '[]') return [:]
-    def parsed = new JsonSlurperClassic().parseText(text)
-    return (parsed instanceof Map) ? new LinkedHashMap(parsed) : [:]
-}
 
-@NonCPS
-def writeJson(String path, Object data) {
-    def f = new File(path)
-    f.parentFile?.mkdirs()
-    f.write(JsonOutput.prettyPrint(JsonOutput.toJson(data)), 'UTF-8')
-}
+CODIGO DE POC_SHAREPOINT_TRANSFER:
 
-@NonCPS
-def parseStartTime(String hhmm) {
-    if (!hhmm) return null
-    def m = (hhmm =~ /^(\d{1,2}):(\d{2})$/)
-    if (!m.matches()) return null
-    int h = m[0][1].toInteger()
-    int min = m[0][2].toInteger()
-    if (h < 0 || h > 23 || min < 0 || min > 59) return null
-    return [h, min]
-}
+PERO EL USUARIO batchuser si tiene acceso a ese folder. 
 
-@NonCPS
-def calendarMatches(Map job, Calendar cal) {
-    def c = (job.calendar ?: 'DAILY').toString().trim().toUpperCase()
-    int dow = cal.get(Calendar.DAY_OF_WEEK)
-    int dom = cal.get(Calendar.DAY_OF_MONTH)
-    int lastDom = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
-    int jsDow = (dow == Calendar.SUNDAY) ? 0 : (dow - 1)
+Started by upstream project "ZF_GLOBAL_SCHEDULE_DISPATCHER" build number 2214
+originally caused by:
+ Started by timer
+[Pipeline] Start of Pipeline
+[Pipeline] node
+Running on Jenkins in C:\ProgramData\Jenkins\.jenkins\workspace\POC_SHAREPOINT_TRANSFER
+[Pipeline] {
+[Pipeline] stage
+[Pipeline] { (SharePoint Transfer)
+[Pipeline] catchError
+[Pipeline] {
+[Pipeline] script
+[Pipeline] {
+[Pipeline] bat
+[Pipeline] withCredentials
+Masking supported pattern matches of %FT_PASS%
+[Pipeline] {
+[Pipeline] bat
+Authenticating to UNC path using credential: WIN.SVC.UC4.BATCHUSER
+WARNING: net use failed on full path. Trying share root...
+[Pipeline] writeFile
+[Pipeline] withEnv
+[Pipeline] {
+[Pipeline] bat
+[Pipeline] error
+[Pipeline] }
+[Pipeline] // withEnv
+[Pipeline] bat
+[Pipeline] }
+[Pipeline] // withCredentials
+[Pipeline] }
+[Pipeline] // script
+[Pipeline] }
+ERROR: SharePoint transfer failed. RC=1
+Setting overall build result to UNSTABLE
+[Pipeline] // catchError
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (Declarative: Post Actions)
+[Pipeline] script
+[Pipeline] {
+[Pipeline] fileExists
+[Pipeline] readFile
+[Pipeline] writeFile
+[Pipeline] echo
+SUMMARY
+========================================
+Job Name     : 
+Site URL     : 
+Library      : Shared Documents/General/EOO
+Operation    : COPY
+File Mask    : mytestfile_1.txt
+SRC_CRED     : WIN.SVC.UC4.BATCHUSER
+Status       : Access to the path '\\emea.zf-world.com\frd\system\sap\TP1\m005\Wesson\' is denied.
+Duration     : 4 seconds
+Timestamp    : 2026-09-13 05:24:21
+Build Parent : POC_AUTOMIC_FT_ORCHESTRATOR_05_MINUTES.EV #SCHEDULE-2214
+Uploaded Files (0)
+----------------------------------------
+No files uploaded
 
-    if (job.fromDate) {
-        def from = job.fromDate.toString()
-        if (from ==~ /\d{4}-\d{2}-\d{2}/) {
-            def y = cal.get(Calendar.YEAR)
-            def m = String.format('%02d', cal.get(Calendar.MONTH) + 1)
-            def d = String.format('%02d', cal.get(Calendar.DAY_OF_MONTH))
-            def key = "${y}-${m}-${d}"
-            if (key < from) return false
-        }
-    }
+Skipped Files (0)
+----------------------------------------
+No files skipped
 
-    if (c == 'CUSTOM') {
-        def custom = job.custom
-        if (!(custom instanceof Map)) return false
-        def kind = (custom.kind ?: '').toString()
-        if (kind == 'monthly_days') {
-            def days = (custom.daysOfMonth instanceof List) ? custom.daysOfMonth : []
-            return days.collect { it as int }.contains(dom)
-        }
-        if (kind == 'monthly_last') return dom == lastDom
-        if (kind == 'every_x_days') {
-            int x = (custom.everyXDays ?: 0) as int
-            def from = (custom.fromDate ?: job.fromDate ?: '').toString()
-            if (x < 1 || !(from ==~ /\d{4}-\d{2}-\d{2}/)) return false
-            def parts = from.split('-')
-            def fromCal = Calendar.getInstance(cal.getTimeZone())
-            fromCal.clear()
-            fromCal.set(parts[0] as int, (parts[1] as int) - 1, parts[2] as int)
-            def cur = Calendar.getInstance(cal.getTimeZone())
-            cur.clear()
-            cur.set(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH))
-            if (cur.before(fromCal)) return false
-            long diff = (cur.timeInMillis - fromCal.timeInMillis) / (24L * 60L * 60L * 1000L)
-            return (diff % x) == 0
-        }
-        if (kind == 'weekly_days') {
-            def w = (custom.weekDays instanceof List) ? custom.weekDays.collect { it as int } : []
-            return w.contains(jsDow)
-        }
-        if (kind == 'specific_dates') {
-            def y = cal.get(Calendar.YEAR)
-            def m = String.format('%02d', cal.get(Calendar.MONTH) + 1)
-            def d = String.format('%02d', cal.get(Calendar.DAY_OF_MONTH))
-            def key = "${y}-${m}-${d}"
-            def dates = (custom.specificDates instanceof List) ? custom.specificDates : []
-            return dates.contains(key)
-        }
-        return false
-    }
+Errors
+----------------------------------------
+Access to the path '\\emea.zf-world.com\frd\system\sap\TP1\m005\Wesson\' is denied.
+========================================
 
-    switch (c) {
-        case 'DAILY':        return true
-        case 'WEEKDAYS':     return dow >= Calendar.MONDAY && dow <= Calendar.FRIDAY
-        case 'WEEKENDS':     return dow == Calendar.SATURDAY || dow == Calendar.SUNDAY
-        case 'WEEKLY_SUN':   return dow == Calendar.SUNDAY
-        case 'WEEKLY_MON':   return dow == Calendar.MONDAY
-        case 'WEEKLY_TUE':   return dow == Calendar.TUESDAY
-        case 'WEEKLY_WED':   return dow == Calendar.WEDNESDAY
-        case 'WEEKLY_THU':   return dow == Calendar.THURSDAY
-        case 'WEEKLY_FRI':   return dow == Calendar.FRIDAY
-        case 'WEEKLY_SAT':   return dow == Calendar.SATURDAY
-        case 'MONTHLY_1':    return dom == 1
-        case 'MONTHLY_15':   return dom == 15
-        case 'MONTHLY_LAST': return dom == lastDom
-        default:
-            def m = (c =~ /^MONTHLY_(\d{1,2})$/)
-            if (m.matches()) return dom == (m[0][1] as int)
-            return true
-    }
-}
-
-@NonCPS
-def inTimeWindow(Calendar cal, int startH, int startM, int windowMinutes) {
-    int nowMin = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
-    int startMin = startH * 60 + startM
-    int endMin = startMin + windowMinutes
-    return nowMin >= startMin && nowMin < endMin
-}
-
-@NonCPS
-def windowKey(Calendar cal, String startTime) {
-    def y = cal.get(Calendar.YEAR)
-    def m = String.format('%02d', cal.get(Calendar.MONTH) + 1)
-    def d = String.format('%02d', cal.get(Calendar.DAY_OF_MONTH))
-    return "${y}-${m}-${d}|${startTime}"
-}
-
-@NonCPS
-def nowStamp(Calendar cal) {
-    def y = cal.get(Calendar.YEAR)
-    def m = String.format('%02d', cal.get(Calendar.MONTH) + 1)
-    def d = String.format('%02d', cal.get(Calendar.DAY_OF_MONTH))
-    def hh = String.format('%02d', cal.get(Calendar.HOUR_OF_DAY))
-    def mm = String.format('%02d', cal.get(Calendar.MINUTE))
-    def ss = String.format('%02d', cal.get(Calendar.SECOND))
-    return "${y}-${m}-${d} ${hh}:${mm}:${ss}"
-}
-
-// ============================================================================
-// Pipeline
-// ============================================================================
-pipeline {
-    agent { label 'built-in' }
-
-    options {
-        disableConcurrentBuilds()
-        buildDiscarder(logRotator(numToKeepStr: '50'))
-        timeout(time: 15, unit: 'MINUTES')
-    }
-
-    stages {
-        stage('Dispatch scheduled jobs') {
-            steps {
-                script {
-                    def jobs = loadJsonList(SCHEDULE_FILE)
-                    if (jobs.isEmpty()) {
-                        echo "No entries in ${SCHEDULE_FILE}"
-                        return
-                    }
-
-                    def lastRun = loadJsonMap(LAST_RUN_FILE)
-                    def triggered = []
-                    def skipped = []
-
-                    jobs.each { job ->
-                        def name = (job.name ?: job.job ?: '').toString()
-                        if (!name) {
-                            skipped << [name: '(missing name)', reason: 'no name']
-                            return
-                        }
-                        if (job.enabled == false) {
-                            skipped << [name: name, reason: 'disabled']
-                            return
-                        }
-
-                        def tzName = (job.timezone ?: 'Europe/Berlin').toString()
-                        def tz = TimeZone.getTimeZone(tzName)
-                        def cal = Calendar.getInstance(tz)
-
-                        if (!calendarMatches(job, cal)) {
-                            skipped << [name: name, reason: "calendar ${job.calendar} / fromDate not today"]
-                            return
-                        }
-
-                        def startTime = (job.startTime ?: '').toString()
-                        def hm = parseStartTime(startTime)
-                        if (!hm) {
-                            skipped << [name: name, reason: "invalid startTime '${startTime}'"]
-                            return
-                        }
-
-                        if (!inTimeWindow(cal, hm[0], hm[1], WINDOW_MINUTES)) {
-                            skipped << [name: name, reason: "outside window ${startTime} (+${WINDOW_MINUTES}m)"]
-                            return
-                        }
-
-                        def wKey = windowKey(cal, startTime)
-                        def prev = lastRun[name]
-                        if (prev instanceof Map && prev.windowKey == wKey) {
-                            skipped << [name: name, reason: "already triggered for window ${wKey}"]
-                            return
-                        }
-
-                        def transferType = (job.transferType ?: 'ROBOCOPY').toString().toUpperCase()
-                        echo "TRIGGER → ${name} | type=${transferType} | calendar=${job.calendar} | fromDate=${job.fromDate ?: '-'} | start=${startTime} | window=${wKey}"
-
-                        def targetJob
-                        def paramsList
-
-                        if (transferType == 'SHAREPOINT') {
-                            targetJob = TEMPLATE_SHAREPOINT_JOB
-                            paramsList = [
-                                string(name: 'LOGICAL_JOB_NAME', value: name),
-                                string(name: 'SRC_CRED',         value: (job.credentialId ?: 'WIN.SVC.UC4.BATCHUSER').toString()),
-                                string(name: 'SRC_PATH',         value: (job.source ?: '').toString()),
-                                string(name: 'DST_URL',          value: (job.destination ?: '').toString()),
-                                string(name: 'LIBRARY',          value: (job.library ?: '').toString()),
-                                string(name: 'FILE_MASK',        value: (job.fileMask ?: '*.*').toString()),
-                                string(name: 'OPERATION',        value: (job.operation ?: 'COPY').toString()),
-                                string(name: 'OVERWRITE',        value: ((job.overwrite != false) ? 'true' : 'false')),
-                                string(name: 'PARENT_BUILD',     value: "SCHEDULE-${env.BUILD_NUMBER}")
-                            ]
-                        } else {
-                            // ROBOCOPY (default)
-                            targetJob = TEMPLATE_ROBOCOPY_JOB
-                            paramsList = [
-                                string(name: 'LOGICAL_JOB_NAME', value: name),
-                                string(name: 'SRC_CRED',         value: (job.credentialId ?: 'WIN.SVC.UC4.BATCHUSER').toString()),
-                                string(name: 'SRC_PATH',         value: (job.source ?: '').toString()),
-                                string(name: 'DST_PATH',         value: (job.destination ?: '').toString()),
-                                string(name: 'FILE_MASK',        value: (job.fileMask ?: '*.*').toString()),
-                                string(name: 'ROBOCOPY_FLAGS',   value: (job.flags ?: '/R:0 /W:0 /NP').toString()),
-                                string(name: 'PARENT_BUILD',     value: "SCHEDULE-${env.BUILD_NUMBER}")
-                            ]
-                        }
-
-                        try {
-                            build(
-                                job: targetJob,
-                                wait: false,
-                                propagate: false,
-                                parameters: paramsList
-                            )
-                            lastRun[name] = [
-                                windowKey   : wKey,
-                                triggeredAt : nowStamp(cal),
-                                type        : transferType
-                            ]
-                            triggered << name
-                        } catch (Exception e) {
-                            echo "ERROR triggering ${name} → ${targetJob}: ${e.message}"
-                            skipped << [name: name, reason: "build error: ${e.message}"]
-                        }
-                    }
-
-                    writeJson(LAST_RUN_FILE, lastRun)
-
-                    echo "========================================"
-                    echo "DISPATCH SUMMARY"
-                    echo "Triggered : ${triggered.size()} → ${triggered}"
-                    echo "Skipped   : ${skipped.size()}"
-                    skipped.each { s ->
-                        echo "  - ${s.name}: ${s.reason}"
-                    }
-                    echo "========================================"
-                }
-            }
-        }
-    }
-}
+[Pipeline] bat
+[Pipeline] }
+[Pipeline] // script
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] }
+[Pipeline] // node
+[Pipeline] End of Pipeline
+Finished: UNSTABLE
