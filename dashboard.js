@@ -44,6 +44,7 @@ let isLoadingScheduled = false;
 let editingScheduleId = null;
 
 let cachedScheduledFailures = [];
+let cachedScheduledUnstableCount = 0;
 
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-refresh').onclick = refreshCurrentView;
@@ -100,6 +101,17 @@ document.addEventListener('DOMContentLoaded', () => {
   loadAll();
 });
 
+function stripTrailingSlash(p) {
+  if (!p) return '';
+  let s = String(p).trim();
+  if (/^https?:\/\//i.test(s)) {
+    while (s.endsWith('/')) s = s.slice(0, -1);
+    return s;
+  }
+  while (s.endsWith('\\') || s.endsWith('/')) s = s.slice(0, -1);
+  return s;
+}
+
 async function refreshCurrentView() {
   if (currentView === 'scheduled') {
     await openScheduledView(true);
@@ -151,12 +163,8 @@ function showDashboardView() {
 function formatBerlinNow() {
   return new Intl.DateTimeFormat('en-GB', {
     timeZone: DEFAULT_SCHEDULE_TZ,
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
     hourCycle: 'h23'
   }).format(new Date());
 }
@@ -176,50 +184,28 @@ function isValidWindowsName(name) {
 
 function clearScheduleFormError() {
   const errEl = document.getElementById('sf-error');
-  if (errEl) {
-    errEl.hidden = true;
-    errEl.textContent = '';
-  }
+  if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
 }
 
 function showScheduleFormError(msg) {
   const errEl = document.getElementById('sf-error');
-  if (errEl) {
-    errEl.textContent = msg;
-    errEl.hidden = false;
-  }
+  if (errEl) { errEl.textContent = msg; errEl.hidden = false; }
 }
 
 async function validateJobNameLive() {
   if (editingScheduleId) return null;
-
   const nameEl = document.getElementById('sf-name');
   const folderEl = document.getElementById('sf-folder');
   if (!nameEl) return null;
-
   const name = (nameEl.value || '').trim();
   if (!name) return null;
-
-  if (!isValidWindowsName(name)) {
-    return 'Job Name cannot contain: \\ / : * ? " < > |';
-  }
-
+  if (!isValidWindowsName(name)) return 'Job Name cannot contain: \\ / : * ? " < > |';
   const folder = ((folderEl && folderEl.value) || '').trim() || name;
-  if (!isValidWindowsName(folder)) {
-    return 'Folder cannot contain: \\ / : * ? " < > |';
-  }
-
+  if (!isValidWindowsName(folder)) return 'Folder cannot contain: \\ / : * ? " < > |';
   let list = [];
-  try {
-    list = await fetchScheduledJobsList();
-  } catch (e) {
-    console.warn(e);
-    return null;
-  }
-
+  try { list = await fetchScheduledJobsList(); } catch (e) { return null; }
   const nameKey = name.toLowerCase();
   const folderKey = folder.toLowerCase();
-
   if (list.some(j => (j.name || j.job || '').toLowerCase() === nameKey)) {
     return 'A job with this name already exists: ' + name;
   }
@@ -230,10 +216,7 @@ async function validateJobNameLive() {
 }
 
 async function runLiveNameValidation() {
-  if (editingScheduleId) {
-    clearScheduleFormError();
-    return;
-  }
+  if (editingScheduleId) { clearScheduleFormError(); return; }
   const msg = await validateJobNameLive();
   if (msg) showScheduleFormError(msg);
   else clearScheduleFormError();
@@ -245,21 +228,14 @@ async function fetchScheduledJobsList() {
     if (data && typeof data === 'object') return [data];
     return [];
   };
-
   try {
     const res = await fetch(CONFIG.SCHEDULED_URL + '?t=' + Date.now());
     if (res.ok) return normalize(await res.json());
-  } catch (e) {
-    console.warn('API scheduled-jobs failed, trying local file', e);
-  }
-
+  } catch (e) { console.warn(e); }
   try {
-    const url = (CONFIG.SCHEDULED_FILE_URL || 'scheduled-jobs.json') + '?t=' + Date.now();
-    const res = await fetch(url);
+    const res = await fetch((CONFIG.SCHEDULED_FILE_URL || 'scheduled-jobs.json') + '?t=' + Date.now());
     if (res.ok) return normalize(await res.json());
-  } catch (e) {
-    console.warn(e);
-  }
+  } catch (e) { console.warn(e); }
   return [];
 }
 
@@ -268,7 +244,6 @@ async function loadAll() {
     const res = await fetch(CONFIG.ORCHESTRATORS_URL + '?t=' + Date.now());
     if (!res.ok) throw new Error('Cannot load orchestrators.json');
     orchestrators = await res.json();
-
     const results = await Promise.all(
       orchestrators.map(async o => {
         try {
@@ -282,12 +257,9 @@ async function loadAll() {
             orchestratorColor: o.color || '#3b82f6',
             folder: o.folder
           }));
-        } catch {
-          return [];
-        }
+        } catch { return []; }
       })
     );
-
     allBuilds = results.flat().sort((a, b) => Number(b.build) - Number(a.build));
     filteredBuilds = [...allBuilds];
     currentPage = 1;
@@ -296,19 +268,15 @@ async function loadAll() {
     historyCache = null;
     selectedHistoryJob = null;
     document.getElementById('detail-card').style.display = 'none';
-
     showDashboardView();
     renderOrchList();
     populateOrchFilter();
-
     await refreshBellAndFailedStats();
-
     renderDonut();
     renderOrchStatus();
     renderActivity();
     renderTable();
     setLastUpdated();
-
     const orchCount = document.getElementById('orch-count');
     if (orchCount) orchCount.textContent = orchestrators.length;
   } catch (err) {
@@ -339,12 +307,10 @@ function badgeClass(s) {
   return 'badge-other';
 }
 
-/* ========== TIMEZONE + CALENDAR ========== */
 function getZonedParts(date, timeZone) {
   const parts = {};
   const dtf = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric', month: '2-digit', day: '2-digit',
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
     hourCycle: 'h23', weekday: 'short'
   });
@@ -358,9 +324,7 @@ function getZonedParts(date, timeZone) {
     year: parseInt(parts.year, 10),
     month: parseInt(parts.month, 10),
     day: parseInt(parts.day, 10),
-    hour,
-    minute: parseInt(parts.minute, 10),
-    second: parseInt(parts.second, 10),
+    hour, minute: parseInt(parts.minute, 10), second: parseInt(parts.second, 10),
     dow: dowMap[parts.weekday] ?? 0
   };
 }
@@ -400,14 +364,11 @@ function afterOrOnFromDate(parts, fromDate) {
 
 function jobMatchesDay(job, parts) {
   if (!afterOrOnFromDate(parts, job.fromDate)) return false;
-
   const cal = (job.calendar || 'DAILY').toString().toUpperCase();
   if (cal === 'CUSTOM' && job.custom) {
     const custom = job.custom;
     const kind = custom.kind || '';
-    if (kind === 'monthly_days') {
-      return (custom.daysOfMonth || []).map(Number).includes(parts.day);
-    }
+    if (kind === 'monthly_days') return (custom.daysOfMonth || []).map(Number).includes(parts.day);
     if (kind === 'monthly_last') return parts.day === lastDayOfMonth(parts.year, parts.month);
     if (kind === 'every_x_days') {
       const x = Number(custom.everyXDays || 0);
@@ -420,13 +381,9 @@ function jobMatchesDay(job, parts) {
       return Math.round((curUtc - fromUtc) / 86400000) % x === 0;
     }
     if (kind === 'weekly_days') return (custom.weekDays || []).map(Number).includes(parts.dow);
-    if (kind === 'specific_dates') {
-      return (custom.specificDates || []).includes(ymdKey(parts.year, parts.month, parts.day));
-    }
+    if (kind === 'specific_dates') return (custom.specificDates || []).includes(ymdKey(parts.year, parts.month, parts.day));
   }
-
-  const dow = parts.dow;
-  const dom = parts.day;
+  const dow = parts.dow, dom = parts.day;
   switch (cal) {
     case 'DAILY': return true;
     case 'WEEKDAYS': return dow >= 1 && dow <= 5;
@@ -459,14 +416,11 @@ function computeNextRuns(job, count) {
   const now = new Date();
   const nowZ = getZonedParts(now, timeZone);
   const out = [];
-
   for (let i = 0; i < 900 && out.length < count; i++) {
     const ymd = addDaysToYmd(nowZ.year, nowZ.month, nowZ.day, i);
     const noon = wallTimeToUtcDate(ymd.year, ymd.month, ymd.day, 12, 0, 0, timeZone);
     const dayParts = getZonedParts(noon, timeZone);
-    dayParts.year = ymd.year;
-    dayParts.month = ymd.month;
-    dayParts.day = ymd.day;
+    dayParts.year = ymd.year; dayParts.month = ymd.month; dayParts.day = ymd.day;
     if (!jobMatchesDay(job, dayParts)) continue;
     const runAt = wallTimeToUtcDate(ymd.year, ymd.month, ymd.day, hour, minute, 0, timeZone);
     if (runAt.getTime() > now.getTime()) {
@@ -483,21 +437,19 @@ function computeNextRun(job) {
 
 function normalizeScheduledJob(j) {
   const name = j.name || j.job || '—';
-  const calendar = (j.calendar || 'DAILY').toString().toUpperCase();
-  const startTime = j.startTime || '—';
-  const fromDate = j.fromDate || (j.custom && j.custom.fromDate) || null;
   const transferType = (j.transferType || 'ROBOCOPY').toString().toUpperCase();
   const base = {
     ...j,
-    name,
-    job: name,
-    calendar,
-    startTime,
-    fromDate,
+    name, job: name,
+    calendar: (j.calendar || 'DAILY').toString().toUpperCase(),
+    startTime: j.startTime || '—',
+    fromDate: j.fromDate || (j.custom && j.custom.fromDate) || null,
     transferType,
     type: 'TRANSFER',
     enabled: j.enabled !== false,
     timezone: j.timezone || DEFAULT_SCHEDULE_TZ,
+    source: stripTrailingSlash(j.source || ''),
+    destination: stripTrailingSlash(j.destination || ''),
     library: j.library || '',
     operation: j.operation || 'COPY',
     overwrite: j.overwrite !== false
@@ -528,13 +480,12 @@ function toSaveShape(j) {
     custom: null,
     type: 'TRANSFER',
     transferType,
-    source: j.source || '',
-    destination: j.destination || '',
+    source: stripTrailingSlash(j.source || ''),
+    destination: stripTrailingSlash(j.destination || ''),
     fileMask: j.fileMask || '*.*',
     credentialId: j.credentialId || 'WIN.SVC.UC4.BATCHUSER',
     timezone: j.timezone || DEFAULT_SCHEDULE_TZ
   };
-
   if (transferType === 'SHAREPOINT') {
     base.library = j.library || '';
     base.operation = j.operation || 'COPY';
@@ -542,18 +493,17 @@ function toSaveShape(j) {
   } else {
     base.flags = j.flags || '/R:0 /W:0 /NP';
   }
-
   return base;
 }
 
-/* ========== SCHEDULED FAILURES ========== */
 async function loadScheduledJobsRaw() {
   return fetchScheduledJobsList();
 }
 
-async function collectScheduledFailures() {
+async function collectScheduledOutcomes() {
   const list = await loadScheduledJobsRaw();
   const failures = [];
+  let unstableCount = 0;
   await Promise.all(list.map(async job => {
     const name = job.name || job.job;
     if (!name) return;
@@ -565,30 +515,34 @@ async function collectScheduledFailures() {
       if (!Array.isArray(hist)) return;
       hist.forEach(h => {
         const st = (h.status || '').toUpperCase();
-        if (st !== 'FAILED' && st !== 'FAILURE') return;
         const failTime = h.endTime || h.startTime || '—';
-        failures.push({
+        const item = {
           job: name,
           parentBuild: h.build != null ? h.build : '—',
           orchestrator: 'Scheduled',
           orchestratorColor: '#8b5cf6',
           status: h.status,
-          reason: h.reason || 'Scheduled job failed',
+          reason: h.reason || (st === 'UNSTABLE' ? 'No files matched / unstable' : 'Scheduled job failed'),
           startTime: failTime,
           logFile: h.logFile || null,
           source: 'scheduled',
           _sortKey: parseTimestamp(failTime) || 0
-        });
+        };
+        if (st === 'FAILED' || st === 'FAILURE') failures.push(item);
+        else if (st === 'UNSTABLE') unstableCount += 1;
       });
-    } catch (e) {
-      console.warn(e);
-    }
+    } catch (e) { console.warn(e); }
   }));
+  cachedScheduledUnstableCount = unstableCount;
   return failures;
 }
 
+async function collectScheduledFailures() {
+  return collectScheduledOutcomes();
+}
+
 async function refreshBellAndFailedStats() {
-  cachedScheduledFailures = await collectScheduledFailures();
+  cachedScheduledFailures = await collectScheduledOutcomes();
   updateStats();
   updateBellFromCaches();
   renderDonut();
@@ -597,19 +551,13 @@ async function refreshBellAndFailedStats() {
 function updateBellFromCaches() {
   const now = Date.now();
   const h24 = 24 * 60 * 60 * 1000;
-
   let count = allBuilds.filter(b => {
     const t = parseTimestamp(b.timestamp);
     return t && now - t <= h24;
   }).reduce((s, b) => s + (b.failedCount || 0), 0);
-
   count += cachedScheduledFailures.filter(f => f._sortKey && now - f._sortKey <= h24).length;
-
   if (count > 0) updateBellBadge(count);
-  else {
-    updateBellBadge(0);
-    bellCleared = false;
-  }
+  else { updateBellBadge(0); bellCleared = false; }
 }
 
 async function openFailedJobsView() {
@@ -617,7 +565,6 @@ async function openFailedJobsView() {
   isLoadingFailed = true;
   failedJobs = [];
   const seen = new Set();
-
   try {
     for (const parent of allBuilds) {
       if ((parent.failedCount || 0) === 0) continue;
@@ -637,38 +584,27 @@ async function openFailedJobsView() {
                        : parent.endTime && parent.endTime !== '—' ? parent.endTime
                        : parent.timestamp || '—';
           failedJobs.push({
-            job: c.job || '—',
-            parentBuild: parent.build,
-            orchestrator: parent.orchestratorName,
-            orchestratorColor: parent.orchestratorColor,
-            status: c.status,
-            reason: c.reason || '—',
-            startTime: failTime,
-            logFile: c.logFile || null,
-            source: 'orchestrator',
+            job: c.job || '—', parentBuild: parent.build,
+            orchestrator: parent.orchestratorName, orchestratorColor: parent.orchestratorColor,
+            status: c.status, reason: c.reason || '—', startTime: failTime,
+            logFile: c.logFile || null, source: 'orchestrator',
             _sortKey: parseTimestamp(failTime) || 0
           });
         });
-      } catch (e) {
-        console.warn(e);
-      }
+      } catch (e) { console.warn(e); }
     }
-
-    cachedScheduledFailures = await collectScheduledFailures();
+    cachedScheduledFailures = await collectScheduledOutcomes();
     cachedScheduledFailures.forEach(f => {
       const key = `sched||${f.job}||${f.parentBuild}`;
       if (seen.has(key)) return;
       seen.add(key);
       failedJobs.push(f);
     });
-  } finally {
-    isLoadingFailed = false;
-  }
+  } finally { isLoadingFailed = false; }
 
   failedJobs.sort((a, b) => b._sortKey - a._sortKey);
   filteredFailedJobs = [...failedJobs];
   failedPage = 1;
-
   hideAllCenterCards();
   document.getElementById('stats-row').style.display = 'none';
   document.getElementById('right-dashboard').style.display = 'block';
@@ -682,19 +618,15 @@ async function openFailedJobsView() {
   updateBellFromCaches();
 }
 
-function closeFailedJobsView() {
-  showDashboardView();
-}
+function closeFailedJobsView() { showDashboardView(); }
 
 function filterFailedJobs() {
   const q = (document.getElementById('failed-search').value || '').toLowerCase().trim();
-  filteredFailedJobs = !q
-    ? [...failedJobs]
-    : failedJobs.filter(f =>
-        (f.job || '').toLowerCase().includes(q) ||
-        String(f.parentBuild).includes(q) ||
-        (f.orchestrator || '').toLowerCase().includes(q)
-      );
+  filteredFailedJobs = !q ? [...failedJobs] : failedJobs.filter(f =>
+    (f.job || '').toLowerCase().includes(q) ||
+    String(f.parentBuild).includes(q) ||
+    (f.orchestrator || '').toLowerCase().includes(q)
+  );
   failedPage = 1;
   document.getElementById('failed-jobs-subtitle').textContent =
     `${filteredFailedJobs.length} failed job${filteredFailedJobs.length !== 1 ? 's' : ''} found`;
@@ -727,12 +659,10 @@ function renderFailedJobs() {
     });
   }
   renderPagerCustom('failed-jobs-pager', filteredFailedJobs.length, failedPage, CONFIG.FAILED_PAGE_SIZE, p => {
-    failedPage = p;
-    renderFailedJobs();
+    failedPage = p; renderFailedJobs();
   });
 }
 
-/* ========== JOB HISTORY ========== */
 async function openHistoryView() {
   if (isLoadingHistory) return;
   isLoadingHistory = true;
@@ -752,9 +682,7 @@ async function openHistoryView() {
           if (!res.ok) return [];
           const data = await res.json();
           return Array.isArray(data) ? data : [];
-        } catch {
-          return [];
-        }
+        } catch { return []; }
       })
     );
     const map = new Map();
@@ -765,13 +693,9 @@ async function openHistoryView() {
       const existing = map.get(name);
       if (!existing || timeKey >= existing._sortKey) {
         map.set(name, {
-          job: name,
-          source: e.source || '—',
-          destination: e.destination || '—',
-          transferType: e.transferType || '—',
-          fileMask: e.fileMask || '—',
-          flags: e.flags || '—',
-          _sortKey: timeKey
+          job: name, source: e.source || '—', destination: e.destination || '—',
+          transferType: e.transferType || '—', fileMask: e.fileMask || '—',
+          flags: e.flags || '—', _sortKey: timeKey
         });
       }
     });
@@ -781,9 +705,7 @@ async function openHistoryView() {
     historyPage = 1;
     selectedHistoryJob = null;
     showHistoryUI();
-  } finally {
-    isLoadingHistory = false;
-  }
+  } finally { isLoadingHistory = false; }
 }
 
 function showHistoryUI() {
@@ -801,20 +723,16 @@ function showHistoryUI() {
   renderHistoryJobs();
 }
 
-function closeHistoryView() {
-  showDashboardView();
-}
+function closeHistoryView() { showDashboardView(); }
 
 function filterHistoryJobs() {
   const q = (document.getElementById('history-search').value || '').toLowerCase().trim();
-  filteredHistoryJobs = !q
-    ? [...historyJobs]
-    : historyJobs.filter(h =>
-        (h.job || '').toLowerCase().includes(q) ||
-        (h.source || '').toLowerCase().includes(q) ||
-        (h.destination || '').toLowerCase().includes(q) ||
-        (h.transferType || '').toLowerCase().includes(q)
-      );
+  filteredHistoryJobs = !q ? [...historyJobs] : historyJobs.filter(h =>
+    (h.job || '').toLowerCase().includes(q) ||
+    (h.source || '').toLowerCase().includes(q) ||
+    (h.destination || '').toLowerCase().includes(q) ||
+    (h.transferType || '').toLowerCase().includes(q)
+  );
   historyPage = 1;
   selectedHistoryJob = null;
   document.getElementById('history-subtitle').textContent =
@@ -848,8 +766,7 @@ function renderHistoryJobs() {
     });
   }
   renderPagerCustom('history-pager', filteredHistoryJobs.length, historyPage, CONFIG.HISTORY_PAGE_SIZE, p => {
-    historyPage = p;
-    selectedHistoryJob = null;
+    historyPage = p; selectedHistoryJob = null;
     const panel = document.getElementById('history-detail-panel');
     if (panel) panel.style.display = 'none';
     renderHistoryJobs();
@@ -871,28 +788,22 @@ function showHistoryJobDetails(h) {
   panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-/* ========== SCHEDULED ========== */
 async function openScheduledView(forceReload) {
   if (isLoadingScheduled && !forceReload) return;
   isLoadingScheduled = true;
   try {
     const data = await fetchScheduledJobsList();
     scheduledJobs = data.map(normalizeScheduledJob);
-
     await Promise.all(scheduledJobs.map(async job => {
       try {
         const folder = (job.folder || job.name || job.job || '').toString();
         if (!folder) {
-          job._history = [];
-          job.lastRun = '—';
-          job.lastStatus = '—';
+          job._history = []; job.lastRun = '—'; job.lastStatus = '—';
           return;
         }
         const r = await fetch(`data/scheduled/${encodeURIComponent(folder)}/history.json?t=${Date.now()}`);
         if (!r.ok) {
-          job._history = [];
-          job.lastRun = '—';
-          job.lastStatus = '—';
+          job._history = []; job.lastRun = '—'; job.lastStatus = '—';
           return;
         }
         const hist = await r.json();
@@ -902,13 +813,10 @@ async function openScheduledView(forceReload) {
           job.lastRun = last.startTime || last.endTime || '—';
           job.lastStatus = last.status || '—';
         } else {
-          job.lastRun = '—';
-          job.lastStatus = '—';
+          job.lastRun = '—'; job.lastStatus = '—';
         }
       } catch {
-        job._history = [];
-        job.lastRun = '—';
-        job.lastStatus = '—';
+        job._history = []; job.lastRun = '—'; job.lastStatus = '—';
       }
     }));
   } catch (e) {
@@ -921,30 +829,25 @@ async function openScheduledView(forceReload) {
   filteredScheduled = [...scheduledJobs];
   scheduledPage = 1;
   selectedScheduled = null;
-
   hideAllCenterCards();
   document.getElementById('stats-row').style.display = 'none';
   document.getElementById('right-dashboard').style.display = 'none';
   document.getElementById('right-scheduled').style.display = 'block';
   document.getElementById('scheduled-view').style.display = 'block';
-
   const schedDetail = document.getElementById('scheduled-detail-card');
   if (schedDetail) schedDetail.style.display = 'none';
   const histBody = document.getElementById('sched-history-tbody');
   if (histBody) histBody.innerHTML = '';
-
   document.getElementById('scheduled-search').value = '';
   document.getElementById('scheduled-filter-type').value = 'all';
   document.getElementById('scheduled-subtitle').textContent = scheduledJobs.length
     ? `${scheduledJobs.length} scheduled job${scheduledJobs.length !== 1 ? 's' : ''}`
     : 'No scheduled jobs found';
-
   setActiveNav('scheduled');
   renderScheduledTable();
   renderScheduleSummary();
   renderNextRuns();
   setLastUpdated();
-
   await refreshBellAndFailedStats();
 }
 
@@ -998,43 +901,33 @@ function renderScheduledTable() {
     });
   }
   renderPagerCustom('scheduled-pager', filteredScheduled.length, scheduledPage, CONFIG.SCHEDULED_PAGE_SIZE, p => {
-    scheduledPage = p;
-    renderScheduledTable();
+    scheduledPage = p; renderScheduledTable();
   });
 }
 
 function showScheduledDetails(j) {
   selectedScheduled = j;
   renderScheduledTable();
-
   const card = document.getElementById('scheduled-detail-card');
   card.style.display = 'block';
-
   document.getElementById('sched-detail-name').textContent = j.name || j.job || '—';
-  document.getElementById('sched-detail-schedule').textContent =
-    `${j.calendar || '—'} at ${j.startTime || '—'}`;
-  document.getElementById('sched-detail-tz').textContent =
-    `Time zone: ${j.timezone || DEFAULT_SCHEDULE_TZ}`;
+  document.getElementById('sched-detail-schedule').textContent = `${j.calendar || '—'} at ${j.startTime || '—'}`;
+  document.getElementById('sched-detail-tz').textContent = `Time zone: ${j.timezone || DEFAULT_SCHEDULE_TZ}`;
   const fromEl = document.getElementById('sched-detail-from');
-  if (fromEl) {
-    fromEl.textContent = j.fromDate ? `Valid from: ${j.fromDate}` : 'Valid from: immediately';
-  }
+  if (fromEl) fromEl.textContent = j.fromDate ? `Valid from: ${j.fromDate}` : 'Valid from: immediately';
   document.getElementById('sched-detail-next').textContent = j.nextRunDisplay || '—';
   document.getElementById('sched-detail-last').textContent = j.lastRun || '—';
   document.getElementById('sched-detail-last-status').innerHTML = j.lastStatus
     ? `<span class="badge ${badgeClass(j.lastStatus)}" style="margin-top:4px;display:inline-block">${j.lastStatus}</span>`
     : '';
-
   const activeEl = document.getElementById('sched-detail-active');
   if (activeEl) {
     activeEl.textContent = j.enabled ? 'Active' : 'Inactive';
     activeEl.className = 'badge ' + (j.enabled ? 'badge-success' : 'badge-other');
   }
-
   document.getElementById('sched-detail-source').textContent = displayPath(j.source);
   document.getElementById('sched-detail-destination').textContent = displayPath(j.destination);
   document.getElementById('sched-detail-mask').textContent = j.fileMask || '—';
-
   const flagsEl = document.getElementById('sched-detail-flags');
   if ((j.transferType || '').toUpperCase() === 'SHAREPOINT') {
     flagsEl.textContent = [
@@ -1045,12 +938,9 @@ function showScheduledDetails(j) {
   } else {
     flagsEl.textContent = j.flags || '—';
   }
-
   const tbody = document.getElementById('sched-history-tbody');
   tbody.innerHTML = '';
-
   const hist = Array.isArray(j._history) ? j._history.slice(0, 2) : [];
-
   if (!hist.length) {
     tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:16px;color:#94a3b8">No execution history yet</td></tr>`;
   } else {
@@ -1105,17 +995,14 @@ function renderScheduleSummary() {
 function renderNextRuns() {
   const ul = document.getElementById('next-runs-list');
   ul.innerHTML = '';
-
   const list = [...scheduledJobs]
     .filter(j => j.enabled !== false && j.nextRunDisplay && j.nextRunDisplay !== '—')
     .sort((a, b) => String(a.nextRunDisplay).localeCompare(String(b.nextRunDisplay)))
     .slice(0, 6);
-
   if (!list.length) {
     ul.innerHTML = `<li style="color:#94a3b8;font-size:12px;padding:12px 0">No upcoming runs</li>`;
     return;
   }
-
   list.forEach(j => {
     const li = document.createElement('li');
     li.innerHTML = `
@@ -1131,14 +1018,12 @@ function renderNextRuns() {
   });
 }
 
-/* ========== SCHEDULE MODAL (ROBOCOPY / SHAREPOINT) ========== */
 function toggleTransferFields() {
   const type = (document.getElementById('sf-transfer').value || 'ROBOCOPY').toUpperCase();
   const robo = document.getElementById('sf-robocopy-fields');
   const sp = document.getElementById('sf-sharepoint-fields');
   const dest = document.getElementById('sf-destination');
   const source = document.getElementById('sf-source');
-
   if (type === 'SHAREPOINT') {
     if (robo) robo.hidden = true;
     if (sp) sp.hidden = false;
@@ -1160,89 +1045,62 @@ function initScheduleModalUi() {
       el.addEventListener('change', updateNextPreview);
     }
   });
-
   const transferEl = document.getElementById('sf-transfer');
-  if (transferEl) {
-    transferEl.addEventListener('change', toggleTransferFields);
-  }
-
+  if (transferEl) transferEl.addEventListener('change', toggleTransferFields);
   const nameEl = document.getElementById('sf-name');
   const folderEl = document.getElementById('sf-folder');
-
   if (nameEl) {
-    let nameTimer = null;
-    nameEl.addEventListener('input', () => {
-      clearTimeout(nameTimer);
-      nameTimer = setTimeout(() => { runLiveNameValidation(); }, 350);
-    });
-    nameEl.addEventListener('blur', () => { runLiveNameValidation(); });
+    let t = null;
+    nameEl.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => runLiveNameValidation(), 350); });
+    nameEl.addEventListener('blur', () => runLiveNameValidation());
   }
-
   if (folderEl) {
-    let folderTimer = null;
-    folderEl.addEventListener('input', () => {
-      clearTimeout(folderTimer);
-      folderTimer = setTimeout(() => { runLiveNameValidation(); }, 350);
-    });
-    folderEl.addEventListener('blur', () => { runLiveNameValidation(); });
+    let t = null;
+    folderEl.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => runLiveNameValidation(), 350); });
+    folderEl.addEventListener('blur', () => runLiveNameValidation());
   }
 }
 
 function openScheduleModal(job) {
   editingScheduleId = job ? (job.id || job.name || job.job) : null;
-  document.getElementById('schedule-modal-title').textContent =
-    job ? 'Edit Scheduled Job' : 'Add Scheduled Job';
+  document.getElementById('schedule-modal-title').textContent = job ? 'Edit Scheduled Job' : 'Add Scheduled Job';
   clearScheduleFormError();
-
   const nameInput = document.getElementById('sf-name');
   nameInput.value = job ? (job.name || job.job || '') : '';
   nameInput.disabled = !!job;
-
   document.getElementById('sf-folder').value = job ? (job.folder || '') : '';
   document.getElementById('sf-enabled').value = job && job.enabled === false ? 'false' : 'true';
   document.getElementById('sf-start').value = job ? (job.startTime || '') : '00:00';
-
   const tzSel = document.getElementById('sf-tz');
   const tz = job ? (job.timezone || DEFAULT_SCHEDULE_TZ) : DEFAULT_SCHEDULE_TZ;
   if (tzSel && ![...tzSel.options].some(o => o.value === tz)) {
     const opt = document.createElement('option');
-    opt.value = tz;
-    opt.textContent = tz;
-    tzSel.appendChild(opt);
+    opt.value = tz; opt.textContent = tz; tzSel.appendChild(opt);
   }
   if (tzSel) tzSel.value = tz;
-
   const transferType = job ? (job.transferType || 'ROBOCOPY') : 'ROBOCOPY';
   document.getElementById('sf-transfer').value = transferType;
-
-  document.getElementById('sf-source').value = job ? (job.source || '') : '';
-  document.getElementById('sf-destination').value = job ? (job.destination || '') : '';
+  document.getElementById('sf-source').value = job ? stripTrailingSlash(job.source || '') : '';
+  document.getElementById('sf-destination').value = job ? stripTrailingSlash(job.destination || '') : '';
   document.getElementById('sf-mask').value = job ? (job.fileMask || '*.*') : '*.*';
   document.getElementById('sf-cred').value = job ? (job.credentialId || 'WIN.SVC.UC4.BATCHUSER') : 'WIN.SVC.UC4.BATCHUSER';
   document.getElementById('sf-flags').value = job ? (job.flags || '/R:0 /W:0 /NP') : '/R:0 /W:0 /NP';
-
   const libEl = document.getElementById('sf-library');
   const opEl = document.getElementById('sf-operation');
   const owEl = document.getElementById('sf-overwrite');
   if (libEl) libEl.value = job ? (job.library || '') : '';
   if (opEl) opEl.value = job ? (job.operation || 'COPY') : 'COPY';
   if (owEl) owEl.value = job && job.overwrite === false ? 'false' : 'true';
-
   let cal = job ? (job.calendar || 'DAILY') : 'DAILY';
   if (String(cal).toUpperCase() === 'CUSTOM') cal = 'DAILY';
   document.getElementById('sf-calendar').value = cal;
   document.getElementById('sf-from-date').value = job && job.fromDate ? job.fromDate : '';
-
   const delBtn = document.getElementById('sf-delete');
   if (delBtn) delBtn.hidden = !job;
-
   toggleTransferFields();
   updateNextPreview();
   document.getElementById('schedule-modal').hidden = false;
-
-  if (!job) {
-    setTimeout(() => { runLiveNameValidation(); }, 50);
-  }
+  if (!job) setTimeout(() => runLiveNameValidation(), 50);
 }
 
 function closeScheduleModal() {
@@ -1257,43 +1115,29 @@ function closeScheduleModal() {
 function buildJobFromForm() {
   const name = document.getElementById('sf-name').value.trim();
   const start = document.getElementById('sf-start').value.trim();
-  const source = document.getElementById('sf-source').value.trim();
-  const dest = document.getElementById('sf-destination').value.trim();
+  const source = stripTrailingSlash(document.getElementById('sf-source').value);
+  const dest = stripTrailingSlash(document.getElementById('sf-destination').value);
   if (!name || !start || !source || !dest) {
     throw new Error('Job Name, Start Time, Source and Destination are required');
   }
   if (!/^\d{1,2}:\d{2}$/.test(start)) throw new Error('Start Time must be HH:mm (24h)');
-
   const folder = document.getElementById('sf-folder').value.trim() || name;
-
-  if (!isValidWindowsName(name)) {
-    throw new Error('Job Name cannot contain: \\ / : * ? " < > |');
-  }
-  if (!isValidWindowsName(folder)) {
-    throw new Error('Folder cannot contain: \\ / : * ? " < > |');
-  }
-
+  if (!isValidWindowsName(name)) throw new Error('Job Name cannot contain: \\ / : * ? " < > |');
+  if (!isValidWindowsName(folder)) throw new Error('Folder cannot contain: \\ / : * ? " < > |');
   const transferType = (document.getElementById('sf-transfer').value || 'ROBOCOPY').toUpperCase();
   const fromDate = document.getElementById('sf-from-date').value || null;
-
   const entry = {
     id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-    name,
-    folder,
+    name, folder,
     enabled: document.getElementById('sf-enabled').value === 'true',
     startTime: start,
     calendar: document.getElementById('sf-calendar').value,
-    fromDate,
-    custom: null,
-    type: 'TRANSFER',
-    transferType,
-    source,
-    destination: dest,
+    fromDate, custom: null, type: 'TRANSFER', transferType,
+    source, destination: dest,
     fileMask: document.getElementById('sf-mask').value.trim() || '*.*',
     credentialId: document.getElementById('sf-cred').value.trim() || 'WIN.SVC.UC4.BATCHUSER',
     timezone: document.getElementById('sf-tz').value || DEFAULT_SCHEDULE_TZ
   };
-
   if (transferType === 'SHAREPOINT') {
     const library = (document.getElementById('sf-library')?.value || '').trim();
     if (!library) throw new Error('Library is required for SHAREPOINT jobs');
@@ -1303,7 +1147,6 @@ function buildJobFromForm() {
   } else {
     entry.flags = document.getElementById('sf-flags').value.trim() || '/R:0 /W:0 /NP';
   }
-
   return entry;
 }
 
@@ -1319,15 +1162,11 @@ function updateNextPreview() {
       fromDate: document.getElementById('sf-from-date').value || null
     };
     const runs = computeNextRuns(draft, 10);
-    el.textContent = runs.length
-      ? `Next run: ${runs[0]} (${draft.timezone})`
-      : `Next run: — (${draft.timezone})`;
+    el.textContent = runs.length ? `Next run: ${runs[0]} (${draft.timezone})` : `Next run: — (${draft.timezone})`;
     if (listEl) {
-      if (!runs.length) {
-        listEl.innerHTML = '<div class="hint">No upcoming executions with current settings.</div>';
-      } else {
-        listEl.innerHTML = runs.map((r, i) => `<div class="run-line">${i + 1}. ${r}</div>`).join('');
-      }
+      listEl.innerHTML = !runs.length
+        ? '<div class="hint">No upcoming executions with current settings.</div>'
+        : runs.map((r, i) => `<div class="run-line">${i + 1}. ${r}</div>`).join('');
     }
   } catch {
     el.textContent = 'Next run preview: —';
@@ -1342,10 +1181,7 @@ async function persistScheduledJobs(list) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error('Save failed: ' + t);
-  }
+  if (!res.ok) throw new Error('Save failed: ' + (await res.text()));
 }
 
 async function saveScheduleFromModal() {
@@ -1355,37 +1191,26 @@ async function saveScheduleFromModal() {
       const liveMsg = await validateJobNameLive();
       if (liveMsg) throw new Error(liveMsg);
     }
-
     const entry = buildJobFromForm();
-
     const current = await fetchScheduledJobsList();
     let list = current.map(toSaveShape);
-
     if (editingScheduleId) {
       const idx = list.findIndex(j =>
-        j.id === editingScheduleId ||
-        j.name === editingScheduleId ||
-        j.name === entry.name
+        j.id === editingScheduleId || j.name === editingScheduleId || j.name === entry.name
       );
-      if (idx >= 0) {
-        list[idx] = { ...list[idx], ...entry, name: list[idx].name, id: list[idx].id };
-      } else {
-        list.push(entry);
-      }
+      if (idx >= 0) list[idx] = { ...list[idx], ...entry, name: list[idx].name, id: list[idx].id };
+      else list.push(entry);
     } else {
       const nameKey = entry.name.toLowerCase();
       const folderKey = (entry.folder || entry.name).toLowerCase();
-
       if (list.some(j => (j.name || '').toLowerCase() === nameKey)) {
         throw new Error('A job with this name already exists: ' + entry.name);
       }
       if (list.some(j => ((j.folder || j.name) || '').toLowerCase() === folderKey)) {
         throw new Error('A job with this folder already exists: ' + (entry.folder || entry.name));
       }
-
       list.push(entry);
     }
-
     await persistScheduledJobs(list);
     closeScheduleModal();
     await openScheduledView(true);
@@ -1400,38 +1225,15 @@ async function deleteScheduleFromModal() {
   if (!editingScheduleId) return;
   const name = document.getElementById('sf-name').value.trim();
   if (!name) return;
-  if (!confirm(
-    `Delete job "${name}"?\n\nThis removes it from scheduled-jobs.json and deletes related folders/logs.`
-  )) {
-    return;
-  }
+  if (!confirm(`Delete job "${name}"?\n\nThis removes it from scheduled-jobs.json and deletes related folders/logs.`)) return;
   const errEl = document.getElementById('sf-error');
   try {
-    const url = (CONFIG.SCHEDULE_DELETE_URL || CONFIG.SCHEDULE_SAVE_URL) +
-      '?name=' + encodeURIComponent(name);
+    const url = (CONFIG.SCHEDULE_DELETE_URL || CONFIG.SCHEDULE_SAVE_URL) + '?name=' + encodeURIComponent(name);
     const res = await fetch(url, { method: 'DELETE' });
-    if (!res.ok) {
-      const t = await res.text();
-      throw new Error(t || 'Delete failed');
-    }
+    if (!res.ok) throw new Error((await res.text()) || 'Delete failed');
     closeScheduleModal();
     await openScheduledView(true);
     await refreshBellAndFailedStats();
-
-    const now = Date.now();
-    const h24 = 24 * 60 * 60 * 1000;
-    const remaining =
-      allBuilds.filter(b => {
-        const t = parseTimestamp(b.timestamp);
-        return t && now - t <= h24;
-      }).reduce((s, b) => s + (b.failedCount || 0), 0) +
-      cachedScheduledFailures.filter(f => f._sortKey && now - f._sortKey <= h24).length;
-
-    if (remaining === 0) {
-      bellCleared = false;
-      updateBellBadge(0);
-    }
-
     alert('Job deleted: ' + name);
   } catch (e) {
     errEl.textContent = e.message;
@@ -1445,12 +1247,9 @@ function updateBellBadge(count) {
   if (count > 0 && !bellCleared) {
     badge.hidden = false;
     badge.textContent = count > 99 ? '99+' : count;
-  } else {
-    badge.hidden = true;
-  }
+  } else badge.hidden = true;
 }
 
-/* ========== ORCH / STATS / BUILDS ========== */
 function renderOrchList() {
   const ul = document.getElementById('orch-list');
   ul.innerHTML = '';
@@ -1484,8 +1283,7 @@ function renderOrchList() {
       showDashboardView();
       document.getElementById('filter-orch').value = o.id;
       applyFilters();
-      selectedBuild = null;
-      children = [];
+      selectedBuild = null; children = [];
       document.getElementById('detail-card').style.display = 'none';
       const latest = allBuilds.find(b => b.orchestratorId === o.id);
       if (latest) showDetails(latest);
@@ -1518,12 +1316,12 @@ function updateStats() {
     const t = parseTimestamp(b.timestamp);
     return t && now - t > h24 && now - t <= h24 * 2;
   });
-
   const totalSuccessChildren = allBuilds.reduce((s, b) => s + (b.successCount || 0), 0);
   const orchFailed = allBuilds.reduce((s, b) => s + (b.failedCount || 0), 0);
   const schedFailed = cachedScheduledFailures.length;
   const totalFailedChildren = orchFailed + schedFailed;
-  const totalUnstableChildren = allBuilds.reduce((s, b) => s + (b.unstableCount || 0), 0);
+  const orchUnstable = allBuilds.reduce((s, b) => s + (b.unstableCount || 0), 0);
+  const totalUnstableChildren = orchUnstable + (cachedScheduledUnstableCount || 0);
   const totalChildren = totalSuccessChildren + totalFailedChildren + totalUnstableChildren || 1;
 
   document.getElementById('stat-total').textContent = allBuilds.length;
@@ -1538,19 +1336,15 @@ function updateStats() {
   document.getElementById('pct-success').textContent = pctSuccess + '%';
   document.getElementById('pct-failed').textContent = pctFailed + '%';
   document.getElementById('pct-unstable').textContent = pctUnstable + '%';
-
   const circ = 113;
   setRing('ring-success', circ - (pctSuccess / 100) * circ);
   setRing('ring-failed', circ - (pctFailed / 100) * circ);
   setRing('ring-unstable', circ - (pctUnstable / 100) * circ);
 
   const schedFailedLast24 = cachedScheduledFailures.filter(f => f._sortKey && now - f._sortKey <= h24).length;
-  const orchFailedLast24 = last24.reduce((s, b) => s + (b.failedCount || 0), 0);
-  const prevOrchFailed = prev24.reduce((s, b) => s + (b.failedCount || 0), 0);
-
   setTrend('trend-total', last24.length - prev24.length);
   setTrend('trend-success', last24.reduce((s, b) => s + (b.successCount || 0), 0) - prev24.reduce((s, b) => s + (b.successCount || 0), 0));
-  setTrend('trend-failed', (orchFailedLast24 + schedFailedLast24) - prevOrchFailed);
+  setTrend('trend-failed', last24.reduce((s, b) => s + (b.failedCount || 0), 0) + schedFailedLast24 - prev24.reduce((s, b) => s + (b.failedCount || 0), 0));
   setTrend('trend-unstable', last24.reduce((s, b) => s + (b.unstableCount || 0), 0) - prev24.reduce((s, b) => s + (b.unstableCount || 0), 0));
   renderMiniBars(last24.slice(0, 8).reverse());
 }
@@ -1598,9 +1392,8 @@ function renderMiniBars(builds) {
 
 function renderDonut() {
   const success = allBuilds.reduce((s, b) => s + (b.successCount || 0), 0);
-  const orchFailed = allBuilds.reduce((s, b) => s + (b.failedCount || 0), 0);
-  const failed = orchFailed + cachedScheduledFailures.length;
-  const unstable = allBuilds.reduce((s, b) => s + (b.unstableCount || 0), 0);
+  const failed = allBuilds.reduce((s, b) => s + (b.failedCount || 0), 0) + cachedScheduledFailures.length;
+  const unstable = allBuilds.reduce((s, b) => s + (b.unstableCount || 0), 0) + (cachedScheduledUnstableCount || 0);
   const total = success + failed + unstable || 1;
   const donutTotal = document.getElementById('donut-total');
   if (donutTotal) donutTotal.textContent = success + failed + unstable;
@@ -1718,10 +1511,7 @@ function renderTable() {
       tbody.appendChild(tr);
     });
   }
-  renderPager('builds-pager', filteredBuilds.length, currentPage, p => {
-    currentPage = p;
-    renderTable();
-  });
+  renderPager('builds-pager', filteredBuilds.length, currentPage, p => { currentPage = p; renderTable(); });
 }
 
 function renderPager(id, total, current, cb) {
@@ -1826,7 +1616,6 @@ function renderChildren() {
     });
   }
   renderPager('children-pager', children.length, childrenPage, p => {
-    childrenPage = p;
-    renderChildren();
+    childrenPage = p; renderChildren();
   });
 }
