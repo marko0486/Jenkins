@@ -130,11 +130,8 @@ function setActiveNav(view) {
   currentView = view;
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   const map = {
-    dashboard: 'nav-dashboard',
-    failed: 'nav-failed',
-    history: 'nav-history',
-    scheduled: 'nav-scheduled',
-    reports: 'nav-reports'
+    dashboard: 'nav-dashboard', failed: 'nav-failed', history: 'nav-history',
+    scheduled: 'nav-scheduled', reports: 'nav-reports'
   };
   const el = document.getElementById(map[view]);
   if (el) el.classList.add('active');
@@ -164,8 +161,7 @@ function formatBerlinNow() {
   return new Intl.DateTimeFormat('en-GB', {
     timeZone: DEFAULT_SCHEDULE_TZ,
     day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-    hourCycle: 'h23'
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
   }).format(new Date());
 }
 
@@ -321,9 +317,7 @@ function getZonedParts(date, timeZone) {
   let hour = parseInt(parts.hour, 10);
   if (hour === 24) hour = 0;
   return {
-    year: parseInt(parts.year, 10),
-    month: parseInt(parts.month, 10),
-    day: parseInt(parts.day, 10),
+    year: parseInt(parts.year, 10), month: parseInt(parts.month, 10), day: parseInt(parts.day, 10),
     hour, minute: parseInt(parts.minute, 10), second: parseInt(parts.second, 10),
     dow: dowMap[parts.weekday] ?? 0
   };
@@ -431,8 +425,7 @@ function computeNextRuns(job, count) {
 }
 
 function computeNextRun(job) {
-  const list = computeNextRuns(job, 1);
-  return list[0] || '—';
+  return computeNextRuns(job, 1)[0] || '—';
 }
 
 function normalizeScheduledJob(j) {
@@ -444,9 +437,11 @@ function normalizeScheduledJob(j) {
     calendar: (j.calendar || 'DAILY').toString().toUpperCase(),
     startTime: j.startTime || '—',
     fromDate: j.fromDate || (j.custom && j.custom.fromDate) || null,
-    transferType,
-    type: 'TRANSFER',
+    transferType, type: 'TRANSFER',
     enabled: j.enabled !== false,
+    disabledByErrors: !!j.disabledByErrors,
+    disabledReason: j.disabledReason || null,
+    disabledAt: j.disabledAt || null,
     timezone: j.timezone || DEFAULT_SCHEDULE_TZ,
     source: stripTrailingSlash(j.source || ''),
     destination: stripTrailingSlash(j.destination || ''),
@@ -460,7 +455,6 @@ function normalizeScheduledJob(j) {
 
 function scheduleTypeBadge(t) {
   const v = (t || '').toUpperCase();
-  if (v === 'CUSTOM') return 'badge-monthly';
   if (v === 'DAILY' || v === 'WEEKDAYS') return 'badge-daily';
   if (v.startsWith('WEEKLY') || v === 'WEEKENDS') return 'badge-weekly';
   if (v.startsWith('MONTHLY')) return 'badge-monthly';
@@ -469,11 +463,12 @@ function scheduleTypeBadge(t) {
 
 function toSaveShape(j) {
   const transferType = (j.transferType || 'ROBOCOPY').toString().toUpperCase();
+  const enabled = j.enabled !== false;
   const base = {
     id: j.id || (j.name || j.job || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
     name: j.name || j.job,
     folder: j.folder || j.name || j.job,
-    enabled: j.enabled !== false,
+    enabled,
     startTime: j.startTime,
     calendar: j.calendar || 'DAILY',
     fromDate: j.fromDate || null,
@@ -486,6 +481,15 @@ function toSaveShape(j) {
     credentialId: j.credentialId || 'WIN.SVC.UC4.BATCHUSER',
     timezone: j.timezone || DEFAULT_SCHEDULE_TZ
   };
+  if (enabled) {
+    base.disabledByErrors = false;
+    base.disabledReason = null;
+    base.disabledAt = null;
+  } else {
+    base.disabledByErrors = !!j.disabledByErrors;
+    base.disabledReason = j.disabledReason || null;
+    base.disabledAt = j.disabledAt || null;
+  }
   if (transferType === 'SHAREPOINT') {
     base.library = j.library || '';
     base.operation = j.operation || 'COPY';
@@ -496,9 +500,7 @@ function toSaveShape(j) {
   return base;
 }
 
-async function loadScheduledJobsRaw() {
-  return fetchScheduledJobsList();
-}
+async function loadScheduledJobsRaw() { return fetchScheduledJobsList(); }
 
 async function collectScheduledOutcomes() {
   const list = await loadScheduledJobsRaw();
@@ -517,15 +519,11 @@ async function collectScheduledOutcomes() {
         const st = (h.status || '').toUpperCase();
         const failTime = h.endTime || h.startTime || '—';
         const item = {
-          job: name,
-          parentBuild: h.build != null ? h.build : '—',
-          orchestrator: 'Scheduled',
-          orchestratorColor: '#8b5cf6',
+          job: name, parentBuild: h.build != null ? h.build : '—',
+          orchestrator: 'Scheduled', orchestratorColor: '#8b5cf6',
           status: h.status,
           reason: h.reason || (st === 'UNSTABLE' ? 'No files matched / unstable' : 'Scheduled job failed'),
-          startTime: failTime,
-          logFile: h.logFile || null,
-          source: 'scheduled',
+          startTime: failTime, logFile: h.logFile || null, source: 'scheduled',
           _sortKey: parseTimestamp(failTime) || 0
         };
         if (st === 'FAILED' || st === 'FAILURE') failures.push(item);
@@ -537,9 +535,7 @@ async function collectScheduledOutcomes() {
   return failures;
 }
 
-async function collectScheduledFailures() {
-  return collectScheduledOutcomes();
-}
+async function collectScheduledFailures() { return collectScheduledOutcomes(); }
 
 async function refreshBellAndFailedStats() {
   cachedScheduledFailures = await collectScheduledOutcomes();
@@ -864,6 +860,15 @@ function filterScheduled() {
   renderScheduledTable();
 }
 
+function activeBadgeHtml(j) {
+  if (j.enabled) return `<span class="badge badge-active">Active</span>`;
+  if (j.disabledByErrors) {
+    const tip = (j.disabledReason || 'Disabled after 10 failures in the same calendar day (Europe/Berlin)').replace(/"/g, '&quot;');
+    return `<span class="badge badge-failed" title="${tip}">Disabled (errors)</span>`;
+  }
+  return `<span class="badge badge-inactive">Inactive</span>`;
+}
+
 function renderScheduledTable() {
   const tbody = document.getElementById('scheduled-tbody');
   tbody.innerHTML = '';
@@ -878,12 +883,9 @@ function renderScheduledTable() {
         tr.classList.add('selected');
       }
       tr.onclick = () => showScheduledDetails(j);
-      const activeBadge = j.enabled
-        ? `<span class="badge badge-active">Active</span>`
-        : `<span class="badge badge-inactive">Inactive</span>`;
       tr.innerHTML = `
         <td style="font-weight:500">${j.name || j.job || '—'}</td>
-        <td>${activeBadge}</td>
+        <td>${activeBadgeHtml(j)}</td>
         <td>${j.startTime || '—'}</td>
         <td><span class="badge ${scheduleTypeBadge(j.calendar)}">${j.calendar || '—'}</span></td>
         <td>${j.transferType || '—'}</td>
@@ -920,11 +922,40 @@ function showScheduledDetails(j) {
   document.getElementById('sched-detail-last-status').innerHTML = j.lastStatus
     ? `<span class="badge ${badgeClass(j.lastStatus)}" style="margin-top:4px;display:inline-block">${j.lastStatus}</span>`
     : '';
+
   const activeEl = document.getElementById('sched-detail-active');
   if (activeEl) {
-    activeEl.textContent = j.enabled ? 'Active' : 'Inactive';
-    activeEl.className = 'badge ' + (j.enabled ? 'badge-success' : 'badge-other');
+    if (j.enabled) {
+      activeEl.textContent = 'Active';
+      activeEl.className = 'badge badge-success';
+    } else if (j.disabledByErrors) {
+      activeEl.textContent = 'Disabled (errors)';
+      activeEl.className = 'badge badge-failed';
+    } else {
+      activeEl.textContent = 'Inactive';
+      activeEl.className = 'badge badge-other';
+    }
   }
+
+  let banner = document.getElementById('sched-detail-disabled-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'sched-detail-disabled-banner';
+    banner.className = 'disabled-by-errors-banner';
+    const nameEl = document.getElementById('sched-detail-name');
+    if (nameEl && nameEl.parentElement) {
+      nameEl.parentElement.appendChild(banner);
+    }
+  }
+  if (!j.enabled && j.disabledByErrors) {
+    banner.hidden = false;
+    banner.textContent = j.disabledReason ||
+      'This job was automatically disabled after 10 failures within the same calendar day (Europe/Berlin 00:00–23:59). Fix the issue and re-enable it in Edit.';
+  } else {
+    banner.hidden = true;
+    banner.textContent = '';
+  }
+
   document.getElementById('sched-detail-source').textContent = displayPath(j.source);
   document.getElementById('sched-detail-destination').textContent = displayPath(j.destination);
   document.getElementById('sched-detail-mask').textContent = j.fileMask || '—';
@@ -938,6 +969,7 @@ function showScheduledDetails(j) {
   } else {
     flagsEl.textContent = j.flags || '—';
   }
+
   const tbody = document.getElementById('sched-history-tbody');
   tbody.innerHTML = '';
   const hist = Array.isArray(j._history) ? j._history.slice(0, 2) : [];
@@ -1078,8 +1110,7 @@ function openScheduleModal(job) {
     opt.value = tz; opt.textContent = tz; tzSel.appendChild(opt);
   }
   if (tzSel) tzSel.value = tz;
-  const transferType = job ? (job.transferType || 'ROBOCOPY') : 'ROBOCOPY';
-  document.getElementById('sf-transfer').value = transferType;
+  document.getElementById('sf-transfer').value = job ? (job.transferType || 'ROBOCOPY') : 'ROBOCOPY';
   document.getElementById('sf-source').value = job ? stripTrailingSlash(job.source || '') : '';
   document.getElementById('sf-destination').value = job ? stripTrailingSlash(job.destination || '') : '';
   document.getElementById('sf-mask').value = job ? (job.fileMask || '*.*') : '*.*';
@@ -1126,10 +1157,10 @@ function buildJobFromForm() {
   if (!isValidWindowsName(folder)) throw new Error('Folder cannot contain: \\ / : * ? " < > |');
   const transferType = (document.getElementById('sf-transfer').value || 'ROBOCOPY').toUpperCase();
   const fromDate = document.getElementById('sf-from-date').value || null;
+  const enabled = document.getElementById('sf-enabled').value === 'true';
   const entry = {
     id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-    name, folder,
-    enabled: document.getElementById('sf-enabled').value === 'true',
+    name, folder, enabled,
     startTime: start,
     calendar: document.getElementById('sf-calendar').value,
     fromDate, custom: null, type: 'TRANSFER', transferType,
@@ -1138,6 +1169,11 @@ function buildJobFromForm() {
     credentialId: document.getElementById('sf-cred').value.trim() || 'WIN.SVC.UC4.BATCHUSER',
     timezone: document.getElementById('sf-tz').value || DEFAULT_SCHEDULE_TZ
   };
+  if (enabled) {
+    entry.disabledByErrors = false;
+    entry.disabledReason = null;
+    entry.disabledAt = null;
+  }
   if (transferType === 'SHAREPOINT') {
     const library = (document.getElementById('sf-library')?.value || '').trim();
     if (!library) throw new Error('Library is required for SHAREPOINT jobs');
@@ -1175,11 +1211,10 @@ function updateNextPreview() {
 }
 
 async function persistScheduledJobs(list) {
-  const payload = Array.isArray(list) ? list : [list];
   const res = await fetch(CONFIG.SCHEDULE_SAVE_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(Array.isArray(list) ? list : [list])
   });
   if (!res.ok) throw new Error('Save failed: ' + (await res.text()));
 }
@@ -1198,8 +1233,16 @@ async function saveScheduleFromModal() {
       const idx = list.findIndex(j =>
         j.id === editingScheduleId || j.name === editingScheduleId || j.name === entry.name
       );
-      if (idx >= 0) list[idx] = { ...list[idx], ...entry, name: list[idx].name, id: list[idx].id };
-      else list.push(entry);
+      if (idx >= 0) {
+        const prev = list[idx];
+        list[idx] = {
+          ...prev, ...entry,
+          name: prev.name, id: prev.id,
+          disabledByErrors: entry.enabled ? false : prev.disabledByErrors,
+          disabledReason: entry.enabled ? null : prev.disabledReason,
+          disabledAt: entry.enabled ? null : prev.disabledAt
+        };
+      } else list.push(entry);
     } else {
       const nameKey = entry.name.toLowerCase();
       const folderKey = (entry.folder || entry.name).toLowerCase();
@@ -1225,7 +1268,7 @@ async function deleteScheduleFromModal() {
   if (!editingScheduleId) return;
   const name = document.getElementById('sf-name').value.trim();
   if (!name) return;
-  if (!confirm(`Delete job "${name}"?\n\nThis removes it from scheduled-jobs.json and deletes related folders/logs.`)) return;
+  if (!confirm(`Delete job "${name}"?\n\nRemoves scheduled-jobs entry, folders, logs, last-run and failure counters.`)) return;
   const errEl = document.getElementById('sf-error');
   try {
     const url = (CONFIG.SCHEDULE_DELETE_URL || CONFIG.SCHEDULE_SAVE_URL) + '?name=' + encodeURIComponent(name);
@@ -1318,10 +1361,9 @@ function updateStats() {
   });
   const totalSuccessChildren = allBuilds.reduce((s, b) => s + (b.successCount || 0), 0);
   const orchFailed = allBuilds.reduce((s, b) => s + (b.failedCount || 0), 0);
-  const schedFailed = cachedScheduledFailures.length;
-  const totalFailedChildren = orchFailed + schedFailed;
-  const orchUnstable = allBuilds.reduce((s, b) => s + (b.unstableCount || 0), 0);
-  const totalUnstableChildren = orchUnstable + (cachedScheduledUnstableCount || 0);
+  const totalFailedChildren = orchFailed + cachedScheduledFailures.length;
+  const totalUnstableChildren =
+    allBuilds.reduce((s, b) => s + (b.unstableCount || 0), 0) + (cachedScheduledUnstableCount || 0);
   const totalChildren = totalSuccessChildren + totalFailedChildren + totalUnstableChildren || 1;
 
   document.getElementById('stat-total').textContent = allBuilds.length;
