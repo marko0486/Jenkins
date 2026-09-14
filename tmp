@@ -1,0 +1,15 @@
+Scalable: 
+Increase or decrease execution volume, frequency, and complexity without a proportional increase in cost, operational effort, or risk.
+Reliable: 
+Consistently execute file transfers correctly, completely, and predictably, even in the presence of failures, network issues, or partial outages.
+Alarming: 
+Detect abnormal conditions early and notify the right people with clear, actionable information before business impact occurs.
+Secure:
+Protect job execution and file transfers through strong access controls, secure protocols, and strict credential management, ensuring no unauthorized access, no credential exposure, full auditability, and compliance with security and retention policies.
+Data Transfer Consistency:
+Ensure that files are transferred completely and accurately by automatically handling failures, resuming interrupted transfers, applying configurable retry policies, and validating data integrity through checksum comparison between source and destination.
+Logging:
+Capture and retain detailed execution and transfer logs, generating clear job reports and persistent log files, and making results easily accessible to users for troubleshooting, auditing, and operational visibility.
+
+
+Basicamente tengo que evaluar soluciones para FileTransfers, crea un catalogo de criterios en excel, y damelo para descargar 
