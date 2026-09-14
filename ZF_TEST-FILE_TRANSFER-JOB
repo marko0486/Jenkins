@@ -44,7 +44,6 @@ def stripTrailingSlash(String p) {
     return s
 }
 
-// --- Auto-disable after 10 FAILED in calendar day (Europe/Berlin) ---
 def FAILURE_COUNTS_FILE  = 'C:/Jenkins/Jobs/Dashboard/data/scheduler/failure-counts.json'
 def SCHEDULE_FILE        = 'C:/Jenkins/Jobs/Dashboard/scheduled-jobs.json'
 def MAX_FAILURES_PER_DAY = 10
@@ -198,8 +197,6 @@ if not exist "${logDir}" mkdir "${logDir}"
                     }
 
                     def rc = 0
-                    def robocopyLog = ''
-                    def pathOk = true
 
                     withCredentials([
                         usernamePassword(
@@ -208,7 +205,6 @@ if not exist "${logDir}" mkdir "${logDir}"
                             passwordVariable: 'FT_PASS'
                         )
                     ]) {
-                        // Map drive / authenticate BEFORE existence check
                         bat """
 @echo off
 echo Authenticating UNC paths with ${params.SRC_CRED}
@@ -227,14 +223,12 @@ if errorlevel 1 (
 exit /b 0
 """
 
-                        // Path check after net use
                         def srcCheck = bat(returnStatus: true, script: """
 @echo off
 dir /b "${srcPath}" >nul 2>&1
 exit /b %ERRORLEVEL%
 """)
                         if (srcCheck != 0) {
-                            pathOk = false
                             env.FT_STATUS = 'FAILED'
                             env.FT_REASON = "Source path not found or access denied: ${srcPath}"
                         } else {
@@ -249,12 +243,11 @@ robocopy "${srcPath}" "${dstPath}" ${mask} ${flags}
 exit /b %ERRORLEVEL%
 """
                             )
-                            // Robocopy: 0-7 success-ish; 0 = no files copied
+                            // Robocopy: 0-7 OK-ish; 0 = nothing copied; >=8 failure
                             if (rc >= 8) {
                                 env.FT_STATUS = 'FAILED'
                                 env.FT_REASON = "Robocopy failed with RC=${rc}"
                             } else if (rc == 0) {
-                                // No files matched / nothing copied
                                 env.FT_STATUS = 'UNSTABLE'
                                 env.FT_REASON = "No files matched mask or nothing to copy (RC=0)"
                             } else {
@@ -323,7 +316,6 @@ END OF LOG
                 writeFile file: logPath, text: logContent
                 echo logContent
 
-                // history.json for Dashboard
                 def histDir  = "C:\\Jenkins\\Jobs\\Dashboard\\data\\scheduled\\${jobName}"
                 def histFile = "${histDir}\\history.json"
                 def histWork = "${env.WORKSPACE}\\history_temp_${env.BUILD_NUMBER}.json"
