@@ -1,5 +1,7 @@
 import groovy.json.JsonSlurperClassic
 import groovy.json.JsonOutput
+import java.util.Calendar
+import java.util.TimeZone
 
 // ============================================================================
 // Helpers
@@ -42,24 +44,116 @@ def stripTrailingSlash(String p) {
     return s
 }
 
+def FAILURE_COUNTS_FILE  = 'C:/Jenkins/Jobs/Dashboard/data/scheduler/failure-counts.json'
+def SCHEDULE_FILE        = 'C:/Jenkins/Jobs/Dashboard/scheduled-jobs.json'
+def MAX_FAILURES_PER_DAY = 10
+
+@NonCPS
+def berlinDateKey() {
+    def tz = TimeZone.getTimeZone('Europe/Berlin')
+    def cal = Calendar.getInstance(tz)
+    return String.format('%04d-%02d-%02d',
+        cal.get(Calendar.YEAR),
+        cal.get(Calendar.MONTH) + 1,
+        cal.get(Calendar.DAY_OF_MONTH))
+}
+
+@NonCPS
+def berlinNowStamp() {
+    def tz = TimeZone.getTimeZone('Europe/Berlin')
+    def cal = Calendar.getInstance(tz)
+    return String.format('%04d-%02d-%02d %02d:%02d:%02d',
+        cal.get(Calendar.YEAR),
+        cal.get(Calendar.MONTH) + 1,
+        cal.get(Calendar.DAY_OF_MONTH),
+        cal.get(Calendar.HOUR_OF_DAY),
+        cal.get(Calendar.MINUTE),
+        cal.get(Calendar.SECOND))
+}
+
+@NonCPS
+def loadJsonMapSafe(String path) {
+    def f = new File(path)
+    if (!f.exists()) return new LinkedHashMap()
+    def text = f.getText('UTF-8').trim()
+    if (!text || text == '{}' || text == '[]') return new LinkedHashMap()
+    def parsed = new JsonSlurperClassic().parseText(text)
+    return (parsed instanceof Map) ? new LinkedHashMap(parsed) : new LinkedHashMap()
+}
+
+@NonCPS
+def loadJsonListSafe(String path) {
+    def f = new File(path)
+    if (!f.exists()) return new ArrayList()
+    def text = f.getText('UTF-8').trim()
+    if (!text || text == '[]') return new ArrayList()
+    def parsed = new JsonSlurperClassic().parseText(text)
+    return (parsed instanceof List) ? new ArrayList(parsed) : new ArrayList()
+}
+
+@NonCPS
+def writeJsonSafe(String path, Object data) {
+    def f = new File(path)
+    f.parentFile?.mkdirs()
+    f.write(JsonOutput.prettyPrint(JsonOutput.toJson(data)), 'UTF-8')
+}
+
+def recordScheduledFailure(String jobName) {
+    if (!jobName) return
+    def today = berlinDateKey()
+    def counts = loadJsonMapSafe(FAILURE_COUNTS_FILE)
+    def entry = counts[jobName]
+    if (!(entry instanceof Map) || entry.dateKey != today) {
+        entry = [dateKey: today, count: 0, lastFailureAt: null]
+    }
+    entry.count = ((entry.count ?: 0) as int) + 1
+    entry.lastFailureAt = berlinNowStamp()
+    entry.dateKey = today
+    counts[jobName] = entry
+    writeJsonSafe(FAILURE_COUNTS_FILE, counts)
+    echo "Failure count for ${jobName}: ${entry.count}/${MAX_FAILURES_PER_DAY} (day ${today} Europe/Berlin)"
+
+    if ((entry.count as int) >= MAX_FAILURES_PER_DAY) {
+        def jobs = loadJsonListSafe(SCHEDULE_FILE)
+        def changed = false
+        jobs.each { j ->
+            def n = (j.name ?: j.job ?: '').toString()
+            if (n == jobName) {
+                j.enabled = false
+                j.disabledByErrors = true
+                j.disabledReason = "Disabled after ${MAX_FAILURES_PER_DAY} failures on ${today} (Europe/Berlin 00:00-23:59). Re-enable manually after fixing the issue."
+                j.disabledAt = berlinNowStamp()
+                changed = true
+            }
+        }
+        if (changed) {
+            writeJsonSafe(SCHEDULE_FILE, jobs)
+            echo "AUTO-DISABLED job ${jobName} after ${entry.count} failures today."
+        }
+    }
+}
+
+// ============================================================================
+// Pipeline
+// ============================================================================
 pipeline {
     agent {
         label 'Windows'
     }
 
     parameters {
-        string(name: 'JOB_NAME',        defaultValue: '')
+        string(name: 'JOB_NAME',         defaultValue: '')
         string(name: 'LOGICAL_JOB_NAME', defaultValue: '')
-        string(name: 'SRC_PATH',        defaultValue: '')
-        string(name: 'SITE_URL',        defaultValue: '')
-        string(name: 'DST_URL',         defaultValue: '')
-        string(name: 'DESTINATION',     defaultValue: '')
-        string(name: 'LIBRARY',         defaultValue: 'Shared Documents')
-        string(name: 'FILE_MASK',       defaultValue: '*.*')
-        choice(name: 'OPERATION',       choices: ['COPY', 'MOVE'])
-        booleanParam(name: 'OVERWRITE', defaultValue: true)
-        string(name: 'SRC_CRED',        defaultValue: 'WIN.SVC.UC4.BATCHUSER')
-        string(name: 'PARENT_BUILD',    defaultValue: 'N/A')
+        string(name: 'SRC_PATH',         defaultValue: '')
+        string(name: 'SITE_URL',         defaultValue: '')
+        string(name: 'DST_URL',          defaultValue: '')
+        string(name: 'DESTINATION',      defaultValue: '')
+        string(name: 'LIBRARY',          defaultValue: 'Shared Documents')
+        string(name: 'FILE_MASK',        defaultValue: '*.*')
+        choice(name: 'OPERATION',        choices: ['COPY', 'MOVE'])
+        booleanParam(name: 'OVERWRITE',  defaultValue: true)
+        string(name: 'SRC_CRED',         defaultValue: 'WIN.SVC.UC4.BATCHUSER')
+        string(name: 'PARENT_BUILD',     defaultValue: 'N/A')
     }
 
     options {
@@ -97,7 +191,6 @@ pipeline {
                     env.FINAL_LOG = finalLogFile
                     env.LOG_NAME = "${jobName}_BuildID_${env.BUILD_NUMBER}.txt"
 
-                    // Defaults for post
                     env.SP_STATUS = 'FAILED'
                     env.SP_REASON = ''
                     env.SP_RC = '1'
@@ -143,8 +236,8 @@ exit /b 0
                                 file: psFile,
                                 text: """
 # ================================================================
-# SharePoint Transfer Script - Build ${env.BUILD_NUMBER}
-# Exit codes: 0=SUCCESS, 2=UNSTABLE (no files), 1=FAILED
+# SharePoint Transfer - Build ${env.BUILD_NUMBER}
+# Exit: 0=SUCCESS, 2=UNSTABLE (no files), 1=FAILED
 # ================================================================
 \$clientId   = "c9864df8-7369-42e5-bec4-2a7fd1e6cf7a"
 \$tenantId   = "eb70b763-b6d7-4486-8555-8831709a784e"
@@ -245,7 +338,6 @@ exit /b %ERRORLEVEL%
                                 )
                                 env.SP_RC = "${rc}"
 
-                                // Read result early for classification
                                 def errorMsg = ''
                                 def uploadedList = []
                                 def skippedList = []
@@ -267,21 +359,14 @@ exit /b %ERRORLEVEL%
                                 env.SP_REASON = errorMsg ?: ''
 
                                 if (rc == 2 || (errorMsg && errorMsg.toUpperCase().startsWith('NO_FILES'))) {
-                                    // Path OK, mask matched nothing
                                     env.SP_STATUS = 'UNSTABLE'
                                     env.SP_REASON = errorMsg ?: "No files found matching: ${params.FILE_MASK}"
                                     unstable(env.SP_REASON)
                                 } else if (rc != 0) {
                                     env.SP_STATUS = 'FAILED'
-                                    if (!env.SP_REASON) {
-                                        env.SP_REASON = "SharePoint transfer failed. RC=${rc}"
-                                    }
-                                    // Access denied / missing path / API errors
+                                    if (!env.SP_REASON) env.SP_REASON = "SharePoint transfer failed. RC=${rc}"
                                     error(env.SP_REASON)
-                                } else if (uploadedList.isEmpty() && !skippedList.isEmpty()) {
-                                    env.SP_STATUS = 'SUCCESS'
-                                    env.SP_REASON = ''
-                                } else if (uploadedList.isEmpty()) {
+                                } else if (uploadedList.isEmpty() && skippedList.isEmpty()) {
                                     env.SP_STATUS = 'UNSTABLE'
                                     env.SP_REASON = 'No files processed'
                                     unstable(env.SP_REASON)
@@ -344,36 +429,19 @@ exit /b 0
                 }
 
                 def status = (env.SP_STATUS ?: 'FAILED').toString().toUpperCase()
-                // Safety net from Jenkins result
-                if (status != 'SUCCESS' && status != 'UNSTABLE' && status != 'FAILED') {
-                    status = 'FAILED'
-                }
-                if (currentBuild.currentResult == 'FAILURE' && status == 'SUCCESS') {
-                    status = 'FAILED'
-                }
-                if (currentBuild.currentResult == 'UNSTABLE' && status == 'SUCCESS') {
-                    status = 'UNSTABLE'
-                }
+                if (!(status in ['SUCCESS', 'UNSTABLE', 'FAILED'])) status = 'FAILED'
+                if (currentBuild.currentResult == 'FAILURE' && status == 'SUCCESS') status = 'FAILED'
+                if (currentBuild.currentResult == 'UNSTABLE' && status == 'SUCCESS') status = 'UNSTABLE'
 
-                def failReason = null
-                if (status != 'SUCCESS') {
-                    failReason = errorMsg ?: status
-                }
+                def failReason = (status != 'SUCCESS') ? (errorMsg ?: status) : null
 
                 def finalStatusText
-                if (status == 'SUCCESS') {
-                    finalStatusText = "SUCCESS (${params.OPERATION})"
-                } else if (status == 'UNSTABLE') {
-                    finalStatusText = "UNSTABLE: ${failReason}"
-                } else {
-                    finalStatusText = "FAILED: ${failReason}"
-                }
+                if (status == 'SUCCESS') finalStatusText = "SUCCESS (${params.OPERATION})"
+                else if (status == 'UNSTABLE') finalStatusText = "UNSTABLE: ${failReason}"
+                else finalStatusText = "FAILED: ${failReason}"
 
-                def uploadedSection = uploadedList ? uploadedList.indexed().collect { i, f -> "${i + 1}. ${f}" }.join('\n') + '\n' : "No files uploaded\n"
-                def skippedSection = skippedList ? skippedList.indexed().collect { i, f -> "${i + 1}. ${f}" }.join('\n') + '\n' : "No files skipped\n"
-
-                def timestamp = new Date().format('yyyy-MM-dd HH:mm:ss')
-                def buildParent = "${params.PARENT_BUILD}"
+                def uploadedSection = uploadedList ? uploadedList.withIndex().collect { f, i -> "${i + 1}. ${f}" }.join('\n') + '\n' : "No files uploaded\n"
+                def skippedSection  = skippedList  ? skippedList.withIndex().collect  { f, i -> "${i + 1}. ${f}" }.join('\n') + '\n' : "No files skipped\n"
 
                 def logContent = """SUMMARY
 ========================================
@@ -386,8 +454,8 @@ File Mask    : ${params.FILE_MASK}
 SRC_CRED     : ${params.SRC_CRED}
 Status       : ${finalStatusText}
 Duration     : ${elapsedSec} seconds
-Timestamp    : ${timestamp}
-Build Parent : ${buildParent}
+Timestamp    : ${new Date().format('yyyy-MM-dd HH:mm:ss')}
+Build Parent : ${params.PARENT_BUILD}
 Uploaded Files (${uploadedList.size()})
 ----------------------------------------
 ${uploadedSection}
@@ -402,9 +470,7 @@ ${errorMsg ? errorMsg : 'None'}
                 writeFile file: finalLogFile, text: logContent
                 echo(logContent)
 
-                // ============================================================
-                // Dashboard history.json  →  Last Run / Last Status
-                // ============================================================
+                // Dashboard history.json
                 def histDir  = "C:\\Jenkins\\Jobs\\Dashboard\\data\\scheduled\\${jobName}"
                 def histFile = "${histDir}\\history.json"
                 def histWork = "${env.WORKSPACE}\\history_temp_${env.BUILD_NUMBER}.json"
@@ -418,7 +484,6 @@ if exist "${histFile}" (
     echo []> "${histWork}"
 )
 """
-
                 def history = []
                 try {
                     def raw = readFile(file: histWork).trim()
@@ -446,8 +511,11 @@ if exist "${histFile}" (
 @echo off
 copy /Y "${histWork}" "${histFile}" >nul
 """
-                echo "Scheduled history updated: ${histFile}"
-                echo "Final status for Dashboard: ${status}"
+                echo "Scheduled history updated: ${histFile} status=${status}"
+
+                if (status == 'FAILED') {
+                    recordScheduledFailure(jobName)
+                }
 
                 bat """
 @echo off
