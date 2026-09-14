@@ -1,406 +1,257 @@
-# ============================================================================
 # schedule-api.ps1
-# HTTP API for scheduled-jobs.json
-#   GET    /api/scheduled-jobs
-#   POST   /api/scheduled-jobs
-#   DELETE /api/scheduled-jobs?name=JOB_NAME
-#   GET    /api/health
-#
-# Run:
-#   powershell -ExecutionPolicy Bypass -File C:\Jenkins\Jobs\Dashboard\schedule-api.ps1
-#
-# URL ACL (once, as Administrator):
-#   netsh http add urlacl url=http://+:8091/ user=Everyone
-# ============================================================================
+# HTTP API for scheduled-jobs.json  (port 8091)
+# Run: powershell -ExecutionPolicy Bypass -File C:\Jenkins\Jobs\Dashboard\schedule-api.ps1
 
-$ListenPrefix    = 'http://+:8091/'
-$JsonPath        = 'C:\Jenkins\Jobs\Dashboard\scheduled-jobs.json'
-$ScheduledRoot   = 'C:\Jenkins\Jobs\Dashboard\data\scheduled'
-$SchedulerDir    = 'C:\Jenkins\Jobs\Dashboard\data\scheduler'
-$LastRunFile     = 'C:\Jenkins\Jobs\Dashboard\data\scheduler\last-run.json'
-$LogRoot         = 'C:\Jenkins\Jobs\Log'
+$ErrorActionPreference = 'Stop'
+$Port            = 8091
+$Root            = 'C:\Jenkins\Jobs\Dashboard'
+$JobsFile        = Join-Path $Root 'scheduled-jobs.json'
+$DataRoot        = Join-Path $Root 'data'
+$SchedulerDir    = Join-Path $DataRoot 'scheduler'
+$LastRunFile     = Join-Path $SchedulerDir 'last-run.json'
+$FailureCounts   = Join-Path $SchedulerDir 'failure-counts.json'
+$LogDir          = 'C:\Jenkins\Jobs\Log'
+$Prefix          = "http://+:$Port/"
 
-# ----------------------------------------------------------------------------
-# Helpers
-# ----------------------------------------------------------------------------
+if (-not (Test-Path $Root))         { New-Item -ItemType Directory -Path $Root -Force | Out-Null }
+if (-not (Test-Path $SchedulerDir)) { New-Item -ItemType Directory -Path $SchedulerDir -Force | Out-Null }
+if (-not (Test-Path $JobsFile))     { [System.IO.File]::WriteAllText($JobsFile, '[]', [System.Text.UTF8Encoding]::new($false)) }
 
 function Test-ValidWindowsName([string]$name) {
     if ([string]::IsNullOrWhiteSpace($name)) { return $false }
     if ($name -match '[\\/:*?"<>|]') { return $false }
-    if ($name -match '^\s|\s$') { return $false }
     if ($name -eq '.' -or $name -eq '..') { return $false }
+    if ($name.StartsWith(' ') -or $name.EndsWith(' ')) { return $false }
     return $true
 }
 
 function Read-Jobs {
-    if (-not (Test-Path $JsonPath)) { return @() }
-    $raw = Get-Content -Path $JsonPath -Raw -Encoding UTF8
-    if ([string]::IsNullOrWhiteSpace($raw)) { return @() }
-    $trim = $raw.Trim()
-    if ($trim -eq '' -or $trim -eq '[]' -or $trim -eq 'null') { return @() }
-
     try {
-        $parsed = $trim | ConvertFrom-Json
-    }
-    catch {
-        Write-Host "WARNING: could not parse JSON - $($_.Exception.Message)"
+        $raw = [System.IO.File]::ReadAllText($JobsFile, [System.Text.Encoding]::UTF8).Trim()
+        if ([string]::IsNullOrWhiteSpace($raw) -or $raw -eq '[]') { return @() }
+        $parsed = $raw | ConvertFrom-Json
+        if ($parsed -is [System.Array]) { return @($parsed) }
+        if ($null -ne $parsed) { return @($parsed) }
+        return @()
+    } catch {
+        Write-Host "Read-Jobs error: $($_.Exception.Message)"
         return @()
     }
-
-    if ($null -eq $parsed) { return @() }
-
-    if ($parsed -is [System.Array]) {
-        # Filter out empty objects {}
-        $out = @()
-        foreach ($item in @($parsed)) {
-            if ($null -eq $item) { continue }
-            $n = $null
-            try { $n = [string]$item.name } catch { $n = $null }
-            if ([string]::IsNullOrWhiteSpace($n)) { continue }
-            $out += $item
-        }
-        return $out
-    }
-
-    # Single object
-    try {
-        $n = [string]$parsed.name
-        if ([string]::IsNullOrWhiteSpace($n)) { return @() }
-    }
-    catch {
-        return @()
-    }
-    return @($parsed)
 }
 
 function Write-Jobs($list) {
-    $dir = Split-Path $JsonPath -Parent
-    if (-not (Test-Path $dir)) {
-        New-Item -ItemType Directory -Path $dir -Force | Out-Null
-    }
-    if (Test-Path $JsonPath) {
-        Copy-Item $JsonPath "$JsonPath.bak" -Force
-    }
-
     $arr = @($list)
+    $json = if ($arr.Count -eq 0) {
+        '[]'
+    } else {
+        $tmp = $arr | ConvertTo-Json -Depth 20
+        if ($arr.Count -eq 1 -and $tmp.Trim().StartsWith('{')) { $tmp = "[$tmp]" }
+        $tmp
+    }
+    $bak = "$JobsFile.bak"
+    if (Test-Path $JobsFile) { Copy-Item -LiteralPath $JobsFile -Destination $bak -Force }
+    [System.IO.File]::WriteAllText($JobsFile, $json, [System.Text.UTF8Encoding]::new($false))
+}
 
-    if ($arr.Count -eq 0) {
-        $json = '[]'
+function Remove-FailureCount([string]$jobName, [string]$folder) {
+    if (-not (Test-Path -LiteralPath $FailureCounts)) { return }
+    try {
+        $raw = [System.IO.File]::ReadAllText($FailureCounts, [System.Text.Encoding]::UTF8).Trim()
+        if ([string]::IsNullOrWhiteSpace($raw) -or $raw -eq '{}') { return }
+        $obj = $raw | ConvertFrom-Json
+        $ht = [ordered]@{}
+        if ($obj -is [System.Management.Automation.PSCustomObject]) {
+            $obj.PSObject.Properties | ForEach-Object { $ht[$_.Name] = $_.Value }
+        }
+        $changed = $false
+        if ($jobName -and $ht.Contains($jobName)) { $ht.Remove($jobName); $changed = $true }
+        if ($folder -and $ht.Contains($folder)) { $ht.Remove($folder); $changed = $true }
+        if ($changed) {
+            $json = if ($ht.Count -eq 0) { '{}' } else { ($ht | ConvertTo-Json -Depth 8) }
+            [System.IO.File]::WriteAllText($FailureCounts, $json, [System.Text.UTF8Encoding]::new($false))
+            Write-Host "Removed failure-counts for $jobName"
+        }
+    } catch {
+        Write-Host "WARNING failure-counts cleanup: $($_.Exception.Message)"
     }
-    elseif ($arr.Count -eq 1) {
-        $one = ($arr[0] | ConvertTo-Json -Depth 20)
-        $json = '[' + [Environment]::NewLine + $one + [Environment]::NewLine + ']'
-    }
-    else {
-        $json = ($arr | ConvertTo-Json -Depth 20)
-    }
-
-    [System.IO.File]::WriteAllText($JsonPath, $json, [System.Text.UTF8Encoding]::new($false))
-    Write-Host "  Write-Jobs count=$($arr.Count) path=$JsonPath"
 }
 
 function Remove-JobTraces([string]$jobName, [string]$folder) {
-    if (-not (Test-ValidWindowsName $jobName)) { return }
     if ([string]::IsNullOrWhiteSpace($folder)) { $folder = $jobName }
-    if (-not (Test-ValidWindowsName $folder)) { return }
 
-    $histDir = Join-Path $ScheduledRoot $folder
-    if (Test-Path -LiteralPath $histDir) {
-        Remove-Item -LiteralPath $histDir -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Host "  Removed folder: $histDir"
-    }
-
-    if ($folder -ne $jobName) {
-        $alt = Join-Path $ScheduledRoot $jobName
-        if (Test-Path -LiteralPath $alt) {
-            Remove-Item -LiteralPath $alt -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Host "  Removed folder: $alt"
-        }
-    }
-
-    if (Test-Path $LastRunFile) {
+    $schedFolder = Join-Path $DataRoot "scheduled\$folder"
+    if (Test-Path -LiteralPath $schedFolder) {
         try {
-            $raw = Get-Content -Path $LastRunFile -Raw -Encoding UTF8
-            if ($raw -and $raw.Trim() -ne '' -and $raw.Trim() -ne '{}') {
-                $map = $raw | ConvertFrom-Json
-                $ht = @{}
-                if ($null -ne $map) {
-                    $map.PSObject.Properties | ForEach-Object {
-                        if ($_.Name -ne $jobName -and $_.Name -ne $folder) {
-                            $ht[$_.Name] = $_.Value
-                        }
-                    }
+            Remove-Item -LiteralPath $schedFolder -Recurse -Force -ErrorAction Stop
+            Write-Host "Removed folder: $schedFolder"
+        } catch {
+            Write-Host "WARNING remove folder: $($_.Exception.Message)"
+        }
+    }
+
+    if (Test-Path -LiteralPath $LastRunFile) {
+        try {
+            $raw = [System.IO.File]::ReadAllText($LastRunFile, [System.Text.Encoding]::UTF8).Trim()
+            if ($raw -and $raw -ne '{}') {
+                $obj = $raw | ConvertFrom-Json
+                $ht = [ordered]@{}
+                if ($obj -is [System.Management.Automation.PSCustomObject]) {
+                    $obj.PSObject.Properties | ForEach-Object { $ht[$_.Name] = $_.Value }
                 }
-                $out = if ($ht.Count -eq 0) { '{}' } else { ($ht | ConvertTo-Json -Depth 10) }
-                [System.IO.File]::WriteAllText($LastRunFile, $out, [System.Text.UTF8Encoding]::new($false))
-                Write-Host "  Cleaned last-run.json for: $jobName"
+                $changed = $false
+                if ($ht.Contains($jobName)) { $ht.Remove($jobName); $changed = $true }
+                if ($folder -and $ht.Contains($folder)) { $ht.Remove($folder); $changed = $true }
+                if ($changed) {
+                    $json = if ($ht.Count -eq 0) { '{}' } else { ($ht | ConvertTo-Json -Depth 8) }
+                    [System.IO.File]::WriteAllText($LastRunFile, $json, [System.Text.UTF8Encoding]::new($false))
+                }
             }
-        }
-        catch {
-            Write-Host "  WARNING last-run.json: $($_.Exception.Message)"
+        } catch {
+            Write-Host "WARNING last-run cleanup: $($_.Exception.Message)"
         }
     }
 
-    if (Test-Path $LogRoot) {
-        Get-ChildItem -Path $LogRoot -File -ErrorAction SilentlyContinue |
-            Where-Object {
-                $_.Name -like ($folder + '_BuildID_*.txt') -or
-                $_.Name -like ($jobName + '_BuildID_*.txt')
-            } |
+    Remove-FailureCount -jobName $jobName -folder $folder
+
+    if (Test-Path -LiteralPath $LogDir) {
+        Get-ChildItem -LiteralPath $LogDir -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like "$jobName*" -or ($folder -and $_.Name -like "$folder*") } |
             ForEach-Object {
-                Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
-                Write-Host "  Removed log: $($_.FullName)"
+                try { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction Stop } catch {}
             }
     }
 }
 
-function Send-Json($res, [int]$status, $obj) {
-    $body = if ($obj -is [string]) {
-        $obj
-    }
-    else {
-        ($obj | ConvertTo-Json -Depth 20 -Compress)
-    }
-    if ([string]::IsNullOrWhiteSpace($body)) { $body = '{}' }
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
-    $res.StatusCode = $status
-    $res.ContentType = 'application/json; charset=utf-8'
-    $res.OutputStream.Write($bytes, 0, $bytes.Length)
+function Send-Json($response, $statusCode, $obj) {
+    $json = $obj | ConvertTo-Json -Depth 20 -Compress
+    if ($null -eq $json) { $json = '[]' }
+    $buffer = [System.Text.Encoding]::UTF8.GetBytes($json)
+    $response.StatusCode = $statusCode
+    $response.ContentType = 'application/json; charset=utf-8'
+    $response.Headers.Add('Access-Control-Allow-Origin', '*')
+    $response.Headers.Add('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS')
+    $response.Headers.Add('Access-Control-Allow-Headers', 'Content-Type')
+    $response.ContentLength64 = $buffer.Length
+    $response.OutputStream.Write($buffer, 0, $buffer.Length)
+    $response.OutputStream.Close()
 }
 
-# ----------------------------------------------------------------------------
-# Ensure folders exist
-# ----------------------------------------------------------------------------
-foreach ($d in @((Split-Path $JsonPath -Parent), $ScheduledRoot, $SchedulerDir, $LogRoot)) {
-    if (-not (Test-Path $d)) {
-        New-Item -ItemType Directory -Path $d -Force | Out-Null
-    }
+function Send-Text($response, $statusCode, $text) {
+    $buffer = [System.Text.Encoding]::UTF8.GetBytes($text)
+    $response.StatusCode = $statusCode
+    $response.ContentType = 'text/plain; charset=utf-8'
+    $response.Headers.Add('Access-Control-Allow-Origin', '*')
+    $response.ContentLength64 = $buffer.Length
+    $response.OutputStream.Write($buffer, 0, $buffer.Length)
+    $response.OutputStream.Close()
 }
 
-if (-not (Test-Path $JsonPath)) {
-    [System.IO.File]::WriteAllText($JsonPath, '[]', [System.Text.UTF8Encoding]::new($false))
-}
-
-# Repair: single object JSON -> array; empty objects removed by Read-Jobs
+# Startup repair
 try {
     $jobs = Read-Jobs
-    $rawCheck = Get-Content -Path $JsonPath -Raw -Encoding UTF8
-    if ($rawCheck -and $rawCheck.Trim().StartsWith('{')) {
-        Write-Host "Repairing single-object JSON to array..."
-        Write-Jobs $jobs
-    }
-    elseif ($jobs.Count -eq 0 -and $rawCheck -and $rawCheck.Trim() -ne '[]') {
-        # e.g. [ { } ] -> write clean []
-        Write-Host "Cleaning empty job entries -> []"
-        Write-Jobs @()
-    }
-}
-catch {
-    Write-Host "Startup parse check: $($_.Exception.Message)"
+    $jobs = @($jobs | Where-Object { $_ -ne $null -and ($_.name -or $_.job) })
+    Write-Jobs $jobs
+    Write-Host "Loaded $($jobs.Count) scheduled job(s)"
+} catch {
+    Write-Host "Startup repair: $($_.Exception.Message)"
+    Write-Jobs @()
 }
 
-# ----------------------------------------------------------------------------
-# HTTP Listener
-# ----------------------------------------------------------------------------
 $listener = New-Object System.Net.HttpListener
-$listener.Prefixes.Add($ListenPrefix)
-
+$listener.Prefixes.Add($Prefix)
 try {
     $listener.Start()
-}
-catch {
-    Write-Host "ERROR starting listener on $ListenPrefix"
+} catch {
+    Write-Host "ERROR starting listener on $Prefix"
     Write-Host $_.Exception.Message
-    Write-Host ""
-    Write-Host "Tip (run once as Administrator):"
-    Write-Host "  netsh http add urlacl url=$ListenPrefix user=Everyone"
+    Write-Host "Try: netsh http add urlacl url=$Prefix user=Everyone"
     exit 1
 }
 
-$jobCount = @(Read-Jobs).Count
-Write-Host "========================================"
-Write-Host " Schedule API listening on $ListenPrefix"
-Write-Host " JSON file : $JsonPath"
-Write-Host " Scheduled : $ScheduledRoot"
-Write-Host " Last-run  : $LastRunFile"
-Write-Host " Logs      : $LogRoot"
-Write-Host " Jobs now  : $jobCount"
-Write-Host "========================================"
+Write-Host "Schedule API listening on http://0.0.0.0:$Port/"
+Write-Host "Jobs file: $JobsFile"
 
 while ($listener.IsListening) {
-    $ctx = $null
-    $req = $null
-    $res = $null
+    $ctx = $listener.GetContext()
+    $req = $ctx.Request
+    $res = $ctx.Response
+    $method = $req.HttpMethod.ToUpperInvariant()
+    $path = $req.Url.AbsolutePath.TrimEnd('/')
+    if ([string]::IsNullOrEmpty($path)) { $path = '/' }
 
     try {
-        $ctx = $listener.GetContext()
-        $req = $ctx.Request
-        $res = $ctx.Response
-    }
-    catch {
-        Write-Host "Listener accept error: $($_.Exception.Message)"
-        continue
-    }
-
-    $res.Headers.Add('Access-Control-Allow-Origin', '*')
-    $res.Headers.Add('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
-    $res.Headers.Add('Access-Control-Allow-Headers', 'Content-Type')
-
-    if ($req.HttpMethod -eq 'OPTIONS') {
-        $res.StatusCode = 204
-        $res.Close()
-        continue
-    }
-
-    try {
-        $path = $req.Url.AbsolutePath.TrimEnd('/')
-        if ([string]::IsNullOrWhiteSpace($path)) { $path = '/' }
-
-        Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $($req.HttpMethod) $path"
-
-        # GET /api/scheduled-jobs
-        if ($req.HttpMethod -eq 'GET' -and ($path -eq '/api/scheduled-jobs' -or $path -eq '/api/scheduled-jobs/')) {
-            $jobs = @(Read-Jobs)
-            if ($jobs.Count -eq 0) {
-                $body = '[]'
-            }
-            elseif ($jobs.Count -eq 1) {
-                $one = ($jobs[0] | ConvertTo-Json -Depth 20)
-                $body = '[' + $one + ']'
-            }
-            else {
-                $body = ($jobs | ConvertTo-Json -Depth 20)
-            }
-            $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
-            $res.StatusCode = 200
-            $res.ContentType = 'application/json; charset=utf-8'
-            $res.OutputStream.Write($bytes, 0, $bytes.Length)
-            Write-Host "  GET jobs=$($jobs.Count)"
+        if ($method -eq 'OPTIONS') {
+            $res.StatusCode = 204
+            $res.Headers.Add('Access-Control-Allow-Origin', '*')
+            $res.Headers.Add('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS')
+            $res.Headers.Add('Access-Control-Allow-Headers', 'Content-Type')
+            $res.Close()
+            continue
         }
 
-        # POST /api/scheduled-jobs
-        elseif ($req.HttpMethod -eq 'POST' -and ($path -eq '/api/scheduled-jobs' -or $path -eq '/api/scheduled-jobs/')) {
-            $reader = New-Object System.IO.StreamReader($req.InputStream, $req.ContentEncoding)
-            $raw = $reader.ReadToEnd()
+        if ($method -eq 'GET' -and ($path -eq '/api/health' -or $path -eq '/health')) {
+            Send-Json $res 200 @{ status = 'ok'; time = (Get-Date).ToString('s') }
+            continue
+        }
+
+        if ($method -eq 'GET' -and ($path -eq '/api/scheduled-jobs' -or $path -eq '/api/scheduled-jobs/')) {
+            $jobs = Read-Jobs
+            Send-Json $res 200 @($jobs)
+            continue
+        }
+
+        if ($method -eq 'POST' -and ($path -eq '/api/scheduled-jobs' -or $path -eq '/api/scheduled-jobs/')) {
+            $reader = New-Object System.IO.StreamReader($req.InputStream, [System.Text.Encoding]::UTF8)
+            $body = $reader.ReadToEnd()
             $reader.Close()
+            $parsed = $body | ConvertFrom-Json
+            $list = @()
+            if ($parsed -is [System.Array]) { $list = @($parsed) }
+            elseif ($null -ne $parsed) { $list = @($parsed) }
 
-            if ([string]::IsNullOrWhiteSpace($raw)) {
-                throw 'Empty body'
-            }
-
-            $parsed = $raw | ConvertFrom-Json
-            if ($null -eq $parsed) {
-                $list = @()
-            }
-            elseif ($parsed -is [System.Array]) {
-                $list = @($parsed)
-            }
-            else {
-                $list = @($parsed)
-            }
-
-            # Drop empty entries without name
-            $clean = @()
             foreach ($j in $list) {
-                if ($null -eq $j) { continue }
-                $n = [string]$j.name
-                if ([string]::IsNullOrWhiteSpace($n)) { continue }
+                $n = if ($j.name) { [string]$j.name } else { [string]$j.job }
                 $f = if ($j.folder) { [string]$j.folder } else { $n }
                 if (-not (Test-ValidWindowsName $n)) {
-                    throw "Invalid job name (forbidden chars): $n"
+                    Send-Text $res 400 "Invalid job name (Windows reserved characters): $n"
+                    continue 2
                 }
                 if (-not (Test-ValidWindowsName $f)) {
-                    throw "Invalid folder name (forbidden chars): $f"
+                    Send-Text $res 400 "Invalid folder name (Windows reserved characters): $f"
+                    continue 2
                 }
-                $clean += $j
             }
-
-            Write-Jobs $clean
-            Send-Json $res 200 @{ ok = $true; count = $clean.Count }
-            Write-Host "  POST saved $($clean.Count) job(s)"
+            Write-Jobs $list
+            Send-Json $res 200 @{ ok = $true; count = $list.Count }
+            continue
         }
 
-        # DELETE /api/scheduled-jobs?name=JOB_NAME
-        elseif ($req.HttpMethod -eq 'DELETE' -and ($path -eq '/api/scheduled-jobs' -or $path -eq '/api/scheduled-jobs/')) {
+        if ($method -eq 'DELETE' -and ($path -eq '/api/scheduled-jobs' -or $path -eq '/api/scheduled-jobs/')) {
             $name = $req.QueryString['name']
-
             if ([string]::IsNullOrWhiteSpace($name)) {
-                $reader = New-Object System.IO.StreamReader($req.InputStream, $req.ContentEncoding)
-                $raw = $reader.ReadToEnd()
-                $reader.Close()
-                if ($raw) {
-                    $obj = $raw | ConvertFrom-Json
-                    $name = [string]$obj.name
-                }
+                Send-Text $res 400 'Missing query parameter: name'
+                continue
             }
-
-            if ([string]::IsNullOrWhiteSpace($name)) {
-                throw 'Missing job name (query ?name= or body { "name": "..." })'
-            }
-            if (-not (Test-ValidWindowsName $name)) {
-                throw "Invalid name: $name"
-            }
-
-            $jobs = @(Read-Jobs)
+            $jobs = Read-Jobs
             $folder = $name
-            $found = $false
-            $remaining = @()
-
+            $kept = @()
             foreach ($j in $jobs) {
-                $jn = [string]$j.name
-                if ($jn -eq $name) {
-                    $found = $true
+                $n = if ($j.name) { [string]$j.name } else { [string]$j.job }
+                if ($n -eq $name) {
                     if ($j.folder) { $folder = [string]$j.folder }
-                }
-                else {
-                    $remaining += $j
+                } else {
+                    $kept += $j
                 }
             }
-
-            if (-not $found) {
-                Write-Host "  Job not in JSON, cleaning traces anyway: $name"
-            }
-
-            Write-Jobs $remaining
+            Write-Jobs $kept
             Remove-JobTraces -jobName $name -folder $folder
-
-            Send-Json $res 200 @{
-                ok        = $true
-                deleted   = $name
-                folder    = $folder
-                remaining = @($remaining).Count
-            }
-            Write-Host "  DELETE job=$name folder=$folder remaining=$(@($remaining).Count)"
+            Send-Json $res 200 @{ ok = $true; deleted = $name; remaining = $kept.Count }
+            continue
         }
 
-        # GET /api/health
-        elseif ($req.HttpMethod -eq 'GET' -and ($path -eq '/api/health' -or $path -eq '/health')) {
-            Send-Json $res 200 @{
-                ok   = $true
-                time = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
-                json = $JsonPath
-                jobs = @(Read-Jobs).Count
-            }
-        }
-
-        else {
-            Send-Json $res 404 @{
-                error  = 'not found'
-                path   = $path
-                method = $req.HttpMethod
-            }
-        }
-    }
-    catch {
-        Write-Host "  ERROR: $($_.Exception.Message)"
-        try {
-            Send-Json $res 400 @{ error = $_.Exception.Message }
-        }
-        catch {
-            try { $res.StatusCode = 500 } catch {}
-        }
-    }
-    finally {
-        try { $res.Close() } catch {}
+        Send-Text $res 404 "Not found: $method $path"
+    } catch {
+        try { Send-Text $res 500 $_.Exception.Message } catch {}
+        Write-Host "ERROR: $($_.Exception.Message)"
     }
 }
