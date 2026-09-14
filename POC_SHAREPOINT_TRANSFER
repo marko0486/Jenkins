@@ -1,160 +1,548 @@
-Started by upstream project "POC_FT_ORCHESTRATOR_15_MINUTES.EV" build number 414
-originally caused by:
- Started by user UC4 TEST
-[Pipeline] Start of Pipeline
-[Pipeline] node
-Running on Jenkins in C:\ProgramData\Jenkins\.jenkins\workspace\POC_SHAREPOINT_TRANSFER
-[Pipeline] {
-[Pipeline] stage
-[Pipeline] { (SharePoint Transfer)
-[Pipeline] script
-[Pipeline] {
-[Pipeline] bat
-[Pipeline] withCredentials
-Masking supported pattern matches of %FT_PASS%
-[Pipeline] {
-[Pipeline] bat
-Authenticating to UNC path using credential: WIN.SVC.UC4.BATCHUSER
-[Pipeline] writeFile
-[Pipeline] withEnv
-[Pipeline] {
-[Pipeline] bat
+import groovy.json.JsonSlurperClassic
+import groovy.json.JsonOutput
+import java.util.Calendar
+import java.util.TimeZone
 
-Uploading: EOO_deliveries.csv
-Operation: COPY
+// ============================================================================
+// Helpers
+// ============================================================================
+def formatTime(long millis) {
+    if (millis <= 0) return "—"
+    return new Date(millis).format('yyyy-MM-dd HH:mm:ss')
+}
 
-[Pipeline] fileExists
-[Pipeline] readFile
-[Pipeline] }
-[Pipeline] // withEnv
-[Pipeline] bat
-[Pipeline] }
-[Pipeline] // withCredentials
-[Pipeline] }
-[Pipeline] // script
-[Pipeline] }
-[Pipeline] // stage
-[Pipeline] stage
-[Pipeline] { (Declarative: Post Actions)
-[Pipeline] script
-[Pipeline] {
-[Pipeline] fileExists
-[Pipeline] readFile
-[Pipeline] }
-[Pipeline] // script
-Error when executing always post condition:
-Also:   org.jenkinsci.plugins.workflow.actions.ErrorAction$ErrorId: 0a5f6bbc-30ab-4d4a-9a1e-2c4c245b86e0
-java.lang.NullPointerException: Cannot execute null+1
-	at org.codehaus.groovy.runtime.NullObject.plus(NullObject.java:135)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
-	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:98)
-	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:325)
-	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1225)
-	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1034)
-	at org.codehaus.groovy.runtime.callsite.PogoMetaClassSite.call(PogoMetaClassSite.java:41)
-	at org.codehaus.groovy.runtime.callsite.CallSiteArray.defaultCall(CallSiteArray.java:47)
-	at org.codehaus.groovy.runtime.callsite.NullCallSite.call(NullCallSite.java:34)
-	at org.codehaus.groovy.runtime.callsite.CallSiteArray.defaultCall(CallSiteArray.java:47)
-	at org.codehaus.groovy.runtime.callsite.AbstractCallSite.call(AbstractCallSite.java:116)
-	at PluginClassLoader for script-security//org.kohsuke.groovy.sandbox.impl.Checker$1.call(Checker.java:180)
-	at PluginClassLoader for script-security//org.kohsuke.groovy.sandbox.impl.Checker.checkedCall(Checker.java:182)
-	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.sandbox.SandboxInvoker.methodCall(SandboxInvoker.java:17)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.LoggingInvoker.methodCall(LoggingInvoker.java:124)
-	at WorkflowScript.run(WorkflowScript:443)
-	at com.cloudbees.groovy.cps.CpsDefaultGroovyMethods.collect(CpsDefaultGroovyMethods:3287)
-	at com.cloudbees.groovy.cps.CpsDefaultGroovyMethods.collect(CpsDefaultGroovyMethods:3257)
-	at WorkflowScript.run(WorkflowScript:443)
-	at ___cps.transform___(Native Method)
-	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.impl.ContinuationGroup.methodCall(ContinuationGroup.java:107)
-	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.impl.FunctionCallBlock$ContinuationImpl.dispatchOrArg(FunctionCallBlock.java:118)
-	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.impl.FunctionCallBlock$ContinuationImpl.fixArg(FunctionCallBlock.java:87)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
-	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.impl.ContinuationPtr$ContinuationImpl.receive(ContinuationPtr.java:71)
-	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.impl.ConstantBlock.eval(ConstantBlock.java:21)
-	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.Next.step(Next.java:84)
-	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.Continuable.run0(Continuable.java:142)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.SandboxContinuable.access$001(SandboxContinuable.java:17)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.SandboxContinuable.run0(SandboxContinuable.java:48)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsThread.runNextChunk(CpsThread.java:188)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsThreadGroup.run(CpsThreadGroup.java:464)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsThreadGroup$2.call(CpsThreadGroup.java:372)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsThreadGroup$2.call(CpsThreadGroup.java:302)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsVmExecutorService.lambda$wrap$4(CpsVmExecutorService.java:143)
-	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
-	at hudson.remoting.SingleLaneExecutorService$1.run(SingleLaneExecutorService.java:139)
-	at jenkins.util.ContextResettingExecutorService.lambda$wrap$0(ContextResettingExecutorService.java:26)
-	at jenkins.security.ImpersonatingExecutorService.lambda$wrap$0(ImpersonatingExecutorService.java:66)
-	at jenkins.util.ErrorLoggingExecutorService.lambda$wrap$0(ErrorLoggingExecutorService.java:51)
-	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:572)
-	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
-	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
-	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsVmExecutorService$1.call(CpsVmExecutorService.java:53)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsVmExecutorService$1.call(CpsVmExecutorService.java:50)
-	at org.codehaus.groovy.runtime.GroovyCategorySupport$ThreadCategoryInfo.use(GroovyCategorySupport.java:136)
-	at org.codehaus.groovy.runtime.GroovyCategorySupport.use(GroovyCategorySupport.java:275)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsVmExecutorService.lambda$categoryThreadFactory$0(CpsVmExecutorService.java:50)
-	at java.base/java.lang.Thread.run(Thread.java:1583)
+def formatDuration(long millis) {
+    if (millis <= 0) return "—"
+    long totalSeconds = (millis / 1000).longValue()
+    long minutes = totalSeconds / 60
+    long seconds = totalSeconds % 60
+    if (minutes > 0) return "${minutes} min ${seconds} sec"
+    return "${seconds} sec"
+}
 
-[Pipeline] }
-[Pipeline] // stage
-[Pipeline] }
-[Pipeline] // node
-[Pipeline] End of Pipeline
-Also:   org.jenkinsci.plugins.workflow.actions.ErrorAction$ErrorId: 0a5f6bbc-30ab-4d4a-9a1e-2c4c245b86e0
-java.lang.NullPointerException: Cannot execute null+1
-	at org.codehaus.groovy.runtime.NullObject.plus(NullObject.java:135)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
-	at org.codehaus.groovy.reflection.CachedMethod.invoke(CachedMethod.java:98)
-	at groovy.lang.MetaMethod.doMethodInvoke(MetaMethod.java:325)
-	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1225)
-	at groovy.lang.MetaClassImpl.invokeMethod(MetaClassImpl.java:1034)
-	at org.codehaus.groovy.runtime.callsite.PogoMetaClassSite.call(PogoMetaClassSite.java:41)
-	at org.codehaus.groovy.runtime.callsite.CallSiteArray.defaultCall(CallSiteArray.java:47)
-	at org.codehaus.groovy.runtime.callsite.NullCallSite.call(NullCallSite.java:34)
-	at org.codehaus.groovy.runtime.callsite.CallSiteArray.defaultCall(CallSiteArray.java:47)
-	at org.codehaus.groovy.runtime.callsite.AbstractCallSite.call(AbstractCallSite.java:116)
-	at PluginClassLoader for script-security//org.kohsuke.groovy.sandbox.impl.Checker$1.call(Checker.java:180)
-	at PluginClassLoader for script-security//org.kohsuke.groovy.sandbox.impl.Checker.checkedCall(Checker.java:182)
-	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.sandbox.SandboxInvoker.methodCall(SandboxInvoker.java:17)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.LoggingInvoker.methodCall(LoggingInvoker.java:124)
-	at WorkflowScript.run(WorkflowScript:443)
-	at com.cloudbees.groovy.cps.CpsDefaultGroovyMethods.collect(CpsDefaultGroovyMethods:3287)
-	at com.cloudbees.groovy.cps.CpsDefaultGroovyMethods.collect(CpsDefaultGroovyMethods:3257)
-	at WorkflowScript.run(WorkflowScript:443)
-	at ___cps.transform___(Native Method)
-	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.impl.ContinuationGroup.methodCall(ContinuationGroup.java:107)
-	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.impl.FunctionCallBlock$ContinuationImpl.dispatchOrArg(FunctionCallBlock.java:118)
-	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.impl.FunctionCallBlock$ContinuationImpl.fixArg(FunctionCallBlock.java:87)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
-	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.impl.ContinuationPtr$ContinuationImpl.receive(ContinuationPtr.java:71)
-	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.impl.ConstantBlock.eval(ConstantBlock.java:21)
-	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.Next.step(Next.java:84)
-	at PluginClassLoader for workflow-cps//com.cloudbees.groovy.cps.Continuable.run0(Continuable.java:142)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.SandboxContinuable.access$001(SandboxContinuable.java:17)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.SandboxContinuable.run0(SandboxContinuable.java:48)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsThread.runNextChunk(CpsThread.java:188)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsThreadGroup.run(CpsThreadGroup.java:464)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsThreadGroup$2.call(CpsThreadGroup.java:372)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsThreadGroup$2.call(CpsThreadGroup.java:302)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsVmExecutorService.lambda$wrap$4(CpsVmExecutorService.java:143)
-	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
-	at hudson.remoting.SingleLaneExecutorService$1.run(SingleLaneExecutorService.java:139)
-	at jenkins.util.ContextResettingExecutorService.lambda$wrap$0(ContextResettingExecutorService.java:26)
-	at jenkins.security.ImpersonatingExecutorService.lambda$wrap$0(ImpersonatingExecutorService.java:66)
-	at jenkins.util.ErrorLoggingExecutorService.lambda$wrap$0(ErrorLoggingExecutorService.java:51)
-	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:572)
-	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
-	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
-	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsVmExecutorService$1.call(CpsVmExecutorService.java:53)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsVmExecutorService$1.call(CpsVmExecutorService.java:50)
-	at org.codehaus.groovy.runtime.GroovyCategorySupport$ThreadCategoryInfo.use(GroovyCategorySupport.java:136)
-	at org.codehaus.groovy.runtime.GroovyCategorySupport.use(GroovyCategorySupport.java:275)
-	at PluginClassLoader for workflow-cps//org.jenkinsci.plugins.workflow.cps.CpsVmExecutorService.lambda$categoryThreadFactory$0(CpsVmExecutorService.java:50)
-	at java.base/java.lang.Thread.run(Thread.java:1583)
-Finished: FAILURE
+@NonCPS
+def prependHistoryAndTrim(List history, Map entry, int maxEntries) {
+    def out = new ArrayList()
+    out.add(entry)
+    history.each { h ->
+        if (out.size() >= maxEntries) return
+        out.add(h)
+    }
+    return out
+}
+
+def stripTrailingSlash(String p) {
+    if (!p) return ''
+    def s = p.trim()
+    if (s.toLowerCase().startsWith('http://') || s.toLowerCase().startsWith('https://')) {
+        while (s.endsWith('/')) s = s.substring(0, s.length() - 1)
+        return s
+    }
+    while (s.endsWith('\\') || s.endsWith('/')) {
+        s = s.substring(0, s.length() - 1)
+    }
+    return s
+}
+
+def FAILURE_COUNTS_FILE  = 'C:/Jenkins/Jobs/Dashboard/data/scheduler/failure-counts.json'
+def SCHEDULE_FILE        = 'C:/Jenkins/Jobs/Dashboard/scheduled-jobs.json'
+def MAX_FAILURES_PER_DAY = 10
+
+@NonCPS
+def berlinDateKey() {
+    def tz = TimeZone.getTimeZone('Europe/Berlin')
+    def cal = Calendar.getInstance(tz)
+    return String.format('%04d-%02d-%02d',
+        cal.get(Calendar.YEAR),
+        cal.get(Calendar.MONTH) + 1,
+        cal.get(Calendar.DAY_OF_MONTH))
+}
+
+@NonCPS
+def berlinNowStamp() {
+    def tz = TimeZone.getTimeZone('Europe/Berlin')
+    def cal = Calendar.getInstance(tz)
+    return String.format('%04d-%02d-%02d %02d:%02d:%02d',
+        cal.get(Calendar.YEAR),
+        cal.get(Calendar.MONTH) + 1,
+        cal.get(Calendar.DAY_OF_MONTH),
+        cal.get(Calendar.HOUR_OF_DAY),
+        cal.get(Calendar.MINUTE),
+        cal.get(Calendar.SECOND))
+}
+
+@NonCPS
+def loadJsonMapSafe(String path) {
+    def f = new File(path)
+    if (!f.exists()) return new LinkedHashMap()
+    def text = f.getText('UTF-8').trim()
+    if (!text || text == '{}' || text == '[]') return new LinkedHashMap()
+    def parsed = new JsonSlurperClassic().parseText(text)
+    return (parsed instanceof Map) ? new LinkedHashMap(parsed) : new LinkedHashMap()
+}
+
+@NonCPS
+def loadJsonListSafe(String path) {
+    def f = new File(path)
+    if (!f.exists()) return new ArrayList()
+    def text = f.getText('UTF-8').trim()
+    if (!text || text == '[]') return new ArrayList()
+    def parsed = new JsonSlurperClassic().parseText(text)
+    return (parsed instanceof List) ? new ArrayList(parsed) : new ArrayList()
+}
+
+@NonCPS
+def writeJsonSafe(String path, Object data) {
+    def f = new File(path)
+    f.parentFile?.mkdirs()
+    f.write(JsonOutput.prettyPrint(JsonOutput.toJson(data)), 'UTF-8')
+}
+
+def recordScheduledFailure(String jobName) {
+    if (!jobName) return
+    def today = berlinDateKey()
+    def counts = loadJsonMapSafe(FAILURE_COUNTS_FILE)
+    def entry = counts[jobName]
+    if (!(entry instanceof Map) || entry.dateKey != today) {
+        entry = [dateKey: today, count: 0, lastFailureAt: null]
+    }
+    entry.count = ((entry.count ?: 0) as int) + 1
+    entry.lastFailureAt = berlinNowStamp()
+    entry.dateKey = today
+    counts[jobName] = entry
+    writeJsonSafe(FAILURE_COUNTS_FILE, counts)
+    echo "Failure count for ${jobName}: ${entry.count}/${MAX_FAILURES_PER_DAY} (day ${today} Europe/Berlin)"
+
+    if ((entry.count as int) >= MAX_FAILURES_PER_DAY) {
+        def jobs = loadJsonListSafe(SCHEDULE_FILE)
+        def changed = false
+        jobs.each { j ->
+            def n = (j.name ?: j.job ?: '').toString()
+            if (n == jobName) {
+                j.enabled = false
+                j.disabledByErrors = true
+                j.disabledReason = "Disabled after ${MAX_FAILURES_PER_DAY} failures on ${today} (Europe/Berlin 00:00-23:59). Re-enable manually after fixing the issue."
+                j.disabledAt = berlinNowStamp()
+                changed = true
+            }
+        }
+        if (changed) {
+            writeJsonSafe(SCHEDULE_FILE, jobs)
+            echo "AUTO-DISABLED job ${jobName} after ${entry.count} failures today."
+        }
+    }
+}
+
+// ============================================================================
+// Pipeline
+// ============================================================================
+pipeline {
+    agent {
+        label 'Windows'
+    }
+
+    parameters {
+        string(name: 'JOB_NAME',         defaultValue: '')
+        string(name: 'LOGICAL_JOB_NAME', defaultValue: '')
+        string(name: 'SRC_PATH',         defaultValue: '')
+        string(name: 'SITE_URL',         defaultValue: '')
+        string(name: 'DST_URL',          defaultValue: '')
+        string(name: 'DESTINATION',      defaultValue: '')
+        string(name: 'LIBRARY',          defaultValue: 'Shared Documents')
+        string(name: 'FILE_MASK',        defaultValue: '*.*')
+        choice(name: 'OPERATION',        choices: ['COPY', 'MOVE'])
+        booleanParam(name: 'OVERWRITE',  defaultValue: true)
+        string(name: 'SRC_CRED',         defaultValue: 'WIN.SVC.UC4.BATCHUSER')
+        string(name: 'PARENT_BUILD',     defaultValue: 'N/A')
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '50'))
+    }
+
+    stages {
+        stage('SharePoint Transfer') {
+            steps {
+                script {
+                    def startMillis = System.currentTimeMillis()
+                    env.START_MILLIS = "${startMillis}"
+                    env.START_TIME_STR = formatTime(startMillis)
+
+                    def jobName = (params.JOB_NAME ?: params.LOGICAL_JOB_NAME ?: 'UNKNOWN_JOB').toString().trim()
+                    if (!jobName) jobName = 'UNKNOWN_JOB'
+                    env.LOGICAL_NAME = jobName
+
+                    def srcPath = stripTrailingSlash(params.SRC_PATH ?: '')
+                    def siteUrl = stripTrailingSlash(
+                        (params.SITE_URL ?: params.DST_URL ?: params.DESTINATION ?: '').toString()
+                    )
+                    env.SRC_PATH_CLEAN = srcPath
+                    env.SITE_URL_CLEAN = siteUrl
+
+                    currentBuild.displayName = "#${env.BUILD_NUMBER} - ${jobName}"
+                    currentBuild.description = "${params.FILE_MASK}"
+
+                    def logDir = 'C:\\Jenkins\\Jobs\\Log'
+                    def psFile = "${logDir}\\${jobName}_sharepoint-transfer_BuildID_${env.BUILD_NUMBER}.ps1"
+                    def resultFile = "${logDir}\\${jobName}_result_BuildID_${env.BUILD_NUMBER}.txt"
+                    def finalLogFile = "${logDir}\\${jobName}_BuildID_${env.BUILD_NUMBER}.txt"
+                    env.PS_FILE = psFile
+                    env.RESULT_FILE = resultFile
+                    env.FINAL_LOG = finalLogFile
+                    env.LOG_NAME = "${jobName}_BuildID_${env.BUILD_NUMBER}.txt"
+
+                    env.SP_STATUS = 'FAILED'
+                    env.SP_REASON = ''
+                    env.SP_RC = '1'
+
+                    bat """
+@echo off
+if not exist "${logDir}" mkdir "${logDir}"
+"""
+
+                    if (!srcPath) {
+                        env.SP_STATUS = 'FAILED'
+                        env.SP_REASON = 'SRC_PATH is empty'
+                        error(env.SP_REASON)
+                    }
+                    if (!siteUrl) {
+                        env.SP_STATUS = 'FAILED'
+                        env.SP_REASON = 'SITE_URL is empty'
+                        error(env.SP_REASON)
+                    }
+
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: params.SRC_CRED,
+                            usernameVariable: 'FT_USER',
+                            passwordVariable: 'FT_PASS'
+                        )
+                    ]) {
+                        bat """
+@echo off
+echo Authenticating to UNC path using credential: ${params.SRC_CRED}
+net use "${srcPath}" %FT_PASS% /user:%FT_USER% >nul 2>&1
+if errorlevel 1 (
+    echo WARNING: net use failed on full path. Trying share root...
+    for /f "tokens=1,2,3 delims=\\" %%a in ("${srcPath}") do (
+        net use "\\\\%%b\\%%c" %FT_PASS% /user:%FT_USER% >nul 2>&1
+    )
+)
+exit /b 0
+"""
+
+                        try {
+                            writeFile(
+                                file: psFile,
+                                text: """
+# ================================================================
+# SharePoint Transfer - Build ${env.BUILD_NUMBER}
+# Exit: 0=SUCCESS, 2=UNSTABLE (no files), 1=FAILED
+# ================================================================
+\$clientId   = "c9864df8-7369-42e5-bec4-2a7fd1e6cf7a"
+\$tenantId   = "eb70b763-b6d7-4486-8555-8831709a784e"
+\$thumbPrint = "30da72f8c36269bdcc7e8aefcc577c0ef51eef90"
+\$ErrorActionPreference = "Stop"
+\$siteUrl   = \$env:SITE_URL
+\$source    = \$env:SRC_PATH
+\$mask      = \$env:FILE_MASK
+\$library   = \$env:LIBRARY
+\$operation = \$env:OPERATION
+\$overwrite = [System.Convert]::ToBoolean(\$env:OVERWRITE)
+\$connected = \$false
+\$uploaded  = @()
+\$skipped   = @()
+\$errorMsg  = ""
+\$exitCode  = 0
+\$resultFile = "${resultFile}"
+
+try {
+    if (-not (Test-Path -LiteralPath \$source)) {
+        throw "ACCESS_OR_MISSING: Source path does not exist or access denied: \$source"
+    }
+    Connect-PnPOnline -Url \$siteUrl -ClientId \$clientId -Tenant \$tenantId -Thumbprint \$thumbPrint -ErrorAction Stop
+    \$connected = \$true
+    Get-PnPWeb -ErrorAction Stop | Out-Null
+
+    \$files = @(Get-ChildItem -LiteralPath \$source -Filter \$mask -File -ErrorAction Stop)
+    if (\$files.Count -eq 0) {
+        \$errorMsg = "NO_FILES: No files found matching: \$mask"
+        \$exitCode = 2
+    } else {
+        foreach (\$file in \$files) {
+            Write-Host ""
+            Write-Host "Uploading: \$(\$file.Name)"
+            Write-Host "Operation: \$operation"
+            if (\$overwrite) {
+                Add-PnPFile -Path \$file.FullName -Folder \$library -ErrorAction Stop
+            } else {
+                \$existingFile = Get-PnPFile -Url "\$library/\$(\$file.Name)" -AsListItem -ErrorAction SilentlyContinue
+                if (\$existingFile) {
+                    \$skipped += \$file.Name
+                    Write-Host "Skipped (already exists): \$(\$file.Name)"
+                    continue
+                }
+                Add-PnPFile -Path \$file.FullName -Folder \$library -ErrorAction Stop
+            }
+            \$uploaded += \$file.Name
+            if (\$operation -eq 'MOVE') {
+                Remove-Item -LiteralPath \$file.FullName -Force -ErrorAction Stop
+            }
+        }
+    }
+}
+catch {
+    \$errorMsg = \$_.Exception.Message
+    if (\$exitCode -eq 0) { \$exitCode = 1 }
+}
+finally {
+    if (\$connected) {
+        Disconnect-PnPOnline -ErrorAction SilentlyContinue
+    }
+    \$content = @"
+UPLOADED
+\$(\$uploaded -join "`n")
+---
+SKIPPED
+\$(\$skipped -join "`n")
+---
+ERROR
+\$errorMsg
+---
+EXIT
+\$exitCode
+"@
+    \$content | Set-Content -Path \$resultFile -Encoding UTF8
+}
+exit \$exitCode
+"""
+                            )
+
+                            withEnv([
+                                "SITE_URL=${siteUrl}",
+                                "SRC_PATH=${srcPath}",
+                                "FILE_MASK=${params.FILE_MASK}",
+                                "LIBRARY=${params.LIBRARY}",
+                                "OPERATION=${params.OPERATION}",
+                                "OVERWRITE=${params.OVERWRITE}"
+                            ]) {
+                                def rc = bat(
+                                    returnStatus: true,
+                                    script: """
+@echo off
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" ^
+    -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass ^
+    -File "${psFile}"
+exit /b %ERRORLEVEL%
+"""
+                                )
+                                env.SP_RC = "${rc}"
+
+                                def errorMsg = ''
+                                def uploadedList = []
+                                def skippedList = []
+                                if (fileExists(resultFile)) {
+                                    def content = readFile(resultFile)
+                                    def parts = content.split('---')
+                                    if (parts.size() >= 1) {
+                                        def u = parts[0].replace('UPLOADED', '').trim()
+                                        if (u) uploadedList = u.split('\n').findAll { it.trim() }
+                                    }
+                                    if (parts.size() >= 2) {
+                                        def s = parts[1].replace('SKIPPED', '').trim()
+                                        if (s) skippedList = s.split('\n').findAll { it.trim() }
+                                    }
+                                    if (parts.size() >= 3) {
+                                        errorMsg = parts[2].replace('ERROR', '').trim()
+                                    }
+                                }
+                                env.SP_REASON = errorMsg ?: ''
+
+                                if (rc == 2 || (errorMsg && errorMsg.toUpperCase().startsWith('NO_FILES'))) {
+                                    env.SP_STATUS = 'UNSTABLE'
+                                    env.SP_REASON = errorMsg ?: "No files found matching: ${params.FILE_MASK}"
+                                    unstable(env.SP_REASON)
+                                } else if (rc != 0) {
+                                    env.SP_STATUS = 'FAILED'
+                                    if (!env.SP_REASON) env.SP_REASON = "SharePoint transfer failed. RC=${rc}"
+                                    error(env.SP_REASON)
+                                } else if (uploadedList.isEmpty() && skippedList.isEmpty()) {
+                                    env.SP_STATUS = 'UNSTABLE'
+                                    env.SP_REASON = 'No files processed'
+                                    unstable(env.SP_REASON)
+                                } else {
+                                    env.SP_STATUS = 'SUCCESS'
+                                    env.SP_REASON = ''
+                                }
+                            }
+                        } finally {
+                            bat """
+@echo off
+net use "${srcPath}" /delete /y >nul 2>&1
+for /f "tokens=1,2,3 delims=\\" %%a in ("${srcPath}") do (
+    net use "\\\\%%b\\%%c" /delete /y >nul 2>&1
+)
+exit /b 0
+"""
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                def startMillis = (env.START_MILLIS ?: '0').toLong()
+                def endMillis = System.currentTimeMillis()
+                def startTime = env.START_TIME_STR ?: formatTime(startMillis)
+                def endTime = formatTime(endMillis)
+                def duration = formatDuration(endMillis - startMillis)
+                def elapsedSec = ((endMillis - startMillis) / 1000).longValue()
+
+                def jobName = (env.LOGICAL_NAME ?: params.JOB_NAME ?: params.LOGICAL_JOB_NAME ?: 'UNKNOWN_JOB').toString()
+                def logDir = 'C:\\Jenkins\\Jobs\\Log'
+                def resultFile = env.RESULT_FILE ?: "${logDir}\\${jobName}_result_BuildID_${env.BUILD_NUMBER}.txt"
+                def finalLogFile = env.FINAL_LOG ?: "${logDir}\\${jobName}_BuildID_${env.BUILD_NUMBER}.txt"
+                def logName = env.LOG_NAME ?: "${jobName}_BuildID_${env.BUILD_NUMBER}.txt"
+
+                def uploadedList = []
+                def skippedList = []
+                def errorMsg = (env.SP_REASON ?: '').toString()
+
+                if (fileExists(resultFile)) {
+                    def content = readFile(resultFile)
+                    def parts = content.split('---')
+                    if (parts.size() >= 1) {
+                        def u = parts[0].replace('UPLOADED', '').trim()
+                        if (u) uploadedList = u.split('\n').findAll { it.trim() }
+                    }
+                    if (parts.size() >= 2) {
+                        def s = parts[1].replace('SKIPPED', '').trim()
+                        if (s) skippedList = s.split('\n').findAll { it.trim() }
+                    }
+                    if (parts.size() >= 3) {
+                        def e = parts[2].replace('ERROR', '').trim()
+                        if (e) errorMsg = e
+                    }
+                }
+
+                def status = (env.SP_STATUS ?: 'FAILED').toString().toUpperCase()
+                if (!(status in ['SUCCESS', 'UNSTABLE', 'FAILED'])) status = 'FAILED'
+                if (currentBuild.currentResult == 'FAILURE' && status == 'SUCCESS') status = 'FAILED'
+                if (currentBuild.currentResult == 'UNSTABLE' && status == 'SUCCESS') status = 'UNSTABLE'
+
+                def failReason = (status != 'SUCCESS') ? (errorMsg ?: status) : null
+
+                def finalStatusText
+                if (status == 'SUCCESS') finalStatusText = "SUCCESS (${params.OPERATION})"
+                else if (status == 'UNSTABLE') finalStatusText = "UNSTABLE: ${failReason}"
+                else finalStatusText = "FAILED: ${failReason}"
+
+                // CPS-safe numbering (NO withIndex)
+                def uploadedSection = ""
+                if (uploadedList && !uploadedList.isEmpty()) {
+                    def idx = 1
+                    uploadedList.each { file ->
+                        uploadedSection += "${idx}. ${file}\n"
+                        idx++
+                    }
+                } else {
+                    uploadedSection = "No files uploaded\n"
+                }
+
+                def skippedSection = ""
+                if (skippedList && !skippedList.isEmpty()) {
+                    def idx = 1
+                    skippedList.each { file ->
+                        skippedSection += "${idx}. ${file}\n"
+                        idx++
+                    }
+                } else {
+                    skippedSection = "No files skipped\n"
+                }
+
+                def logContent = """SUMMARY
+========================================
+Job Name     : ${jobName}
+Site URL     : ${env.SITE_URL_CLEAN ?: params.SITE_URL}
+Source       : ${env.SRC_PATH_CLEAN ?: params.SRC_PATH}
+Library      : ${params.LIBRARY}
+Operation    : ${params.OPERATION}
+File Mask    : ${params.FILE_MASK}
+SRC_CRED     : ${params.SRC_CRED}
+Status       : ${finalStatusText}
+Duration     : ${elapsedSec} seconds
+Timestamp    : ${new Date().format('yyyy-MM-dd HH:mm:ss')}
+Build Parent : ${params.PARENT_BUILD}
+Uploaded Files (${uploadedList.size()})
+----------------------------------------
+${uploadedSection}
+Skipped Files (${skippedList.size()})
+----------------------------------------
+${skippedSection}
+Errors
+----------------------------------------
+${errorMsg ? errorMsg : 'None'}
+========================================
+"""
+                writeFile file: finalLogFile, text: logContent
+                echo(logContent)
+
+                // Dashboard history.json
+                def histDir  = "C:\\Jenkins\\Jobs\\Dashboard\\data\\scheduled\\${jobName}"
+                def histFile = "${histDir}\\history.json"
+                def histWork = "${env.WORKSPACE}\\history_temp_${env.BUILD_NUMBER}.json"
+
+                bat """
+@echo off
+if not exist "${histDir}" mkdir "${histDir}"
+if exist "${histFile}" (
+    copy /Y "${histFile}" "${histWork}" >nul
+) else (
+    echo []> "${histWork}"
+)
+"""
+                def history = []
+                try {
+                    def raw = readFile(file: histWork).trim()
+                    if (raw && raw != '[]') {
+                        def parsed = new JsonSlurperClassic().parseText(raw)
+                        if (parsed instanceof List) history = new ArrayList(parsed)
+                    }
+                } catch (Exception e) {
+                    echo "WARNING: could not parse history: ${e.message}"
+                    history = []
+                }
+
+                def entry = [
+                    build     : env.BUILD_NUMBER.toInteger(),
+                    startTime : startTime,
+                    endTime   : endTime,
+                    duration  : duration,
+                    status    : status,
+                    logFile   : logName,
+                    reason    : failReason
+                ]
+                history = prependHistoryAndTrim(history, entry, 20)
+                writeFile file: histWork, text: JsonOutput.prettyPrint(JsonOutput.toJson(history))
+                bat """
+@echo off
+copy /Y "${histWork}" "${histFile}" >nul
+"""
+                echo "Scheduled history updated: ${histFile} status=${status}"
+
+                if (status == 'FAILED') {
+                    recordScheduledFailure(jobName)
+                }
+
+                bat """
+@echo off
+if exist "${env.PS_FILE}" del /f /q "${env.PS_FILE}"
+if exist "${resultFile}" del /f /q "${resultFile}"
+"""
+            }
+        }
+    }
+}
